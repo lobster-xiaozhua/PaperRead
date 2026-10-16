@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.lunalight.paperread.data.local.AppDatabase
+import io.github.lunalight.paperread.domain.model.BookFormat
 import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
@@ -144,11 +145,12 @@ class BookImporterTest {
     }
 
     @Test
-    fun `epub reports upcoming support`() = runTest {
-        val uri = uriFor("book.epub", gbkNovel, gbkCharset)
+    fun `epub files are accepted by prepare (M3 wired)`() = runTest {
+        val uri = uriFor("novel.epub", gbkNovel, gbkCharset)
+        // 内容虽是 TXT 文本，但扩展名为 epub：进入 EPUB 分支，因结构非法而 Failure
+        // （此处仅验证不再走 Unsupported 拒绝路径）
         val result = importer.prepare(uri)
-        assertTrue(result is PrepareResult.Unsupported)
-        assertTrue((result as PrepareResult.Unsupported).reason.contains("EPUB"))
+        assertTrue("期望 Failure（结构非法），实际 $result", result is PrepareResult.Failure)
     }
 
     @Test
@@ -226,5 +228,153 @@ class BookImporterTest {
         assertEquals(4, chapters.size)
         val text = textStore.readChapter(updated.dirName, chapters[0])
         assertTrue(text.startsWith("第一章 荒原之始"))
+    }
+
+    // ---- EPUB e2e（Robolectric 下走 Android XmlPullParser 路径） ----
+
+    private fun buildEpubZip(files: Map<String, String>): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        java.util.zip.ZipOutputStream(out).use { zip ->
+            files.forEach { (name, content) ->
+                zip.putNextEntry(java.util.zip.ZipEntry(name))
+                zip.write(content.toByteArray(Charsets.UTF_8))
+                zip.closeEntry()
+            }
+        }
+        return out.toByteArray()
+    }
+
+    private val epubContainerXml = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+          <rootfiles>
+            <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+          </rootfiles>
+        </container>
+    """.trimIndent()
+
+    private val epubOpf = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:title>荒原之始</dc:title>
+            <dc:creator>测试作者</dc:creator>
+            <dc:language>zh-CN</dc:language>
+            <dc:identifier id="bookid">urn:uuid:test</dc:identifier>
+          </metadata>
+          <manifest>
+            <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+            <item id="ch1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/>
+            <item id="ch2" href="Text/ch2.xhtml" media-type="application/xhtml+xml"/>
+            <item id="ch3" href="Text/ch3.xhtml" media-type="application/xhtml+xml"/>
+          </manifest>
+          <spine toc="ncx">
+            <itemref idref="ch1"/>
+            <itemref idref="ch2"/>
+            <itemref idref="ch3"/>
+          </spine>
+        </package>
+    """.trimIndent()
+
+    private val epubNcx = """
+        <?xml version="1.0" encoding="utf-8"?>
+        <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+          <head><meta name="dtb:uid" content="urn:uuid:test"/></head>
+          <docTitle><text>荒原之始</text></docTitle>
+          <navMap>
+            <navPoint id="np1" playOrder="1">
+              <navLabel><text>第一章 荒原</text></navLabel>
+              <content src="Text/ch1.xhtml"/>
+            </navPoint>
+            <navPoint id="np2" playOrder="2">
+              <navLabel><text>第二章 古城</text></navLabel>
+              <content src="Text/ch2.xhtml"/>
+            </navPoint>
+            <navPoint id="np3" playOrder="3">
+              <navLabel><text>第三章 远行</text></navLabel>
+              <content src="Text/ch3.xhtml"/>
+            </navPoint>
+          </navMap>
+        </ncx>
+    """.trimIndent()
+
+    private fun epubChapter(title: String, vararg paragraphs: String): String {
+        val ps = paragraphs.joinToString("") { "<p>$it</p>" }
+        return """
+            <?xml version="1.0" encoding="utf-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml"><head><title>$title</title></head>
+            <body><h1>$title</h1>$ps</body></html>
+        """.trimIndent()
+    }
+
+    private fun standardEpubBytes(): ByteArray = buildEpubZip(
+        mapOf(
+            "mimetype" to "application/epub+zip",
+            "META-INF/container.xml" to epubContainerXml,
+            "OEBPS/content.opf" to epubOpf,
+            "OEBPS/toc.ncx" to epubNcx,
+            "OEBPS/Text/ch1.xhtml" to epubChapter("第一章 荒原", "少年提灯独行。", "风从北方来。"),
+            "OEBPS/Text/ch2.xhtml" to epubChapter("第二章 古城", "城池在夜里醒来。"),
+            "OEBPS/Text/ch3.xhtml" to epubChapter("第三章 远行", "他决定北上。"),
+        ),
+    )
+
+    @Test
+    fun `imports epub end to end with chapter titles and text`() = runTest {
+        val uri = Uri.parse("content://io.github.lunalight.paperread.test/novel.epub")
+        shadowOf(context.contentResolver)
+            .registerInputStream(uri, ByteArrayInputStream(standardEpubBytes()))
+
+        val pending = assertSuccess(importer.prepare(uri))
+
+        assertEquals(BookFormat.EPUB, pending.format)
+        assertEquals("荒原之始", pending.title)
+        assertEquals("测试作者", pending.author)
+        assertEquals(3, pending.chapters.size)
+        assertEquals(
+            listOf("第一章 荒原", "第二章 古城", "第三章 远行"),
+            pending.chapters.map { it.title },
+        )
+
+        val id = importer.confirm(pending)
+        val book = repository.getBook(id)!!
+        assertEquals(3, book.chapterCount)
+        assertEquals("测试作者", book.author)
+        val chapters = repository.getChapters(id)
+        assertEquals(3, chapters.size)
+        val first = textStore.readChapter(book.dirName, chapters[0])
+        assertTrue(first.contains("少年提灯独行。"))
+        assertTrue(first.contains("风从北方来。"))
+    }
+
+    @Test
+    fun `rejects drm encrypted epub with clear message`() = runTest {
+        val encryptionXml = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+              <EncryptedData xmlns="http://www.w3.org/2001/04/xmlenc#">
+                <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes256-cbc"/>
+                <CipherData><CipherReference URI="OEBPS/Text/ch1.xhtml"/></CipherData>
+              </EncryptedData>
+            </encryption>
+        """.trimIndent()
+        val bytes = buildEpubZip(
+            mapOf(
+                "META-INF/container.xml" to epubContainerXml,
+                "META-INF/encryption.xml" to encryptionXml,
+                "OEBPS/content.opf" to epubOpf,
+                "OEBPS/toc.ncx" to epubNcx,
+                "OEBPS/Text/ch1.xhtml" to epubChapter("第一章 荒原", "少年提灯独行。"),
+                "OEBPS/Text/ch2.xhtml" to epubChapter("第二章 古城", "城池在夜里醒来。"),
+                "OEBPS/Text/ch3.xhtml" to epubChapter("第三章 远行", "他决定北上。"),
+            ),
+        )
+        val uri = Uri.parse("content://io.github.lunalight.paperread.test/drm.epub")
+        shadowOf(context.contentResolver)
+            .registerInputStream(uri, ByteArrayInputStream(bytes))
+
+        val result = importer.prepare(uri)
+        assertTrue("期望 Failure，实际 $result", result is PrepareResult.Failure)
+        assertTrue((result as PrepareResult.Failure).message.contains("DRM"))
     }
 }

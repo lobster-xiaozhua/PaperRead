@@ -8,11 +8,14 @@ import io.github.lunalight.paperread.domain.model.BookFormat
 import io.github.lunalight.paperread.domain.model.Chapter
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
+import io.github.lunalight.paperread.reader.epub.EpubEncryptedException
+import io.github.lunalight.paperread.reader.epub.EpubParser
 import io.github.lunalight.paperread.reader.txt.ChapterIndexWriter
 import io.github.lunalight.paperread.reader.txt.ChapterRef
 import io.github.lunalight.paperread.reader.txt.ChapterSplitter
 import io.github.lunalight.paperread.reader.txt.CharsetDetector
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
+import io.github.lunalight.paperread.reader.xml.XmlParsers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -35,7 +38,7 @@ data class ImportProgress(val stage: ImportStage, val fraction: Float)
 
 /**
  * 待确认导入：文件已落盘并完成解析，等待用户在结果页确认
- * （可切换编码 / 切分策略后重新解析，再入库）。
+ * （TXT 可切换编码 / 切分策略后重新解析，再入库）。
  *
  * @param chapters 章节列表（bookId 暂为 0，confirm 入库时回填）
  */
@@ -43,6 +46,7 @@ data class PendingImport(
     val dirName: String,
     val displayName: String,
     val title: String,
+    val author: String,
     val format: BookFormat,
     val charsetName: String,
     val strategy: SplitStrategy,
@@ -60,19 +64,27 @@ sealed interface PrepareResult {
     /** SHA-256 命中已存在书籍。 */
     data class Duplicate(val existing: Book) : PrepareResult
 
-    /** 格式不支持（如 EPUB 尚未接入）。 */
+    /** 格式不支持（扩展名不在 txt/epub 内）。 */
     data class Unsupported(val reason: String) : PrepareResult
 
-    /** 失败（空间不足 / 读取异常等），临时目录已清理。 */
+    /** 失败（空间不足 / DRM / 读取异常等），临时目录已清理。 */
     data class Failure(val message: String) : PrepareResult
 }
 
+/** 解析阶段产物：TXT 与 EPUB 分流后统一为「全文 + 章节区间」。 */
+private data class ParseOutcome(
+    val title: String,
+    val author: String,
+    val charsetName: String,
+    val text: String,
+    val refs: List<ChapterRef>,
+)
+
 /**
  * 导入流水线：
- * SAF 选文件 → 磁盘预检 → 流式拷贝 + SHA-256 → 编码探测 → 去重 →
- * 切分 + 双偏移索引写入 → [PendingImport] 待确认 → confirm 入库 / cancel 删目录。
- *
- * M2 仅接入 TXT；EPUB 走 [PrepareResult.Unsupported]，M3 接入 EpubParser 后替换分支。
+ * SAF 选文件 → 磁盘预检 → 流式拷贝 + SHA-256 → 去重 →
+ * 解析（TXT：编码探测 + 章节切分；EPUB：OPF/spine/NCX + 正文提取）→
+ * 双偏移索引写入 → [PendingImport] 待确认 → confirm 入库 / cancel 删目录。
  */
 class BookImporter(
     private val context: Context,
@@ -93,12 +105,7 @@ class BookImporter(
         val meta = queryMeta(uri)
             ?: return@withContext PrepareResult.Failure("无法读取文件信息，请重试")
         val format = BookFormat.fromExtension(meta.displayName.substringAfterLast('.', ""))
-        if (format == null) {
-            return@withContext PrepareResult.Unsupported("暂不支持该格式，请导入 TXT 文件")
-        }
-        if (format == BookFormat.EPUB) {
-            return@withContext PrepareResult.Unsupported("EPUB 导入即将支持，当前版本请先导入 TXT")
-        }
+            ?: return@withContext PrepareResult.Unsupported("仅支持 TXT / EPUB 格式")
         if (!precheckDisk(meta.sizeBytes)) {
             return@withContext PrepareResult.Failure("存储空间不足，无法导入")
         }
@@ -116,57 +123,50 @@ class BookImporter(
                 onProgress(ImportProgress(ImportStage.COPYING, fraction))
             }
 
-            // 2. 编码探测（读前 64KB 样本）
-            onProgress(ImportProgress(ImportStage.DETECTING, 0.9f))
-            val sample = sourceFile.readBytes().let {
-                if (it.size > CharsetDetector.SAMPLE_SIZE) it.copyOf(CharsetDetector.SAMPLE_SIZE) else it
-            }
-            val detection = CharsetDetector.detect(sample)
-
-            // 3. 去重
+            // 2. 去重
             onProgress(ImportProgress(ImportStage.CHECKING_DUPLICATE, 0.95f))
             bookRepository.findBySha256(sha256)?.let { existing ->
                 bookDir.deleteRecursively()
                 return@withContext PrepareResult.Duplicate(existing)
             }
 
-            // 4. 解析 + 索引写入
+            // 3. 解析（TXT / EPUB 分流）
             onProgress(ImportProgress(ImportStage.PARSING, 0.3f))
-            val text = ChapterSplitter.normalizeLineEndings(sourceFile.readText(detection.charset))
-            val refs = ChapterSplitter.split(text, strategy)
+            val outcome = if (format == BookFormat.EPUB) {
+                parseEpub(sourceFile)
+            } else {
+                onProgress(ImportProgress(ImportStage.DETECTING, 0.2f))
+                val detection = CharsetDetector.detect(sampleOf(sourceFile))
+                parseTxt(sourceFile, detection.displayName, strategy, meta.displayName)
+            }
+
+            // 4. 双偏移索引写入
             onProgress(ImportProgress(ImportStage.WRITING_INDEX, 0.8f))
-            val textFile = textStore.textFile(dirName)
-            val entries = FileOutputStream(textFile).use { out ->
-                ChapterIndexWriter(out).write(text, refs)
+            val entries = FileOutputStream(textStore.textFile(dirName)).use { out ->
+                ChapterIndexWriter(out).write(outcome.text, outcome.refs)
             }
-            val chapters = entries.map { entry ->
-                Chapter(
-                    bookId = 0L,
-                    index = entry.index,
-                    title = entry.title,
-                    charStart = entry.charStart,
-                    charEnd = entry.charEnd,
-                    byteStart = entry.byteStart,
-                    byteEnd = entry.byteEnd,
-                    charCount = entry.charCount,
-                    cumulativeChars = entry.cumulativeChars,
-                )
+            val chapters = entries.toChapters()
+            val title = outcome.title.ifBlank {
+                meta.displayName.substringBeforeLast('.').ifBlank { "未命名书籍" }
             }
-            val title = meta.displayName.substringBeforeLast('.').ifBlank { "未命名书籍" }
             val pending = PendingImport(
                 dirName = dirName,
                 displayName = meta.displayName,
                 title = title,
+                author = outcome.author,
                 format = format,
-                charsetName = detection.displayName,
+                charsetName = outcome.charsetName,
                 strategy = strategy,
                 sha256 = sha256,
                 fileSize = sourceFile.length(),
-                totalChars = text.length.toLong(),
+                totalChars = outcome.text.length.toLong(),
                 chapters = chapters,
             )
             onProgress(ImportProgress(ImportStage.DONE, 1f))
             PrepareResult.Success(pending)
+        } catch (e: EpubEncryptedException) {
+            bookDir.deleteRecursively()
+            PrepareResult.Failure(e.message ?: "该 EPUB 含 DRM 加密，无法导入")
         } catch (e: Exception) {
             bookDir.deleteRecursively()
             PrepareResult.Failure(e.message ?: "导入失败，请重试")
@@ -175,6 +175,7 @@ class BookImporter(
 
     /**
      * 结果页切换编码 / 切分策略后重新解析（不重新拷贝文件）。
+     * EPUB 忽略编码/策略参数（其章节结构来自 OPF/spine）。
      * 返回新的 PendingImport；失败返回 null（目录已保留，可重试）。
      */
     suspend fun reparse(
@@ -183,32 +184,25 @@ class BookImporter(
         strategy: SplitStrategy,
     ): PendingImport? = withContext(Dispatchers.IO) {
         try {
-            val charset = CharsetDetector.byDisplayName(charsetName) ?: return@withContext null
-            val bookDir = textStore.bookDir(pending.dirName)
-            val sourceFile = File(bookDir, "source.${pending.format.extension}")
-            val text = ChapterSplitter.normalizeLineEndings(sourceFile.readText(charset))
-            val refs = ChapterSplitter.split(text, strategy)
-            val entries = FileOutputStream(textStore.textFile(pending.dirName)).use { out ->
-                ChapterIndexWriter(out).write(text, refs)
+            val sourceFile = File(
+                textStore.bookDir(pending.dirName),
+                "source.${pending.format.extension}",
+            )
+            val outcome = if (pending.format == BookFormat.EPUB) {
+                parseEpub(sourceFile)
+            } else {
+                parseTxt(sourceFile, charsetName, strategy, pending.displayName)
             }
-            val chapters = entries.map { entry ->
-                Chapter(
-                    bookId = 0L,
-                    index = entry.index,
-                    title = entry.title,
-                    charStart = entry.charStart,
-                    charEnd = entry.charEnd,
-                    byteStart = entry.byteStart,
-                    byteEnd = entry.byteEnd,
-                    charCount = entry.charCount,
-                    cumulativeChars = entry.cumulativeChars,
-                )
+            val entries = FileOutputStream(textStore.textFile(pending.dirName)).use { out ->
+                ChapterIndexWriter(out).write(outcome.text, outcome.refs)
             }
             pending.copy(
-                charsetName = charsetName,
+                title = outcome.title.ifBlank { pending.title },
+                author = outcome.author,
+                charsetName = outcome.charsetName,
                 strategy = strategy,
-                totalChars = text.length.toLong(),
-                chapters = chapters,
+                totalChars = outcome.text.length.toLong(),
+                chapters = entries.toChapters(),
             )
         } catch (e: Exception) {
             null
@@ -220,7 +214,7 @@ class BookImporter(
         val now = System.currentTimeMillis()
         val book = Book(
             title = pending.title,
-            author = "未知",
+            author = pending.author,
             format = pending.format,
             encoding = pending.charsetName,
             sha256 = pending.sha256,
@@ -239,39 +233,83 @@ class BookImporter(
     }
 
     /**
-     * 书架「重新解析」：用新策略重新切分已入库书籍。
+     * 书架「重新解析」：TXT 用新策略重新切分；EPUB 重新提取正文。
      * 重置阅读位置（章节语义已变）。成功返回 true。
      */
     suspend fun reparseBook(book: Book, strategy: SplitStrategy): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                val charset = CharsetDetector.byDisplayName(book.encoding) ?: return@withContext false
-                val text = ChapterSplitter.normalizeLineEndings(
-                    textStore.readSourceText(book, charset),
+                val sourceFile = File(
+                    textStore.bookDir(book.dirName),
+                    "source.${book.format.extension}",
                 )
-                val refs = ChapterSplitter.split(text, strategy)
+                val outcome = if (book.format == BookFormat.EPUB) {
+                    parseEpub(sourceFile)
+                } else {
+                    parseTxt(sourceFile, book.encoding, strategy, book.title)
+                }
                 val entries = FileOutputStream(textStore.textFile(book.dirName)).use { out ->
-                    ChapterIndexWriter(out).write(text, refs)
+                    ChapterIndexWriter(out).write(outcome.text, outcome.refs)
                 }
-                val chapters = entries.map { entry ->
-                    Chapter(
-                        bookId = book.id,
-                        index = entry.index,
-                        title = entry.title,
-                        charStart = entry.charStart,
-                        charEnd = entry.charEnd,
-                        byteStart = entry.byteStart,
-                        byteEnd = entry.byteEnd,
-                        charCount = entry.charCount,
-                        cumulativeChars = entry.cumulativeChars,
-                    )
-                }
-                bookRepository.replaceChapters(book.id, chapters, text.length.toLong())
+                val chapters = entries.toChapters().map { it.copy(bookId = book.id) }
+                bookRepository.replaceChapters(book.id, chapters, outcome.text.length.toLong())
                 bookRepository.resetReaderPosition(book.id)
                 true
             } catch (e: Exception) {
                 false
             }
+        }
+
+    // ---- 解析分流 ----
+
+    private fun parseTxt(
+        sourceFile: File,
+        charsetName: String,
+        strategy: SplitStrategy,
+        displayName: String,
+    ): ParseOutcome {
+        val charset = CharsetDetector.byDisplayName(charsetName) ?: Charsets.UTF_8
+        val text = ChapterSplitter.normalizeLineEndings(sourceFile.readText(charset))
+        val refs = ChapterSplitter.split(text, strategy)
+        return ParseOutcome(
+            // 标题取原始文件名（source.txt 只是内部转存名）
+            title = displayName.substringBeforeLast('.').ifBlank { "未命名书籍" },
+            author = "未知",
+            charsetName = charsetName,
+            text = text,
+            refs = refs,
+        )
+    }
+
+    private fun parseEpub(sourceFile: File): ParseOutcome {
+        val content = EpubParser(XmlParsers::android).parse(sourceFile)
+        return ParseOutcome(
+            title = content.title,
+            author = content.author,
+            charsetName = "UTF-8", // 内部统一转存 UTF-8
+            text = content.fullText,
+            refs = content.refs,
+        )
+    }
+
+    private fun List<io.github.lunalight.paperread.reader.txt.ChapterIndexEntry>.toChapters(): List<Chapter> =
+        map { entry ->
+            Chapter(
+                bookId = 0L,
+                index = entry.index,
+                title = entry.title,
+                charStart = entry.charStart,
+                charEnd = entry.charEnd,
+                byteStart = entry.byteStart,
+                byteEnd = entry.byteEnd,
+                charCount = entry.charCount,
+                cumulativeChars = entry.cumulativeChars,
+            )
+        }
+
+    private fun sampleOf(sourceFile: File): ByteArray =
+        sourceFile.readBytes().let {
+            if (it.size > CharsetDetector.SAMPLE_SIZE) it.copyOf(CharsetDetector.SAMPLE_SIZE) else it
         }
 
     // ---- 内部 ----

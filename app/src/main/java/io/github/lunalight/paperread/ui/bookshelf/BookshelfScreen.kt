@@ -74,6 +74,7 @@ import io.github.lunalight.paperread.PaperReadApp
 import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.domain.model.Book
+import io.github.lunalight.paperread.domain.model.BookFormat
 import io.github.lunalight.paperread.reader.txt.CharsetDetector
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 
@@ -443,6 +444,7 @@ private fun ImportResultDialog(
 ) {
     var charset by remember { mutableStateOf(pending.charsetName) }
     var strategy by remember { mutableStateOf(pending.strategy) }
+    val isEpub = pending.format == BookFormat.EPUB
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("导入确认", maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -456,43 +458,45 @@ private fun ImportResultDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(12.dp))
-                Text("编码", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CharsetDetector.SUPPORTED_ENCODINGS.forEach { name ->
-                        FilterChip(
-                            selected = charset == name,
-                            onClick = {
-                                if (charset != name) {
-                                    charset = name
-                                    onReparse(name, strategy)
-                                }
-                            },
-                            label = { Text(name, fontSize = 11.sp) },
-                        )
+                if (!isEpub) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("编码", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CharsetDetector.SUPPORTED_ENCODINGS.forEach { name ->
+                            FilterChip(
+                                selected = charset == name,
+                                onClick = {
+                                    if (charset != name) {
+                                        charset = name
+                                        onReparse(name, strategy)
+                                    }
+                                },
+                                label = { Text(name, fontSize = 11.sp) },
+                            )
+                        }
                     }
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("切分策略", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SplitStrategy.entries.forEach { option ->
-                        FilterChip(
-                            selected = strategy == option,
-                            onClick = {
-                                if (strategy != option) {
-                                    strategy = option
-                                    onReparse(charset, option)
-                                }
-                            },
-                            label = {
-                                Text(
-                                    if (option == SplitStrategy.CONSERVATIVE) "保守" else "激进",
-                                    fontSize = 12.sp,
-                                )
-                            },
-                        )
+                    Spacer(Modifier.height(12.dp))
+                    Text("切分策略", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SplitStrategy.entries.forEach { option ->
+                            FilterChip(
+                                selected = strategy == option,
+                                onClick = {
+                                    if (strategy != option) {
+                                        strategy = option
+                                        onReparse(charset, option)
+                                    }
+                                },
+                                label = {
+                                    Text(
+                                        if (option == SplitStrategy.CONSERVATIVE) "保守" else "激进",
+                                        fontSize = 12.sp,
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             }

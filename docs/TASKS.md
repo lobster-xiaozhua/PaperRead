@@ -40,19 +40,25 @@
 - EPUB 走 Unsupported 分支，M3 接入 EpubParser 后替换
 - book.txt 全文一次性解码进内存，百 MB 级超大文件需流式解码（M6 前评估）
 
-## M3 EPUB 引擎
+## M3 EPUB 引擎（已完成）
 
 ### T3.1 XmlParser 接口 + 双实现
-- 涉及：reader/xml（XmlParser、AndroidXmlParser、JvmXmlParser）
-- 验收：JVM 单测用 JvmXmlParser 驱动，无需 Android 环境
+- 涉及：reader/xml（XmlParser/XmlEvent 拉取模型、AndroidXmlParser 包装 XmlPullParser、JvmXmlParser 用 JDK SAX、XmlParsers 工厂）
+- 验收：JVM 单测用 JvmXmlParser 驱动 ✅（JvmXmlParserTest 5 用例 + AndroidXmlParserTest 3 用例 Robolectric 双端一致性）
 
 ### T3.2 EpubParser
-- 涉及：reader/epub（OPF/spine/NCX/encryption 检测/ZIP 条目名编码/相对路径）
-- 验收：fixture 单测：正常 / 无 NCX / 加密 / 多级目录 / GBK 条目名
+- 涉及：reader/epub（container→OPF→spine→NCX、encryption DRM 检测、ZIP 条目名编码兜底、相对路径/fragment 归一化）
+- 验收：fixture 单测：正常 / 无 NCX / 加密 / 多级目录 / GBK 条目名 ✅（EpubParserTest 8 用例）
 
 ### T3.3 XHTML 正文提取 + 接入导入
-- 涉及：XhtmlTextExtractor、导入分发
-- 验收：EPUB 可导入、章节顺序与 spine 一致
+- 涉及：XhtmlTextExtractor（块级元素/script 跳过/实体解码）、BookImporter EPUB 分支、结果页按格式隐藏编码/策略切换
+- 验收：EPUB 可导入、章节顺序与 spine 一致 ✅（BookImporterTest EPUB e2e 2 用例，含 DRM 拒绝）
+
+### 关键实现说明
+- **GBK 条目名兜底**：JDK 的 `ZipFile(UTF_8)` 在构造期即以严格 UTF-8 校验全部条目名，任一非 UTF-8 名整体抛 ZipException；因此采用「UTF-8 打开失败 → GB18030 重开」策略（带 UTF-8 标志位的条目 JDK 仍按 UTF-8 解释，混合 ZIP 正确）
+- **DRM 判定**：encryption.xml 存在 EncryptedData 即拒绝（正文条目加密才可能来自真实 DRM；字体/图片加密场景留待 M6 细化）
+- **章节区间**：章间分隔符归入前一章区间，保证 refs 连续覆盖全文（ChapterIndexWriter 前置条件）
+- EPUB 标题/作者来自 OPF metadata；TXT 作者恒为「未知」（正文作者行解析留待 M5）
 
 ## M4 阅读器 + 设置
 
