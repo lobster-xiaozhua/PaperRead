@@ -1,0 +1,216 @@
+package io.github.lunalight.paperread.ui.reader
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import io.github.lunalight.paperread.data.settings.ReaderSettings
+import io.github.lunalight.paperread.data.settings.SettingsStore
+import io.github.lunalight.paperread.di.AppContainer
+import io.github.lunalight.paperread.domain.model.Book
+import io.github.lunalight.paperread.domain.model.Chapter
+import io.github.lunalight.paperread.domain.model.ReaderPosition
+import io.github.lunalight.paperread.domain.repository.BookRepository
+import io.github.lunalight.paperread.reader.BookTextStore
+import io.github.lunalight.paperread.reader.ReaderProgress
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+/** 阅读器 UI 状态。 */
+data class ReaderUiState(
+    val loading: Boolean = true,
+    val book: Book? = null,
+    val chapters: List<Chapter> = emptyList(),
+    /** 当前章在 chapters 中的下标。 */
+    val chapterIndex: Int = 0,
+    /** 当前章段落列表（渲染单元）。 */
+    val paragraphs: List<String> = emptyList(),
+    /** 首次渲染要滚动到的段落（恢复进度用）。 */
+    val initialParagraph: Int = 0,
+    val settings: ReaderSettings = ReaderSettings(),
+    val progressPercent: Float = 0f,
+    /** 工具栏（顶/底栏）显隐；点击正文中央切换。 */
+    val chromeVisible: Boolean = true,
+    val tocVisible: Boolean = false,
+    val settingsVisible: Boolean = false,
+    val error: String? = null,
+) {
+    val chapterTitle: String get() = chapters.getOrNull(chapterIndex)?.title ?: ""
+    val chapterPosition: String
+        get() = if (chapters.isEmpty()) "" else "第 ${chapterIndex + 1}/${chapters.size} 章"
+}
+
+/**
+ * 阅读器 ViewModel：加载书籍/章节、ReaderPosition 恢复、防抖进度保存、
+ * 切章、目录与设置面板状态、设置读写。
+ */
+class ReaderViewModel(
+    private val bookId: Long,
+    private val bookRepository: BookRepository,
+    private val bookTextStore: BookTextStore,
+    private val settingsStore: SettingsStore,
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(ReaderUiState())
+    val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
+
+    private var saveJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            settingsStore.settings.collect { settings ->
+                _uiState.update { it.copy(settings = settings) }
+            }
+        }
+        viewModelScope.launch { load() }
+    }
+
+    // ---- 加载与恢复 ----
+
+    private suspend fun load() {
+        val book = bookRepository.getBook(bookId)
+        if (book == null) {
+            _uiState.update { it.copy(loading = false, error = "书籍不存在或已删除") }
+            return
+        }
+        val chapters = bookRepository.getChapters(bookId)
+        if (chapters.isEmpty()) {
+            _uiState.update { it.copy(loading = false, error = "章节为空，请尝试重新解析") }
+            return
+        }
+        val index = book.lastChapterIndex.coerceIn(0, chapters.lastIndex)
+        val paragraphs = paragraphsOf(book, chapters[index])
+        val paragraphIndex = book.lastParagraphIndex.coerceIn(0, maxOf(0, paragraphs.lastIndex))
+        _uiState.update {
+            it.copy(
+                loading = false,
+                book = book,
+                chapters = chapters,
+                chapterIndex = index,
+                paragraphs = paragraphs,
+                initialParagraph = paragraphIndex,
+                progressPercent = ReaderProgress.percentOf(
+                    cumulativeChars = chapters[index].cumulativeChars,
+                    chapterCharOffset = ReaderProgress.chapterCharOffset(paragraphs, paragraphIndex),
+                    totalChars = book.totalChars,
+                ),
+                error = null,
+            )
+        }
+    }
+
+    private fun paragraphsOf(book: Book, chapter: Chapter): List<String> =
+        bookTextStore.readChapter(book.dirName, chapter)
+            .split('\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+    // ---- 滚动位置与进度保存 ----
+
+    /** 正文滚动变化（LazyColumn 首个可见段落）。防抖 500ms 后落库。 */
+    fun onScrollPosition(firstVisibleParagraph: Int) {
+        val state = _uiState.value
+        if (state.loading || state.book == null || state.paragraphs.isEmpty()) return
+        val clamped = firstVisibleParagraph.coerceIn(0, state.paragraphs.lastIndex)
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch {
+            delay(SAVE_DEBOUNCE_MS)
+            persist(state.chapterIndex, clamped, state)
+        }
+    }
+
+    private suspend fun persist(chapterIndex: Int, paragraphIndex: Int, state: ReaderUiState) {
+        val book = state.book ?: return
+        val chapter = state.chapters.getOrNull(chapterIndex) ?: return
+        val charOffset = ReaderProgress.chapterCharOffset(state.paragraphs, paragraphIndex)
+        val percent = ReaderProgress.percentOf(
+            chapter.cumulativeChars,
+            charOffset,
+            book.totalChars,
+        )
+        bookRepository.saveReaderPosition(
+            bookId = bookId,
+            position = ReaderPosition(
+                chapterIndex = chapterIndex,
+                paragraphIndex = paragraphIndex,
+                scrollOffset = 0,
+                charOffset = charOffset,
+            ),
+            progressPercent = percent,
+        )
+        _uiState.update { it.copy(progressPercent = percent) }
+    }
+
+    // ---- 切章 ----
+
+    fun nextChapter() = goToChapter(_uiState.value.chapterIndex + 1)
+
+    fun previousChapter() = goToChapter(_uiState.value.chapterIndex - 1)
+
+    fun goToChapter(index: Int) {
+        val state = _uiState.value
+        if (state.loading || state.chapters.isEmpty()) return
+        val target = index.coerceIn(0, state.chapters.lastIndex)
+        if (target == state.chapterIndex && state.paragraphs.isNotEmpty()) return
+        val book = state.book ?: return
+        val paragraphs = paragraphsOf(book, state.chapters[target])
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    chapterIndex = target,
+                    paragraphs = paragraphs,
+                    initialParagraph = 0,
+                    tocVisible = false,
+                    progressPercent = ReaderProgress.percentOf(
+                        state.chapters[target].cumulativeChars,
+                        0,
+                        book.totalChars,
+                    ),
+                )
+            }
+            // 切章立即落库（不等防抖）
+            saveJob?.cancel()
+            persist(target, 0, _uiState.value)
+        }
+    }
+
+    // ---- 面板与工具栏 ----
+
+    fun toggleChrome() = _uiState.update { it.copy(chromeVisible = !it.chromeVisible) }
+
+    fun showToc() = _uiState.update { it.copy(tocVisible = true, chromeVisible = true) }
+
+    fun hideToc() = _uiState.update { it.copy(tocVisible = false) }
+
+    fun showSettings() = _uiState.update { it.copy(settingsVisible = true, chromeVisible = true) }
+
+    fun hideSettings() = _uiState.update { it.copy(settingsVisible = false) }
+
+    fun updateSettings(transform: (ReaderSettings) -> ReaderSettings) {
+        viewModelScope.launch { settingsStore.update(transform) }
+    }
+
+    fun dismissError() = _uiState.update { it.copy(error = null) }
+
+    companion object {
+        private const val SAVE_DEBOUNCE_MS = 500L
+
+        fun factory(container: AppContainer, bookId: Long): ViewModelProvider.Factory =
+            viewModelFactory {
+                initializer {
+                    ReaderViewModel(
+                        bookId = bookId,
+                        bookRepository = container.bookRepository,
+                        bookTextStore = container.bookTextStore,
+                        settingsStore = container.settingsStore,
+                    )
+                }
+            }
+    }
+}

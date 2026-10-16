@@ -7,6 +7,7 @@ import io.github.lunalight.paperread.data.local.BookmarkDao
 import io.github.lunalight.paperread.data.local.ChapterDao
 import io.github.lunalight.paperread.data.repository.BookImporter
 import io.github.lunalight.paperread.data.repository.BookRepositoryImpl
+import io.github.lunalight.paperread.data.settings.SettingsStore
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 
@@ -35,6 +36,8 @@ class AppContainer(context: Context) {
     }
 
     val bookTextStore: BookTextStore by lazy { BookTextStore(applicationContext) }
+
+    val settingsStore: SettingsStore by lazy { SettingsStore(applicationContext) }
 
     val bookImporter: BookImporter by lazy {
         BookImporter(applicationContext, bookRepository, bookTextStore)

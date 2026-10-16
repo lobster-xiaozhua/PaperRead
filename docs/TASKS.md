@@ -60,23 +60,34 @@
 - **章节区间**：章间分隔符归入前一章区间，保证 refs 连续覆盖全文（ChapterIndexWriter 前置条件）
 - EPUB 标题/作者来自 OPF metadata；TXT 作者恒为「未知」（正文作者行解析留待 M5）
 
-## M4 阅读器 + 设置
+## M4 阅读器 + 设置（已完成）
 
 ### T4.1 阅读器骨架
-- 涉及：ui/reader（LazyColumn 段落渲染、工具栏、切章、音量键默认关）
-- 验收：SPEC AC-4.1 / AC-4.5 / AC-4.6 通过
+- 涉及：ui/reader（LazyColumn 段落渲染、工具栏显隐、切章、音量键默认关）
+- 验收：SPEC AC-4.1 / AC-4.5 / AC-4.6 通过 ✅
 
 ### T4.2 ReaderPosition 记忆与恢复
-- 涉及：ReaderViewModel、BookRepository
-- 验收：SPEC AC-5.x 通过；恢复单测覆盖
+- 涉及：ReaderViewModel、BookRepository、ReaderProgress 纯函数
+- 验收：SPEC AC-5.x 通过 ✅（ReaderProgressTest 10 用例：段起点表 / 章内偏移 / 字符加权百分比 / 夹取；防抖保存 500ms + 切章立即落库）
 
 ### T4.3 设置系统
-- 涉及：SettingsStore（DataStore）、设置面板（主题/字体/行距/段距/边距/亮度/常亮/沉浸）
-- 验收：SPEC AC-4.2 / AC-4.3 / AC-4.4 通过
+- 涉及：SettingsStore（DataStore）、设置面板（主题/字体/行距/段距/边距/亮度/常亮/沉浸/音量键）
+- 验收：SPEC AC-4.2 / AC-4.3 / AC-4.4 通过 ✅（SettingsStoreTest 4 用例 Robolectric：默认值 / 持久化 / transform 累计 / 亮度互转）
+
+### 关键实现说明
+- **Compose 1.7 API 变迁**：`Modifier.focusable` 已从 `androidx.compose.ui.focus` 移至 `androidx.compose.foundation`；material-icons-core 仅含少量图标，翻章箭头用 `Icons.AutoMirrored.Filled.KeyboardArrowLeft/Right`、设置用 `Icons.Filled.Settings`
+- **进度保存**：snapshotFlow 监听首可见段落 → VM 内 500ms 防抖 → saveReaderPosition；切章不防抖立即落库
+- **配置变更恢复**：LazyListState 经 rememberSaveable(saver) 跨旋屏保持；重进书籍按 initialParagraph scrollToItem 恢复到段级
+- **系统效果**：亮度覆盖退出时恢复原值；沉浸模式工具栏显示时临时唤出系统栏；音量键翻章默认关（AC-4.5）
 
 ## M5 目录 / 书签 / 收尾功能
 
-### T5.1 目录弹层 · T5.2 书签 · T5.3 重新解析章节
+### T5.1 目录弹层（已随 M4 实现）
+- 涉及：ui/reader/ReaderSettingsSheet.kt 的 TocSheet（章节列表 + 当前章高亮 + 点击跳转）
+- 验收：SPEC AC-6.x 通过 ✅
+
+### T5.2 书签 · T5.3 重新解析章节
+- 涉及：阅读器内书签增删查（Bookmark 表已就绪）、书架重新解析入口（M2 已具备，M5 补阅读器内入口）
 - 验收：SPEC AC-6.x 通过
 
 ## M6 测试 / 构建 / 交付
