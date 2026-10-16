@@ -41,6 +41,20 @@ android {
         compose = true
     }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all { test ->
+                // Robolectric 下载 android-all 的仓库地址，可用
+                // -Probolectric.dependency.repo.url=https://maven.aliyun.com/repository/public
+                // 覆盖以加速国内网络；缺省用 Maven Central。
+                project.findProperty("robolectric.dependency.repo.url")?.let {
+                    test.systemProperty("robolectric.dependency.repo.url", it as String)
+                }
+            }
+        }
+    }
+
     packaging {
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
     }
@@ -78,4 +92,5 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
 }

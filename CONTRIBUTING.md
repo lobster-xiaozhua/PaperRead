@@ -8,6 +8,8 @@
 2. Fork 并克隆仓库，`echo "sdk.dir=/path/to/Android/sdk" > local.properties`
 3. `./gradlew assembleDebug` 确认能构建
 
+> 国内网络环境如遇依赖下载缓慢，可在 `~/.gradle/init.gradle` 中配置镜像（阿里云等）加速，不影响仓库文件。
+
 ## 开发流程
 
 1. 从 `main` 创建分支：`feat/xxx` 或 `fix/xxx`

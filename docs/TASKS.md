@@ -17,23 +17,28 @@
 - 涉及：README、LICENSE（Apache-2.0）、CONTRIBUTING、AGENTS、.github/workflows/android.yml、docs/SPEC.md、本文件
 - 验收：clone 后按 README 可构建；CI 三项门禁就位
 
-## M2 导入 + TXT + 数据层 + 书架
+## M2 导入 + TXT + 数据层 + 书架（已完成）
 
 ### T2.1 数据层（Room）
 - 涉及：domain/model（Book/Chapter/Bookmark/ReaderPosition）、data/local（Entity/DAO/AppDatabase）、AppContainer 装配
-- 验收：Robolectric 单测覆盖增删查、级联删除、进度写入
+- 验收：Robolectric 单测覆盖增删查、级联删除、进度写入 ✅（BookRepositoryTest 7 用例）
 
 ### T2.2 编码探测 + TXT 切分器
 - 涉及：reader/txt（CharsetDetector、ChapterSplitter、ChapterIndexWriter）
-- 验收：编码 6+ 用例、切分 10+ 用例（含回退/目录页跳过）全绿；双偏移 round-trip 用例通过
+- 验收：编码 10 用例、切分 12 用例（含回退/目录页跳过/重复标题终止目录链）全绿；双偏移 round-trip 用例通过 ✅
 
 ### T2.3 导入流水线
 - 涉及：SAF 选文件、流式拷贝 + SHA-256、磁盘预检、去重、进度、导入结果页（编码可切换）
-- 验收：SPEC AC-1.x / AC-2.x 通过；fixture：GBK 小说可导入不乱码
+- 验收：SPEC AC-1.x / AC-2.x 通过；fixture：GBK 小说可导入不乱码 ✅（BookImporterTest 9 用例，含 e2e GBK 导入、判重、EPUB 拒绝、取消清理、重新解析）
 
 ### T2.4 书架
 - 涉及：ui/bookshelf（网格、程序化封面、进度、排序、多选删除、继续阅读、重新解析入口）、BookshelfViewModel
-- 验收：SPEC AC-3.x 通过
+- 验收：SPEC AC-3.x 通过 ✅（导入进度 / 结果确认对话框 / 长按多选删除 / 四种排序）
+
+### 遗留说明
+- 目录页与正文首章标题无空行分隔时，靠「重复标题」启发式终止目录链；极端重复场景首个标题仍可能归入目录块（文本不丢失），可在结果页切换「激进」策略重解析
+- EPUB 走 Unsupported 分支，M3 接入 EpubParser 后替换
+- book.txt 全文一次性解码进内存，百 MB 级超大文件需流式解码（M6 前评估）
 
 ## M3 EPUB 引擎
 
