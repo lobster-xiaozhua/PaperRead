@@ -6,6 +6,7 @@ import io.github.lunalight.paperread.data.local.ChapterDao
 import io.github.lunalight.paperread.data.local.toDomain
 import io.github.lunalight.paperread.data.local.toEntity
 import io.github.lunalight.paperread.domain.model.Book
+import io.github.lunalight.paperread.domain.model.Bookmark
 import io.github.lunalight.paperread.domain.model.Chapter
 import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
@@ -69,4 +70,16 @@ class BookRepositoryImpl(
 
     override suspend fun findBySha256(sha256: String): Book? =
         bookDao.findBySha256(sha256)?.toDomain()
+
+    // ---- 书签 ----
+
+    override fun observeBookmarks(bookId: Long): Flow<List<Bookmark>> =
+        bookmarkDao.observeByBook(bookId).map { list -> list.map { it.toDomain() } }
+
+    override suspend fun addBookmark(bookmark: Bookmark): Long =
+        bookmarkDao.insert(bookmark.toEntity())
+
+    override suspend fun deleteBookmark(id: Long) {
+        bookmarkDao.deleteById(id)
+    }
 }

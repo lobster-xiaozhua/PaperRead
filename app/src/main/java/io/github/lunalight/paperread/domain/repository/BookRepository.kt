@@ -1,6 +1,7 @@
 package io.github.lunalight.paperread.domain.repository
 
 import io.github.lunalight.paperread.domain.model.Book
+import io.github.lunalight.paperread.domain.model.Bookmark
 import io.github.lunalight.paperread.domain.model.Chapter
 import io.github.lunalight.paperread.domain.model.ReaderPosition
 import kotlinx.coroutines.flow.Flow
@@ -30,4 +31,15 @@ interface BookRepository {
     suspend fun saveReaderPosition(bookId: Long, position: ReaderPosition, progressPercent: Float)
 
     suspend fun findBySha256(sha256: String): Book?
+
+    // ---- 书签 ----
+
+    /** 观察某书的书签（按创建时间倒序）。 */
+    fun observeBookmarks(bookId: Long): Flow<List<Bookmark>>
+
+    /** 添加书签，返回新书签 id。 */
+    suspend fun addBookmark(bookmark: Bookmark): Long
+
+    /** 删除书签。 */
+    suspend fun deleteBookmark(id: Long)
 }

@@ -80,15 +80,24 @@
 - **配置变更恢复**：LazyListState 经 rememberSaveable(saver) 跨旋屏保持；重进书籍按 initialParagraph scrollToItem 恢复到段级
 - **系统效果**：亮度覆盖退出时恢复原值；沉浸模式工具栏显示时临时唤出系统栏；音量键翻章默认关（AC-4.5）
 
-## M5 目录 / 书签 / 收尾功能
+## M5 目录 / 书签 / 收尾功能（已完成）
 
-### T5.1 目录弹层（已随 M4 实现）
+### T5.1 目录弹层
 - 涉及：ui/reader/ReaderSettingsSheet.kt 的 TocSheet（章节列表 + 当前章高亮 + 点击跳转）
-- 验收：SPEC AC-6.x 通过 ✅
+- 验收：SPEC AC-6.1 通过 ✅
 
-### T5.2 书签 · T5.3 重新解析章节
-- 涉及：阅读器内书签增删查（Bookmark 表已就绪）、书架重新解析入口（M2 已具备，M5 补阅读器内入口）
-- 验收：SPEC AC-6.x 通过
+### T5.2 书签
+- 涉及：BookRepository 书签方法（observe/add/delete）、ReaderViewModel 书签状态与动作、目录弹层「书签」Tab（章节 + 摘录 + 时间 + 跳转 + 删除）、阅读器顶栏星标添加入口
+- 验收：SPEC AC-6.2 / AC-6.3 通过 ✅（BookmarkRepositoryTest 5 用例：倒序发射 / 位置与摘录 / 单删 / 级联删除 / 多书隔离）
+
+### T5.3 重新解析章节
+- 涉及：书架长按菜单「重新解析」（保守/激进两档，M2 已实现并单测覆盖）
+- 验收：SPEC AC-6.4 通过 ✅
+
+### 关键实现说明
+- **书签锚点**：以当前章首个可见段落为锚（ReaderUiState.currentParagraph 随滚动上报），摘录取该段前 60 字符
+- **书签跳转**：goToChapter(chapterIndex, paragraph) 段级恢复，与 ReaderPosition 恢复同路径
+- **Tab 面板**：TocSheet 双 Tab（目录/书签），列表修饰符由 ModalBottomSheet 的 ColumnScope 传入（weight 仅在 Scope 内可解析）
 
 ## M6 测试 / 构建 / 交付
 

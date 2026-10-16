@@ -31,11 +31,14 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -95,6 +98,14 @@ fun ReaderScreen(
     ImmersiveEffect(enabled = state.settings.immersive, chromeVisible = state.chromeVisible)
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // 一次性提示（书签添加等）
+    LaunchedEffect(state.message) {
+        val message = state.message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.dismissMessage()
+    }
 
     Box(
         modifier = Modifier
@@ -136,6 +147,7 @@ fun ReaderScreen(
                 theme = readerTheme,
                 onBack = onBack,
                 onOpenToc = viewModel::showToc,
+                onAddBookmark = viewModel::addBookmark,
                 onOpenSettings = viewModel::showSettings,
             )
         }
@@ -154,6 +166,12 @@ fun ReaderScreen(
                 onNext = viewModel::nextChapter,
             )
         }
+
+        // 一次性提示
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 
     if (state.tocVisible) {
@@ -161,6 +179,8 @@ fun ReaderScreen(
             state = state,
             theme = readerTheme,
             onSelect = viewModel::goToChapter,
+            onBookmarkSelect = viewModel::goToBookmark,
+            onBookmarkDelete = viewModel::deleteBookmark,
             onDismiss = viewModel::hideToc,
         )
     }
@@ -285,6 +305,7 @@ private fun ReaderTopBar(
     theme: ReaderTheme,
     onBack: () -> Unit,
     onOpenToc: () -> Unit,
+    onAddBookmark: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
     Surface(color = theme.background, contentColor = theme.onBackground) {
@@ -309,6 +330,9 @@ private fun ReaderTopBar(
                     color = theme.secondary,
                     maxLines = 1,
                 )
+            }
+            IconButton(onClick = onAddBookmark) {
+                Icon(Icons.Filled.Star, contentDescription = "添加书签", tint = theme.accent)
             }
             IconButton(onClick = onOpenToc) {
                 Icon(Icons.AutoMirrored.Filled.List, contentDescription = "目录")

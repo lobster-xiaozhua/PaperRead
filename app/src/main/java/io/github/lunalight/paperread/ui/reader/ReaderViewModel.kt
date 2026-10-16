@@ -9,6 +9,7 @@ import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.data.settings.SettingsStore
 import io.github.lunalight.paperread.di.AppContainer
 import io.github.lunalight.paperread.domain.model.Book
+import io.github.lunalight.paperread.domain.model.Bookmark
 import io.github.lunalight.paperread.domain.model.Chapter
 import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
@@ -33,12 +34,18 @@ data class ReaderUiState(
     val paragraphs: List<String> = emptyList(),
     /** 首次渲染要滚动到的段落（恢复进度用）。 */
     val initialParagraph: Int = 0,
+    /** 当前章首个可见段落（滚动上报 / 加书签锚点）。 */
+    val currentParagraph: Int = 0,
     val settings: ReaderSettings = ReaderSettings(),
     val progressPercent: Float = 0f,
     /** 工具栏（顶/底栏）显隐；点击正文中央切换。 */
     val chromeVisible: Boolean = true,
     val tocVisible: Boolean = false,
     val settingsVisible: Boolean = false,
+    /** 当前书签列表（创建时间倒序）。 */
+    val bookmarks: List<Bookmark> = emptyList(),
+    /** 一次性提示（Snackbar）。 */
+    val message: String? = null,
     val error: String? = null,
 ) {
     val chapterTitle: String get() = chapters.getOrNull(chapterIndex)?.title ?: ""
@@ -66,6 +73,11 @@ class ReaderViewModel(
         viewModelScope.launch {
             settingsStore.settings.collect { settings ->
                 _uiState.update { it.copy(settings = settings) }
+            }
+        }
+        viewModelScope.launch {
+            bookRepository.observeBookmarks(bookId).collect { bookmarks ->
+                _uiState.update { it.copy(bookmarks = bookmarks) }
             }
         }
         viewModelScope.launch { load() }
@@ -118,6 +130,9 @@ class ReaderViewModel(
         val state = _uiState.value
         if (state.loading || state.book == null || state.paragraphs.isEmpty()) return
         val clamped = firstVisibleParagraph.coerceIn(0, state.paragraphs.lastIndex)
+        if (clamped != state.currentParagraph) {
+            _uiState.update { it.copy(currentParagraph = clamped) }
+        }
         saveJob?.cancel()
         saveJob = viewModelScope.launch {
             delay(SAVE_DEBOUNCE_MS)
@@ -153,30 +168,33 @@ class ReaderViewModel(
 
     fun previousChapter() = goToChapter(_uiState.value.chapterIndex - 1)
 
-    fun goToChapter(index: Int) {
+    /** 跳转章节；[paragraph] 供书签恢复使用（默认章首）。 */
+    fun goToChapter(index: Int, paragraph: Int = 0) {
         val state = _uiState.value
         if (state.loading || state.chapters.isEmpty()) return
         val target = index.coerceIn(0, state.chapters.lastIndex)
-        if (target == state.chapterIndex && state.paragraphs.isNotEmpty()) return
+        if (target == state.chapterIndex && state.paragraphs.isNotEmpty() && paragraph <= 0) return
         val book = state.book ?: return
         val paragraphs = paragraphsOf(book, state.chapters[target])
+        val targetParagraph = paragraph.coerceIn(0, maxOf(0, paragraphs.lastIndex))
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     chapterIndex = target,
                     paragraphs = paragraphs,
-                    initialParagraph = 0,
+                    initialParagraph = targetParagraph,
+                    currentParagraph = targetParagraph,
                     tocVisible = false,
                     progressPercent = ReaderProgress.percentOf(
                         state.chapters[target].cumulativeChars,
-                        0,
+                        ReaderProgress.chapterCharOffset(paragraphs, targetParagraph),
                         book.totalChars,
                     ),
                 )
             }
             // 切章立即落库（不等防抖）
             saveJob?.cancel()
-            persist(target, 0, _uiState.value)
+            persist(target, targetParagraph, _uiState.value)
         }
     }
 
@@ -198,8 +216,46 @@ class ReaderViewModel(
 
     fun dismissError() = _uiState.update { it.copy(error = null) }
 
+    // ---- 书签 ----
+
+    /** 在当前首个可见段落处添加书签（含摘录）。 */
+    fun addBookmark() {
+        val state = _uiState.value
+        val book = state.book ?: return
+        if (state.loading || state.paragraphs.isEmpty()) return
+        val paragraphIndex = state.currentParagraph.coerceIn(0, state.paragraphs.lastIndex)
+        val excerpt = state.paragraphs[paragraphIndex].take(EXCERPT_MAX_CHARS)
+        val charOffset = ReaderProgress.chapterCharOffset(state.paragraphs, paragraphIndex)
+        viewModelScope.launch {
+            bookRepository.addBookmark(
+                Bookmark(
+                    bookId = bookId,
+                    chapterIndex = state.chapterIndex,
+                    paragraphIndex = paragraphIndex,
+                    charOffset = charOffset,
+                    excerpt = excerpt,
+                    createdAt = System.currentTimeMillis(),
+                ),
+            )
+            _uiState.update { it.copy(message = "已添加书签") }
+        }
+    }
+
+    fun deleteBookmark(id: Long) {
+        viewModelScope.launch { bookRepository.deleteBookmark(id) }
+    }
+
+    /** 跳转到书签位置（章节 + 段级）。 */
+    fun goToBookmark(bookmark: Bookmark) =
+        goToChapter(bookmark.chapterIndex, bookmark.paragraphIndex)
+
+    fun dismissMessage() = _uiState.update { it.copy(message = null) }
+
     companion object {
         private const val SAVE_DEBOUNCE_MS = 500L
+
+        /** 书签摘录最大字符数。 */
+        const val EXCERPT_MAX_CHARS = 60
 
         fun factory(container: AppContainer, bookId: Long): ViewModelProvider.Factory =
             viewModelFactory {
