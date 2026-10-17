@@ -164,4 +164,9 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    // B3 Compose UI 冒烟（Robolectric 模式）：BOM 统一版本，manifest 供
+    // createComposeRule 的默认宿主 Activity
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

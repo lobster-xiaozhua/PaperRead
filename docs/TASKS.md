@@ -186,3 +186,23 @@
 - ReaderViewModelTest 12 用例（纯 JVM）：位置恢复（章/段/像素偏移/进度）、越界夹取、错误态、防抖落库时序、切章落库、书签增删与跳转、设置回流、面板显隐
 - BookshelfViewModelTest 19 用例（Robolectric 提供 `android.net.Uri`）：导入运行态/取消/防重入、判重对话框、替换导入（先删旧书再原参数重跑）、确认/取消待确认、重新解析（成功/失败保留）、排序 4 种口径、删除联动、消息消除
 - 全量 146 单测全绿；ReaderViewModel 行覆盖 100%（104/104），BookshelfViewModel 100%（63/63），B2 验收达标
+
+## B3 Compose UI 冒烟测试（v1.1，已完成）
+
+> 依据 ROADMAP B3：Robolectric + compose-ui-test 跑 UI 冒烟，无需真机/模拟器。覆盖：空书架导入入口、书架渲染与点击打开、阅读器工具栏显隐、设置面板字号、书签 Tab 空态。验收：5 条冒烟用例进 CI（`testDebugUnitTest`，与单测同一任务）。
+
+### 实现
+- 依赖：`ui-test-junit4`（版本由 compose-bom 管）+ `debugImplementation(ui-test-manifest)`（供 `createComposeRule` 默认宿主 Activity）
+- 冒烟测试分两类：有状态屏幕（书架 / 阅读器）经真实 AppContainer 跑完整数据链——Room 与文本存储落在 Robolectric 文件系统上，`@Before` 后 `saveImport` + 写 `book.txt` 预置；无状态弹层（设置 / 目录）直接以受控参数驱动，断言回调与 UI 回流
+- 每个 Robolectric 测试实例 Application 全新，仓储状态天然隔离，无需清理
+
+### 关键实现说明
+- **Robolectric + Compose 需要 `@GraphicsMode(NATIVE)`**：LEGACY 模式无 Skia，Compose 无法测量绘制；NATIVE 运行时由 Robolectric 依赖仓库提供（国内加速走 `-Probolectric.dependency.repo.url`）
+- **`assertIsDisplayed` 在 Robolectric 下不可靠**：对合并节点（如 FAB）的 visible-frame 计算有误报（bounds 在窗口内仍判 not displayed）。冒烟统一改用「assertExists + boundsInRoot 非零尺寸」的渲染断言；交互有效性由后续 `performClick` + 状态断言验证
+- **锚点选择**：书架书名 Text 在书封 Card 外（兄弟节点），点击书名不触发打开——须点封面内可锚定文本（格式角标「TXT」）冒泡到 `combinedClickable`；FAB 文本未并入合并语义树，查找需 `useUnmergedTree = true`
+- **字号 slider 精确定位**：`hasProgressBarRangeInfo(ProgressBarRangeInfo(18f, 14f..28f, 13))` 按初始值 + range + steps 三元组唯一匹配（排版/亮度共 5 个 slider，range 各不相同）；sheet 内容高于视口，操作前先 `performScrollTo`
+- **ui-test 的 API 归属**：`onNode/onAllNodes/assertExists/assertDoesNotExist/waitUntilAtLeastOneExists` 是 rule 成员，`onRoot/printToString/hasText/hasProgressBarRangeInfo` 是顶层扩展——import 写错会报 unresolved
+
+### 测试
+- UiSmokeTest 5 用例：空书架三处导入入口渲染、书架渲染 + 点封面回调打开、点击正文切换工具栏显隐（顶栏目录图标出现/消失/恢复）、设置面板拖字号滑块（state 更新 + UI 文本回流）、书签 Tab 空态双行提示
+- 全量 151 单测全绿；总行覆盖 89.7%（64.9% → 89.7%，UI 层纳入统计）；lint 0/0；assembleDebug 通过

@@ -1,6 +1,6 @@
 # PaperRead 路线图（v1.1 → v2.0）
 
-> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 146 单测全绿 / lint 0/0（B1、B2 已完成，B1 待真机验收）
+> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 151 单测全绿 / lint 0/0 / 总行覆盖 89.7%（B1、B2、B3 已完成，B1 待真机验收）
 > 原则：先发布收尾，再质量收敛，最后做体验增量；隐私红线（零网络权限）不变更
 
 ---
@@ -55,10 +55,12 @@
 - 验收：ReaderViewModel 行覆盖 100%（104/104）、BookshelfViewModel 100%（63/63），≥70% 达标（`./gradlew :app:jacocoTestReport`）
 - 详见 TASKS.md「B2 ViewModel 自动化测试」
 
-### B3 Compose UI 冒烟测试（1–2 天）
-- 栈：`androidTest` + `compose-ui-test-junit4`（Robolectric 也可跑 `createAndroidComposeRule`）
-- 覆盖：空书架 → 导入入口可见；阅读器点击中央工具栏显隐；设置面板改字号后正文重建；书签 Tab 空态
-- 验收：5 条冒烟用例进 CI（`connectedDebugAndroidTest` 或 Robolectric UI 模式）
+### B3 Compose UI 冒烟测试（1–2 天）✅ 已完成
+- 栈：Robolectric + `compose-ui-test-junit4`（`@GraphicsMode(NATIVE)`，`createComposeRule` 无需真机，随 `testDebugUnitTest` 进 CI）
+- 覆盖：空书架 → 导入入口渲染；书架渲染 + 点封面打开；阅读器点击正文工具栏显隐；设置面板拖字号滑块（UI 回流）；书签 Tab 空态
+- 落地：有状态屏幕走真实 AppContainer（Room/文本存储落在 Robolectric 文件系统），无状态弹层受控参数直测
+- 验收：5 条冒烟用例全绿；全量 151 单测；总行覆盖 89.7%
+- 详见 TASKS.md「B3 Compose UI 冒烟测试」
 
 ### B4 进度口径统一（0.5 天）
 - `paragraphsOf` 的 trim/空行过滤与 `chapterCharOffset` 的原文累加对齐（以原文偏移为准，段落携带原始起点）
