@@ -1,0 +1,32 @@
+# Dependabot 自动依赖更新。
+# 仅「提议」升级 PR，不自动合并——升级须经本地全量门禁 + 人工审查
+# （AGENTS.md「版本组合勿随意升级」）。
+version: 2
+updates:
+  # Gradle 依赖（版本目录 libs.versions.toml）
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions 版本
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(ci)"

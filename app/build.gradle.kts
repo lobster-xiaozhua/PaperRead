@@ -144,6 +144,46 @@ tasks.register<JacocoReport>("jacocoTestReport") {
     )
 }
 
+// 覆盖率门禁：`./gradlew jacocoTestCoverageVerification`。
+// 与上方 report 共用同一份 classDirectories / executionData / 过滤规则，
+// 只读 exec 不做插桩，不会触发 report 注释里描述的 worker 崩溃问题。
+//
+// 阈值口径：行覆盖率（与 ROADMAP / README 口径一致）。当前实际约 87%
+// （1,778 / 2,036），取 0.80 作为防回归底线：既挡住明显退化，又给新增代码
+// 留足余量；随覆盖率提升可逐步上调（ratchet）。修改前先跑 jacocoTestReport
+// 看真实值，切勿拍脑袋设高。
+tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    group = "verification"
+    description = "校验单元测试行覆盖率不低于阈值，防止覆盖率回归"
+    dependsOn("testDebugUnitTest")
+    violationRules {
+        rule {
+            element = "BUNDLE"
+            limit {
+                counter = "LINE"
+                value = "COVEREDRATIO"
+                minimum = "0.80".toBigDecimal()
+            }
+        }
+    }
+    sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
+    classDirectories.setFrom(
+        fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/debug") {
+            exclude(
+                "**/R.class",
+                "**/R$*.class",
+                "**/BuildConfig.class",
+                "**/Manifest.class",
+                "**/*\$*.class",
+            )
+        },
+    )
+    executionData.setFrom(
+        fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("*.exec") },
+        fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/*.exec") },
+    )
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

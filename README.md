@@ -101,16 +101,20 @@ Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlP
 
 - [AGENTS.md](AGENTS.md)：AI 协作常驻规则（必读）
 - [CONTRIBUTING.md](CONTRIBUTING.md)：贡献指南
-- CI 门禁：`assembleDebug` + `testDebugUnitTest` + `lint` 全绿方可合并
+- [SECURITY.md](SECURITY.md)：安全漏洞报告政策
+- [CHANGELOG.md](CHANGELOG.md)：版本变更记录
+- CI 门禁：`testDebugUnitTest` + 覆盖率门禁（行覆盖 ≥ 80%）+ `lint` + `assembleDebug` + `assembleRelease`（R8）全绿方可合并
 
 ## 发布
 
-仓库尚未创建远端。推送步骤（需 GitHub Token）：
+仓库已上线：<https://github.com/lobster-xiaozhua/PaperRead>。发版步骤：
 
-```bash
-gh auth login                 # 或设置 GH_TOKEN 环境变量
-gh repo create lobster-xiaozhua/PaperRead --public --source=. --push
-```
+1. 更新 `CHANGELOG.md` 与 `app/build.gradle.kts` 的 `versionName` / `versionCode`
+2. 提交后打标签并推送：`git tag -a vX.Y.Z -m "..." && git push origin main vX.Y.Z`
+3. 构建产物：`./gradlew assembleDebug assembleRelease`
+4. 在 [Releases](https://github.com/lobster-xiaozhua/PaperRead/releases) 基于该 tag 创建 Release 并附上 APK
+
+签名见上文「Release 签名」（keystore 不入库，经 `local.properties` 注入）。
 
 ## 依赖清单
 

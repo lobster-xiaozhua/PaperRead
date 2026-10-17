@@ -6,11 +6,24 @@ on:
   pull_request:
     branches: [main]
 
+# 最小权限：CI 只需读代码，不写仓库
+permissions:
+  contents: read
+
+# 同一 ref 的新推送取消仍在跑的旧运行，节省 runner 分钟
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # 供应链安全：校验 Gradle wrapper JAR 未被篡改
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -35,8 +48,9 @@ jobs:
           yes | "$sdkmanager" --licenses > /dev/null
           "$sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest --console=plain
+      # 单测 + 覆盖率报告 + 覆盖率门禁（行覆盖率不低于 0.80，防止覆盖率回归）
+      - name: Unit tests + coverage gate
+        run: ./gradlew testDebugUnitTest jacocoTestReport jacocoTestCoverageVerification --console=plain
 
       - name: Lint
         run: ./gradlew lint --console=plain
@@ -55,3 +69,23 @@ jobs:
       # 不配置签名（keystore 不入库），产出未签名 APK，仅验证能正常打包。
       - name: Assemble Release (R8 gate)
         run: ./gradlew assembleRelease --console=plain
+
+      # 覆盖率报告（HTML/XML），可下载查看
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperread-coverage-report
+          path: app/build/reports/jacoco/
+          if-no-files-found: ignore
+
+      # 失败时上传测试报告，便于下载排查（含失败断言与堆栈）
+      - name: Upload test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperread-test-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore

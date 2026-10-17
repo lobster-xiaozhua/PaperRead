@@ -297,3 +297,48 @@
 - 资产：debug 9.8 MB（可安装）+ release-unsigned 1.4 MB（需签名）
 - Release：<https://github.com/lobster-xiaozhua/PaperRead/releases/tag/v1.1.0>，tag 指向 `e0a29f2`
 - 已知限制：B1 真机内存验收、B5 设备侧备份验收待完成（DEVICE_CHECKLIST）
+
+## 基础设施完善（v1.1 收尾，已完成）
+
+> 通过连接器拉取最新仓库（`4381d09`）后，对项目基础设施做一轮补全。
+> 全程未新增第三方依赖（AGENTS.md 铁律 #4），未触碰生产代码逻辑。
+
+### 仓库卫生
+- 新增 `SECURITY.md`：漏洞私下报告政策（GitHub Private Vulnerability Reporting），
+  界定攻击面（本地文件解析 + 持久化，零网络）
+- 新增 `CHANGELOG.md`：Keep a Changelog 格式，记录 1.0.1 / 1.1.0 与未发布段
+- 新增 `.github/PULL_REQUEST_TEMPLATE.md`：PR 自查清单（本地门禁 / 人工把关项 / 依赖与工单）
+- 新增 `.github/CODEOWNERS`：关键路径（data / Manifest / 构建 / CI）归属
+- 新增 `.editorconfig`：跨编辑器格式一致（UTF-8 / LF / Kotlin 4 空格）
+- README 修正：删过期「仓库尚未创建远端」发布段改为实际发版流程；
+  开发规范补 SECURITY / CHANGELOG 链接与覆盖率门禁口径
+- 补提交 `app/schemas/.../1.json`：Room schema 导出（v1，books/chapters/bookmarks）
+  此前仅配置未入库，本次按 build.gradle.kts 注释「随代码入库」补齐
+
+### CI/CD 增强（.github/workflows/android.yml）
+- `permissions: contents: read` 最小权限
+- `concurrency` + `cancel-in-progress`：同 ref 新推送取消旧运行，省 runner 分钟
+- `gradle/actions/wrapper-validation@v4`：供应链安全，校验 wrapper JAR 未篡改
+- 覆盖率门禁步骤：`testDebugUnitTest jacocoTestReport jacocoTestCoverageVerification`
+- 产物上传：覆盖率报告（always）；失败时上传测试报告便于排查
+
+### 覆盖率门禁（app/build.gradle.kts）
+- 新增 `jacocoTestCoverageVerification`，与既有 report 共用 classDirectories /
+  executionData / 过滤规则（只读 exec 不插桩，规避 Robolectric worker 崩溃坑）
+- 口径：行覆盖率，阈值 0.80。当前实际行覆盖 87.3%（1,778 / 2,036），
+  留余量防抖、随覆盖提升可 ratchet 上调
+- 踩坑：Gradle 8.9 的 `JacocoViolationRule` 无 `limit`/`minimum` 属性，
+  须经 `limit { counter="LINE"; value="COVEREDRATIO"; minimum=... }` 配置
+  （签名来自反编译 gradle-jacoco-8.9.jar 核实，非猜测）
+- 负向验证：阈值临时提到 0.99 → `Rule violated ... lines covered ratio is 0.87`，
+  确认门禁真实生效而非空跑
+
+### 依赖自动化
+- 新增 `.github/dependabot.yml`：weekly 更新 gradle 依赖与 github actions，
+  仅提议不自动合并（尊重 AGENTS.md「版本组合勿随意升级」）
+
+### 验收
+- 本地全量门禁全绿：testDebugUnitTest + lint + jacocoTestReport +
+  jacocoTestCoverageVerification + assembleDebug + assembleRelease
+- 单测 185 个 0 失败；lint 0 error / 0 warning；双 APK 产出正常
+- 两个 YAML 经 safe_load 校验通过
