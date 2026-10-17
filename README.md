@@ -1,5 +1,9 @@
 # 纸阅 PaperRead
 
+[![Android CI](https://github.com/lobster-xiaozhua/PaperRead/actions/workflows/android.yml/badge.svg)](https://github.com/lobster-xiaozhua/PaperRead/actions/workflows/android.yml)
+[![Release](https://img.shields.io/github/v/release/lobster-xiaozhua/PaperRead?label=release)](https://github.com/lobster-xiaozhua/PaperRead/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 一个**完全离线、零网络权限**的开源本地小说阅读器（Android）。
 
 - **不申请 INTERNET 权限**：应用没有任何网络行为，隐私可审计

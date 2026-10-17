@@ -1,0 +1,73 @@
+name: 问题反馈
+description: 报告崩溃、解析异常、进度不准等功能问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请尽量附上可复现的文件特征——纸阅的解析逻辑与编码、章节格式强相关。
+        **注意：不要上传受版权保护的书籍全文**，描述格式特征即可。
+
+  - type: input
+    id: version
+    attributes:
+      label: 应用版本
+      description: 设置页或 APK 文件名中的版本号
+      placeholder: "v1.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 设备与系统
+      placeholder: "Pixel 7 / Android 14"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从打开应用到出现问题的完整操作序列
+      placeholder: |
+        1. 导入 xxx.txt
+        2. 进入阅读器第 3 章
+        3. 退出后重新进入
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: fileinfo
+    attributes:
+      label: 书籍文件特征
+      description: 格式、大小、编码、章节标题样式（如前几行文本片段）——不要贴整本书
+      placeholder: |
+        格式：TXT / 约 12 MB / 编码：GB18030（探测结果）
+        章节样式：第X章 标题，标题前无空行
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 崩溃堆栈
+      description: `adb logcat` 相关片段
+      render: shell
+    validations:
+      required: false
