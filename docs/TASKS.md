@@ -262,3 +262,25 @@
 ### 测试
 - 新增 BackupRulesTest 5 用例（Robolectric）：Manifest 双格式接线、旧规则只排除 books、cloud-backup 只排除 books、device-transfer 零排除、sharedpref/database 不被排除
 - 全量 165 单测全绿；lint 0/0；assembleDebug 通过
+
+## B5 收尾：空书架冒烟用例加固（v1.1，已完成）
+
+> B5 提交推送后 CI attempt 1 偶发失败：`UiSmokeTest > 空书架显示导入入口` 在
+> `assertExists()` 处 AssertionError；attempt 2 同代码重跑即绿，本地连跑 3 次亦全绿，
+> 定性为 CI 高负载下的偶发竞态。
+
+### 根因
+- 书架屏首帧是 `state.loading` 态（CircularProgressIndicator），Room 空流到达后才切空态
+- `waitForIdle()` 只保证 Compose 重组/布局/绘制空闲，不保证 ViewModel 的异步状态已到达
+  语义树；CI runner 慢时断言发生在加载帧上，空态文本尚未入树
+- 本文件其他两个用例（书架渲染书籍 / 阅读器正文）本来就用了
+  `waitUntilAtLeastOneExists` 前置等待，从未挂过——唯独空架用例漏了这层保护
+
+### 修复
+- 「书架空空如也」「选择文件」改用 `waitUntilAtLeastOneExists(..., timeoutMillis = 5_000)` 显式等待
+- FAB「导入书籍」只在未合并语义树，`waitUntilAtLeastOneExists` 在 Compose 1.7.5 只查合并树
+  且无 `useUnmergedTree` 参数，改用 `composeRule.waitUntil(timeoutMillis = 5_000) { onAllNodesWithText(..., useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }`
+- 超时统一放到 5s 容忍慢 runner（默认 1s 在 CI 满载时偏紧）
+
+### 测试
+- UiSmokeTest 本地连跑 3 次全绿；全量 165 单测 0 失败；lint 0/0
