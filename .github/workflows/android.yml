@@ -59,7 +59,7 @@ jobs:
         run: ./gradlew assembleDebug --console=plain
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: paperread-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
@@ -73,7 +73,7 @@ jobs:
       # 覆盖率报告（HTML/XML），可下载查看
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: paperread-coverage-report
           path: app/build/reports/jacoco/
@@ -82,7 +82,7 @@ jobs:
       # 失败时上传测试报告，便于下载排查（含失败断言与堆栈）
       - name: Upload test reports (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: paperread-test-reports
           path: |
