@@ -200,6 +200,48 @@ class BookImporterTest {
     }
 
     @Test
+    fun `imports utf-8 bom txt without bom char leaking into text`() = runTest {
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        val uri = Uri.parse("content://io.github.lunalight.paperread.test/bom.txt")
+        shadowOf(context.contentResolver)
+            .registerInputStream(uri, ByteArrayInputStream(bom + gbkNovel.toByteArray(Charsets.UTF_8)))
+
+        val pending = assertSuccess(importer.prepare(uri))
+
+        assertEquals("UTF-8", pending.charsetName)
+        assertEquals(4, pending.chapters.size)
+        val first = textStore.readChapter(pending.dirName, pending.chapters[0])
+        assertTrue(first.startsWith("第一章 荒原之始"))
+        assertFalse(first.startsWith("\uFEFF"))
+    }
+
+    @Test
+    fun `imports 5mb txt through streaming pipeline`() = runTest {
+        // 约 5MB：强正则章节 + 每章约 600 字符，验证流式路径端到端可用
+        val big = buildString {
+            var i = 0
+            while (length < 5_000_000) {
+                i++
+                append("第").append(i).append("章 大标题").append(i).append('\n')
+                append("正文内容。".repeat(50)).append('\n')
+            }
+        }
+        val uri = uriFor("长篇.txt", big, Charsets.UTF_8)
+        val pending = assertSuccess(importer.prepare(uri))
+
+        assertTrue("章节数应过五千，实际 ${pending.chapters.size}", pending.chapters.size > 5000)
+        assertEquals(big.length.toLong(), pending.totalChars)
+        // 首尾章节按字节偏移读回
+        val first = textStore.readChapter(pending.dirName, pending.chapters[0])
+        assertTrue(first.startsWith("第1章 大标题1"))
+        val last = textStore.readChapter(pending.dirName, pending.chapters.last())
+        assertTrue(last.contains("正文内容。"))
+        assertFalse(last.contains("\uFFFD"))
+        // 流式路径不残留临时文件
+        assertFalse(File(textStore.bookDir(pending.dirName), "book.txt.tmp").exists())
+    }
+
+    @Test
     fun `cancel deletes temp directory`() = runTest {
         val uri = uriFor("荒原之始.txt", gbkNovel, gbkCharset)
         val pending = assertSuccess(importer.prepare(uri))

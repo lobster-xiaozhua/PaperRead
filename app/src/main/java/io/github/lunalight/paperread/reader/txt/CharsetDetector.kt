@@ -1,6 +1,7 @@
 package io.github.lunalight.paperread.reader.txt
 
 import java.nio.ByteBuffer
+import java.nio.CharBuffer
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 
@@ -36,6 +37,14 @@ object CharsetDetector {
         return CharsetDetection(Charset.forName("GB18030"), "GB18030", 0)
     }
 
+    /** 仅探测 BOM 长度（0/2/3），不判断编码——供切换编码后重新解析时跳过 BOM。 */
+    fun bomLengthOf(bytes: ByteArray): Int = when {
+        hasBom(bytes, 0xEF, 0xBB, 0xBF) -> 3
+        hasBom(bytes, 0xFF, 0xFE) -> 2
+        hasBom(bytes, 0xFE, 0xFF) -> 2
+        else -> 0
+    }
+
     fun byDisplayName(name: String): Charset? = when (name) {
         "UTF-8" -> Charsets.UTF_8
         "UTF-16LE" -> utf16("LE")
@@ -52,11 +61,18 @@ object CharsetDetector {
     }
 
     private fun decodesStrictly(sample: ByteArray, charset: Charset): Boolean = try {
-        charset.newDecoder()
+        val decoder = charset.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)
-            .decode(ByteBuffer.wrap(sample))
-        true
+        // 样本只是文件前缀：endOfInput=false 时，末尾被截断的多字节序列表现为
+        // UNDERFLOW（待续解码）而非格式错误；若用 endOfInput=true，截断会被误报为
+        // 格式错误，把合法 UTF-8 文件误判成 GB18030（64KB 边界约 2/3 概率落于字符中间）。
+        // 注意：三参 decode 不抛异常，REPORT 动作的错误以 CoderResult 返回，
+        // 必须显式检查，否则任何输入都会被判为合法。
+        val result = decoder.decode(
+            ByteBuffer.wrap(sample), CharBuffer.allocate(sample.size + 8), false
+        )
+        !result.isMalformed && !result.isUnmappable
     } catch (e: java.nio.charset.CharacterCodingException) {
         false
     }

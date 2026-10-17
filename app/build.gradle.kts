@@ -67,6 +67,9 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            // 大文件导入测试（5MB/20MB 冒烟）自身需持有输入/输出全文做全量比对，
+            // 512MB 默认堆处于临界；2GB 与 CI  runner（7GB）匹配
+            all { test -> test.maxHeapSize = "2g" }
             all { test ->
                 // Robolectric 下载 android-all 的仓库地址，可用
                 // -Probolectric.dependency.repo.url=https://maven.aliyun.com/repository/public

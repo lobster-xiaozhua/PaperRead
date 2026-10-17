@@ -1,6 +1,7 @@
 # 纸阅 PaperRead 装机验证清单
 
 > 适用版本：v1.0.1（versionCode 2，minSdk 26 / targetSdk 35）
+> 第 7 节（B1 流式导入）需安装含 B1 的开发版 APK 验证；其余节适用于 v1.0.1 发布版
 > 验证目标设备：至少一台 Android 8.0（API 26）真机；建议覆盖 Android 13/14/15 各一台
 > 隐私红线：全程开启飞行模式或断网验证，应用**不得**出现任何网络行为
 
@@ -65,7 +66,18 @@
 - [ ] 导入一本 50 MB+ TXT：无 OOM、无 ANR，切章流畅（双偏移懒加载）
 - [ ] logcat 过滤 `E/AndroidRuntime`：无崩溃；` StrictMode` 无磁盘读写主线程警告（如有请记录）
 
-## 7. 已知限制（非阻塞）
+## 7. B1 流式导入专项（200 MB GBK）
+
+> 前置：B1 代码已完成（115 单测全绿 + lint 0/0），本节为真机验收。200 MB GBK 文件可用脚本拼接生成（保持 GBK 编码，含目录页与长短不一章）。
+
+- [ ] 导入 200 MB GBK TXT：**导入成功**，书架出现书籍，无 OOM / 无 ANR
+- [ ] 导入全程进度对话框百分比平滑推进，无超过 2 秒的卡顿
+- [ ] 导入期间另一终端周期执行 `adb shell dumpsys meminfo io.github.lunalight.paperread | grep -i "TOTAL PSS"`：导入全程峰值 **< 100 MB**
+- [ ] 章节数与 PC 端按同策略（保守）批量切分数量一致（可用 `adb shell` 拉取 `files/books/<id>/chapters.json` 对比）
+- [ ] 进入书籍：首章 / 末章标题与正文无乱码；跳至末章进度百分比 ≈ 100%，与退出重进一致
+- [ ] `book.txt` 大小 = 原文件按探测编码解码后的字节数（`adb shell stat` 对比）；logcat 无 `E/AndroidRuntime`
+
+## 8. 已知限制（非阻塞）
 
 - TXT 作者恒为「未知」（正文作者行解析未实现）
 - 目录页与正文首章标题无空行分隔时，极端重复场景首个标题可能归入目录块（文本不丢失，可激进重解析修复）

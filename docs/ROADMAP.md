@@ -1,6 +1,6 @@
 # PaperRead 路线图（v1.1 → v2.0）
 
-> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 96 单测全绿 / lint 0/0
+> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 115 单测全绿 / lint 0/0（B1 已完成，待真机验收）
 > 原则：先发布收尾，再质量收敛，最后做体验增量；隐私红线（零网络权限）不变更
 
 ---
@@ -40,10 +40,13 @@
 
 ## B. v1.1 质量收敛（约 1.5 周）
 
-### B1 导入流式解码（2 天）· 最高优先级
-- 现状：`readText()` 全量驻留，200 MB 书导入峰值内存约 400 MB
-- 方案：`CharsetDecoder` 分块解码 → 增量写 `book.txt` → 边切章边记录双偏移
-- 验收：200 MB GBK TXT 导入成功；`dumpsys meminfo` 峰值 < 100 MB；进度条仍平滑
+### B1 导入流式解码（2 天）· 最高优先级 ✅ 已完成
+- 现状（修复前）：`readText()` 全量驻留，200 MB 书导入峰值内存约 400 MB
+- 方案：`CharsetDecoder` 分块解码 → 增量写 `book.txt` → 边切章边记录双偏移（`TxtChapterStream`，约 490 行；强制分段三段语义与批量逐段一致）
+- 顺带修复：编码探测对 64 KB 前缀截断的误判（合法 UTF-8 被回落 GB18030 → 乱码 → 章节数暴跌）
+- 单测层验收：115 单测全绿 + lint 0/0；20 MB 冒烟流式核心常驻 13 MB（与文件大小无关）；5 MB GBK 章节数 > 5000
+- **待真机验收**：200 MB GBK TXT 导入成功；`dumpsys meminfo` 峰值 < 100 MB；进度条仍平滑（DEVICE_CHECKLIST 第 7 节）
+- 详见 TASKS.md「B1 导入流式解码」
 
 ### B2 ViewModel 自动化测试（1 天）
 - 栈：`kotlinx-coroutines-test` + Turbine + 手工 fake repository

@@ -38,7 +38,7 @@
 ### 遗留说明
 - 目录页与正文首章标题无空行分隔时，靠「重复标题」启发式终止目录链；极端重复场景首个标题仍可能归入目录块（文本不丢失），可在结果页切换「激进」策略重解析
 - EPUB 走 Unsupported 分支，M3 接入 EpubParser 后替换
-- book.txt 全文一次性解码进内存，百 MB 级超大文件需流式解码（M6 前评估）
+- book.txt 全文一次性解码进内存的问题已由 B1 流式解码解决（见下方 B1 节）
 
 ## M3 EPUB 引擎（已完成）
 
@@ -136,6 +136,33 @@
 - `reparseBook` 返回 `String?`（null=成功）；源文件丢失返回「源文件已丢失，请删除后重新导入」
 
 ### 未处理项（评审后判定）
-- 导入期全文驻留内存（流式解码，预估 2 天，v1.1 处理）
-- VM/UI 自动化测试与 androidTest（v1.1 引入 Turbine + Compose UI Test）
-- 拆分 `:reader` 独立模块（待代码量增长观察）
+- 导入期全文驻留内存（流式解码，预估 2 天，v1.1 处理）→ **已由 B1 完成**
+- VM/UI 自动化测试与 androidTest（v1.1 引入 Turbine + Compose UI Test）→ B2/B3
+- 拆分 `:reader` 独立模块（待代码量增长观察）→ B6 暂缓
+
+## B1 导入流式解码（v1.1，已完成）
+
+> 依据 ROADMAP B1：200 MB GBK TXT 导入成功、峰值内存 < 100 MB、进度平滑。验收：115 单测全绿 + lint 0/0 + assembleDebug 通过。
+
+### 实现
+- 新增 `reader/txt/TxtChapterStream.kt`（约 490 行）：`CharsetDecoder` 分块解码 → 增量写 `book.txt` → 边切章边记录双偏移（charStart/charEnd UTF-16 用于进度，byteStart/byteEnd UTF-8 用于读取）
+- 流式核心常驻内存与文件大小无关：实测 20 MB 字节输入常驻 13 MB（流式缓冲 256 KB 量级）；章节索引 O(章数) 非 O(文件大小)
+- `ChapterSplitter.splitForced` 三段语义在流式侧逐段复刻：目标位 ±200 字符换行吸附、`lastIndexOf` 向后吸附（缓冲内扫 + `lastNewlineFlushed` 兜底已冲刷区域）、末段硬切；边界与批量逐段一致（TxtChapterStreamTest 对齐用例）
+- `CharsetDetector.decodesStrictly` 修复前缀截断误判：64 KB 样本末尾的多字节截断不再误报 MALFORMED（详见下方关键实现说明）
+- `BookImporter` TXT 分支切换为流式路径；EPUB 分支不变
+
+### 关键实现说明
+- **CharsetDecoder 前缀截断语义**：一参 `decode(ByteBuffer)` 等价 endOfInput=true，样本末尾截断报 MALFORMED；三参 `decode(in, out, false)` 截断表现为 UNDERFLOW（待续）。但三参版本**不抛异常**，REPORT 动作的错误以 `CoderResult` 返回，必须显式检查 `isMalformed/isUnmappable`——忽略返回值会让任何输入都被判合法（调试期间实际踩中，表现为 GBK 全被误判为 UTF-8）
+- **激进短行候选竞态**：激进策略的候选短行需等下一行完成才能判定 nextBlank，而冲刷上限（最后一个换行 +1）会先掠过候选位置致 bytePos 永久为 -1；AGGRESSIVE 模式下冲刷上限 cap 到 `pendingShortLine.start`（冲刷最多停顿一行）
+- **合成行安全**：超过 maxBufferChars 的行在追加期间必触发紧急冲刷 → midLineFlushed → 完成时判 synthetic → 不参与短行/强正则候选，紧急冲刷越过待判行起点仍安全
+- **冲刷不变量**：advanceForced 先于每次 flushTo 执行，且只在「缓冲内无 ≥target 换行」的等待态返回，保证向后吸附不漏目标位前的换行
+- **测试堆**：5 MB / 20 MB 冒烟测试自身持有约 260 MB 对象（text/bytes/normalized/decoded 等），512 MB 默认堆临界 → `testOptions.unitTests.all.maxHeapSize = "2g"`
+
+### 测试
+- TxtChapterStreamTest 18 用例：流式与批量逐段一致（保守/激进/强制前后吸附+硬切）、双偏移 round-trip、取消传播、空文本、合成行
+- CharsetDetectorTest +1：UTF-8 前缀截断 1/2 字节仍判 UTF-8
+- BookImporterTest 5 MB fixture 章节数 > 5000（修复前因探测 bug 回落 GB18030 仅 2678）
+- 全量 115 单测全绿；lint 0/0；assembleDebug 通过（APK 无 INTERNET 权限）
+
+### 待真机验证
+- 200 MB GBK TXT 导入 + `dumpsys meminfo` 峰值 < 100 MB + 进度平滑（见 DEVICE_CHECKLIST 第 7 节）

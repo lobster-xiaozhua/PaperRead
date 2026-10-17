@@ -37,11 +37,23 @@ class CharsetDetectorTest {
     }
 
     @Test
-    fun `detects plain UTF-8 Chinese without BOM`() {
+    fun `plain UTF-8 Chinese without BOM`() {
         val bytes = chinese.toByteArray(Charsets.UTF_8)
         val result = CharsetDetector.detect(bytes)
         assertEquals("UTF-8", result.displayName)
         assertEquals(0, result.bomLength)
+    }
+
+    @Test
+    fun `UTF-8 sample truncated mid-character is still detected as UTF-8`() {
+        // 样本是文件前缀，64KB 边界约 2/3 概率截断多字节字符：
+        // 末尾残留的不完整序列不得让合法 UTF-8 被误判成 GB18030
+        val text = "第一章 荒原之始\n少年提灯独行。"
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        for (cut in 1..2) {
+            val sample = bytes.copyOf(bytes.size - cut) // 去掉末尾 1/2 字节，必落在字符中部
+            assertEquals("截断 $cut 字节仍应识别为 UTF-8", "UTF-8", CharsetDetector.detect(sample).displayName)
+        }
     }
 
     @Test
