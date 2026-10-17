@@ -1,6 +1,12 @@
 # Dependabot 自动依赖更新。
-# 仅「提议」升级 PR，不自动合并——升级须经本地全量门禁 + 人工审查
-# （AGENTS.md「版本组合勿随意升级」）。
+#
+# 策略（对齐 AGENTS.md「版本组合勿随意升级」）：
+#   仅自动提议 minor / patch 更新；**忽略 semver-major**。
+#   大版本（AGP / Kotlin / Gradle / KSP / Compose BOM / Room 等）属于锁定版本组合，
+#   升级需专门的迁移工单 + 人工审查，不在此自动通道内（实例：AGP 8.7.3→9 与
+#   Kotlin 2.0.21→2.4 均被 CI 证实与 Gradle 8.9 不兼容）。
+#
+# 所有 PR 仅「提议」、不自动合并，仍需本地全量门禁 + 人工审查。
 version: 2
 updates:
   # Gradle 依赖（版本目录 libs.versions.toml）
@@ -16,6 +22,9 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "chore(deps)"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions 版本
   - package-ecosystem: "github-actions"
@@ -30,3 +39,6 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "chore(ci)"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

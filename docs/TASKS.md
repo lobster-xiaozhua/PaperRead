@@ -342,3 +342,12 @@
   jacocoTestCoverageVerification + assembleDebug + assembleRelease
 - 单测 185 个 0 失败；lint 0 error / 0 warning；双 APK 产出正常
 - 两个 YAML 经 safe_load 校验通过
+
+### 依赖自动化收尾（Dependabot 策略收敛）
+- Dependabot 首扫即开出 7 个 PR，其中 AGP 8.7.3→9.4.1、Kotlin 2.0.21→2.4.21
+  等大版本被 CI 证实与 Gradle 8.9 不兼容（AGP PR 的 CI 直接红）
+- 将 Dependabot 改为**忽略 semver-major**（两个 ecosystem 均加
+  `ignore: update-types: ["version-update:semver-major"]`），仅自动提议 minor/patch，
+  从源头杜绝「版本组合勿随意升级」被自动通道绕过
+- 关闭 6 个大版本 PR（#1/#2/#3/#5/#6/#7）并附说明；保留 #4（Robolectric
+  4.14.1→4.17，minor，CI 绿、可合并）供人工审阅
