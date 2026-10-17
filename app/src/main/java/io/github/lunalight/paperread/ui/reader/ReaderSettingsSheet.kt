@@ -96,7 +96,7 @@ fun TocSheet(
                 state = state,
                 theme = theme,
                 onSelect = onSelect,
-                listModifier = Modifier
+                modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false),
             )
@@ -106,7 +106,7 @@ fun TocSheet(
                 theme = theme,
                 onSelect = onBookmarkSelect,
                 onDelete = onBookmarkDelete,
-                listModifier = Modifier
+                modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = false),
             )
@@ -119,9 +119,9 @@ private fun ChapterList(
     state: ReaderUiState,
     theme: ReaderTheme,
     onSelect: (Int) -> Unit,
-    listModifier: Modifier,
+    modifier: Modifier,
 ) {
-    LazyColumn(modifier = listModifier) {
+    LazyColumn(modifier = modifier) {
         itemsIndexed(
             items = state.chapters,
             key = { index, _ -> index },
@@ -171,7 +171,7 @@ private fun BookmarkList(
     theme: ReaderTheme,
     onSelect: (Bookmark) -> Unit,
     onDelete: (Long) -> Unit,
-    listModifier: Modifier,
+    modifier: Modifier,
 ) {
     if (state.bookmarks.isEmpty()) {
         Column(
@@ -194,7 +194,7 @@ private fun BookmarkList(
         }
         return
     }
-    LazyColumn(modifier = listModifier) {
+    LazyColumn(modifier = modifier) {
         itemsIndexed(
             items = state.bookmarks,
             key = { _, bookmark -> bookmark.id },

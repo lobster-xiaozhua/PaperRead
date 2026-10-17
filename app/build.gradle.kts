@@ -15,7 +15,24 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "1.0.0"
+    }
+
+    // Release 签名：keystore 不入库，经 gradle properties / 环境变量注入：
+    //   RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD
+    // 未配置时产出未签名 release APK（可用 apksigner 后续重签）。
+    val releaseStoreFile: File? =
+        (project.findProperty("RELEASE_STORE_FILE") as String?)?.let { file(it) }
+
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = project.findProperty("RELEASE_STORE_PASSWORD") as String?
+                keyAlias = project.findProperty("RELEASE_KEY_ALIAS") as String?
+                keyPassword = project.findProperty("RELEASE_KEY_PASSWORD") as String?
+            }
+        }
     }
 
     buildTypes {
@@ -23,13 +40,19 @@ android {
             isMinifyEnabled = false
         }
         release {
-            // M6 启用 R8 并完善 proguard-rules.pro
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
         }
+    }
+
+    lint {
+        abortOnError = true
+        checkDependencies = false
     }
 
     compileOptions {

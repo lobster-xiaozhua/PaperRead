@@ -99,9 +99,17 @@
 - **书签跳转**：goToChapter(chapterIndex, paragraph) 段级恢复，与 ReaderPosition 恢复同路径
 - **Tab 面板**：TocSheet 双 Tab（目录/书签），列表修饰符由 ModalBottomSheet 的 ColumnScope 传入（weight 仅在 Scope 内可解析）
 
-## M6 测试 / 构建 / 交付
+## M6 测试 / 构建 / 交付（已完成）
 
 ### T6.1 全量单测 + fixture 补全
-### T6.2 lint 清零 + release 构建配置（R8、签名脚本，keystore 不入库）
-### T6.3 装机验证清单 + 最终 APK + GitHub 仓库创建推送（默认 public）
-- 验收：交付 源码 + APK + 文档 + 装机验证清单；CI 三项全绿
+- 覆盖：94 个单测全绿（导入流水线 / TXT 切分 / EPUB 引擎 / XML 双端 / 仓储 / 书签 / 进度纯函数 / 设置持久化 / 冒烟），fixture 全部程序化构造（含手搓 STORED ZIP 的 GBK 条目名用例）
+
+### T6.2 lint 清零 + release 构建配置
+- lint：0 errors / 0 warnings（RedundantLabel / ModifierParameter 已修；mipmap-anydpi-v26 的 ObsoleteSdkInt 为工具链误报——实测移入 mipmap-anydpi 会导致 AAPT2 链接失败，经 lint.xml 按路径豁免并注明原因）
+- release：R8 + 资源压缩（10.3 MB → 1.47 MB）；签名走 gradle properties 注入，`scripts/generate-keystore.sh` 生成 keystore，`.gitignore` 屏蔽 *.jks / keystore.properties
+- 已验证 release APK 无 INTERNET 权限
+
+### T6.3 装机验证清单 + 最终 APK + GitHub 推送
+- [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md)：七大类 40+ 项真机验证清单（导入/书架/阅读器/书签/进度/隐私/稳定性）
+- 最终 APK：`app/build/outputs/apk/debug/app-debug.apk`（v1.0.0）
+- GitHub 仓库创建推送：需用户提供 GitHub Token（gh CLI 当前未认证），见 README「发布」节

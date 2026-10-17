@@ -7,7 +7,7 @@
 - **本地导入 TXT / EPUB**：智能章节解析，5 套预设阅读主题，段级进度记忆
 - **零二进制素材**：封面程序化生成，图标为矢量图，安装包干净可审查
 
-> 状态：M5 目录 / 书签阶段（v0.3.0）。功能 roadmap 见下文。
+> 状态：v1.0.0 首个完整版本（M1–M6 全部完成）。功能 roadmap 见下文。
 
 ## 功能
 
@@ -24,7 +24,7 @@
 | 进度记忆恢复（ReaderPosition 段级 + 像素级） | ✅ M4 |
 | 阅读设置（字号 / 行距 / 段距 / 边距 / 音量键翻章，实时生效自动持久化） | ✅ M4 |
 | 目录 / 书签 / 重新解析章节 | ✅ M5 |
-| 单元测试 + lint + release 构建 + CI 门禁 | 🚧 M6 |
+| 单元测试 + lint + release 构建 + CI 门禁 | ✅ M6 |
 
 Roadmap：TTS 语音朗读、Wi-Fi 传书、备份恢复、仿真翻页、自定义字体、平板适配、国际化。
 
@@ -51,7 +51,25 @@ echo "sdk.dir=/path/to/Android/sdk" > local.properties
 
 # 静态检查
 ./gradlew lint
+
+# Release 构建（R8 + 资源压缩，未签名产物为 app-release-unsigned.apk）
+./gradlew assembleRelease
 ```
+
+### Release 签名（keystore 不入库）
+
+```bash
+# 1. 生成本地 keystore（默认落 ~/.paperread/，.gitignore 已屏蔽）
+./scripts/generate-keystore.sh
+
+# 2. 按脚本提示把 RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD /
+#    RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD 写入 local.properties
+
+# 3. 重新构建即得已签名 APK
+./gradlew assembleRelease
+```
+
+装机前请按 [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md) 完成真机验证。
 
 ## 架构
 
@@ -77,6 +95,15 @@ Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlP
 - [AGENTS.md](AGENTS.md)：AI 协作常驻规则（必读）
 - [CONTRIBUTING.md](CONTRIBUTING.md)：贡献指南
 - CI 门禁：`assembleDebug` + `testDebugUnitTest` + `lint` 全绿方可合并
+
+## 发布
+
+仓库尚未创建远端。推送步骤（需 GitHub Token）：
+
+```bash
+gh auth login                 # 或设置 GH_TOKEN 环境变量
+gh repo create lunalight/PaperRead --public --source=. --push
+```
 
 ## 依赖清单
 
