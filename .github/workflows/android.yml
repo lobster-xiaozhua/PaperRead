@@ -18,8 +18,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # runner 镜像自带 Android SDK（ANDROID_HOME=/usr/local/lib/android/sdk）。
+      # 不用 android-actions/setup-android：其默认 packages 含已废弃的 'tools' 包，
+      # sdkmanager 找不到该包即整步失败（Failed to find package 'tools'）
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -e
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          fi
+          yes | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --console=plain
