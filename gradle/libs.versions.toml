@@ -13,7 +13,7 @@ coroutines = "1.9.0"
 turbine = "1.2.0"
 serializationJson = "1.7.3"
 junit = "4.13.2"
-robolectric = "4.14.1"
+robolectric = "4.17"
 androidxTestCore = "1.6.1"
 
 [libraries]
