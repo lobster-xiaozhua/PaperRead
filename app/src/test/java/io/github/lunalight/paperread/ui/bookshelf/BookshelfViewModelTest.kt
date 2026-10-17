@@ -2,6 +2,7 @@ package io.github.lunalight.paperread.ui.bookshelf
 
 import android.net.Uri
 import app.cash.turbine.test
+import io.github.lunalight.paperread.data.repository.ImportError
 import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.data.repository.PrepareResult
 import io.github.lunalight.paperread.domain.model.Book
@@ -254,8 +255,9 @@ class BookshelfViewModelTest {
     }
 
     @Test
-    fun `不支持的格式透传原因`() = runTest(mainDispatcher) {
-        importer.prepareResult = PrepareResult.Unsupported("仅支持 TXT / EPUB 格式")
+    fun `不支持的格式映射用户话术`() = runTest(mainDispatcher) {
+        importer.prepareResult =
+            PrepareResult.Unsupported(ImportError.UnsupportedFormat("pdf"))
 
         viewModel.importBook(uri)
         advanceUntilIdle()
@@ -266,14 +268,48 @@ class BookshelfViewModelTest {
     }
 
     @Test
-    fun `失败原因透传`() = runTest(mainDispatcher) {
-        importer.prepareResult = PrepareResult.Failure("存储空间不足，无法导入")
+    fun `失败原因映射用户话术`() = runTest(mainDispatcher) {
+        importer.prepareResult = PrepareResult.Failure(ImportError.InsufficientSpace)
 
         viewModel.importBook(uri)
         advanceUntilIdle()
 
         assertEquals("存储空间不足，无法导入", viewModel.uiState.value.message)
         assertFalse(viewModel.uiState.value.import.running)
+    }
+
+    @Test
+    fun `DRM 与空间不足失败话术可区分`() = runTest(mainDispatcher) {
+        // B7 验收：不同失败类型在结果页（Snackbar）文案可区分
+        importer.prepareResult = PrepareResult.Failure(
+            ImportError.DrmEncrypted("EncryptedData found"),
+        )
+        viewModel.importBook(uri)
+        advanceUntilIdle()
+        val drmMessage = viewModel.uiState.value.message
+        assertEquals("该 EPUB 含 DRM 加密，无法导入", drmMessage)
+
+        viewModel.dismissMessage()
+        importer.prepareResult = PrepareResult.Failure(ImportError.InsufficientSpace)
+        viewModel.importBook(uri)
+        advanceUntilIdle()
+        val spaceMessage = viewModel.uiState.value.message
+
+        assertTrue("两类失败话术应不同", drmMessage != spaceMessage)
+    }
+
+    @Test
+    fun `编码失败话术可区分`() = runTest(mainDispatcher) {
+        // B7 验收：编码失败（BOM 与内容不符）既区别于 DRM 也区别于空间不足
+        importer.prepareResult = PrepareResult.Failure(ImportError.DecodeFailed("UTF-8"))
+
+        viewModel.importBook(uri)
+        advanceUntilIdle()
+
+        val message = viewModel.uiState.value.message
+        assertEquals("文件编码异常，请转换编码后重试", message)
+        assertTrue(message != ImportError.InsufficientSpace.userMessage)
+        assertTrue(message != ImportError.DrmEncrypted("x").userMessage)
     }
 
     @Test
@@ -353,7 +389,7 @@ class BookshelfViewModelTest {
     @Test
     fun `重新解析书籍透传策略与结果`() = runTest(mainDispatcher) {
         val target = book(id = 1L, title = "乙", lastReadAt = 100L, addedAt = 10L)
-        importer.reparseBookResult = "源文件已丢失，请删除后重新导入"
+        importer.reparseBookResult = ImportError.SourceMissing("dir-1")
 
         viewModel.requestReparse(target)
         advanceUntilIdle()
@@ -364,7 +400,7 @@ class BookshelfViewModelTest {
 
         val state = viewModel.uiState.value
         assertNull("对话框关闭", state.reparseTarget)
-        assertEquals("失败原因透传", "源文件已丢失，请删除后重新导入", state.message)
+        assertEquals("失败原因映射", "源文件已丢失，请删除后重新导入", state.message)
         assertEquals(Pair(target, SplitStrategy.AGGRESSIVE), importer.reparsedBooks.single())
     }
 
@@ -401,7 +437,8 @@ class BookshelfViewModelTest {
 
     @Test
     fun `消息可被消除`() = runTest(mainDispatcher) {
-        importer.prepareResult = PrepareResult.Unsupported("仅支持 TXT / EPUB 格式")
+        importer.prepareResult =
+            PrepareResult.Unsupported(ImportError.UnsupportedFormat("pdf"))
         viewModel.importBook(uri)
         advanceUntilIdle()
         assertEquals("仅支持 TXT / EPUB 格式", viewModel.uiState.value.message)

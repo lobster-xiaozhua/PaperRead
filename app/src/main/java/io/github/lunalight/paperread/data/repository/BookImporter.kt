@@ -32,6 +32,7 @@ import java.util.UUID
 
 /** 导入阶段（UI 进度条用）。 */
 enum class ImportStage(val label: String) {
+    PRECHECK("检查文件"),
     COPYING("复制文件"),
     DETECTING("探测编码"),
     CHECKING_DUPLICATE("检查重复"),
@@ -63,6 +64,82 @@ data class PendingImport(
     val chapters: List<Chapter>,
 )
 
+/**
+ * 结构化导入 / 解析失败原因（B7）。
+ *
+ * 每个子类携带三要素：
+ * - [stage]：失败发生在流水线哪个阶段（定位断点）
+ * - [cause]：底层原因（异常信息 / 触发值），供日志与排查
+ * - [userMessage]：面向用户的提示话术，UI 层直接取用，不再自行拼文案
+ *
+ * 文案区分度即产品验收：DRM / 空间不足 / 编码失败等场景的话术两两不同。
+ */
+sealed class ImportError {
+
+    abstract val stage: ImportStage
+    abstract val cause: String?
+    abstract val userMessage: String
+
+    /** 扩展名不在 txt / epub 内（[ImportError.cause] 为扩展名）。 */
+    data class UnsupportedFormat(val extension: String) : ImportError() {
+        override val stage: ImportStage = ImportStage.PRECHECK
+        override val cause: String get() = "extension=$extension"
+        override val userMessage: String = "仅支持 TXT / EPUB 格式"
+    }
+
+    /** 磁盘预检不通过（剩余空间不足文件双份 + 20% 余量）。 */
+    data object InsufficientSpace : ImportError() {
+        override val stage: ImportStage = ImportStage.PRECHECK
+        override val cause: String? = null
+        override val userMessage: String = "存储空间不足，无法导入"
+    }
+
+    /** EPUB 含 DRM 加密（[ImportError.cause] 为底层异常信息）。 */
+    data class DrmEncrypted(val detail: String?) : ImportError() {
+        override val stage: ImportStage = ImportStage.PARSING
+        override val cause: String? get() = detail
+        override val userMessage: String = "该 EPUB 含 DRM 加密，无法导入"
+    }
+
+    /**
+     * 文件读取失败：打开文件流 / 拷贝读取异常（SAF 权限失效、文件被移动删除等，
+     * [ImportError.cause] 为异常信息）。仅覆盖拷贝期；解析期的 IO 异常归 [ParseFailed]。
+     */
+    data class ReadFailed(val detail: String?) : ImportError() {
+        override val stage: ImportStage = ImportStage.COPYING
+        override val cause: String? get() = detail
+        override val userMessage: String = "无法读取文件，请重试"
+    }
+
+    /** 书籍目录创建失败（[ImportError.cause] 为异常信息）。 */
+    data class DirCreateFailed(val detail: String?) : ImportError() {
+        override val stage: ImportStage = ImportStage.COPYING
+        override val cause: String? get() = detail
+        override val userMessage: String = "无法创建书籍目录，请重试"
+    }
+
+    /** BOM 声明的编码无法严格解码（[ImportError.cause] 为编码名）。 */
+    data class DecodeFailed(val encoding: String) : ImportError() {
+        override val stage: ImportStage = ImportStage.DETECTING
+        override val cause: String get() = "encoding=$encoding"
+        override val userMessage: String = "文件编码异常，请转换编码后重试"
+    }
+
+    /** 章节解析失败：结构非法 / 内容异常 / 拷贝读取异常（[ImportError.cause] 为异常信息）。 */
+    data class ParseFailed(val detail: String?) : ImportError() {
+        override val stage: ImportStage = ImportStage.PARSING
+        override val cause: String? get() = detail
+        override val userMessage: String = "文件解析失败，请重试"
+    }
+
+    /** 重新解析时源文件丢失（仅 reparseBook 产出，[ImportError.cause] 为书籍目录名）。 */
+    data class SourceMissing(val dirName: String) : ImportError() {
+        override val stage: ImportStage = ImportStage.PARSING
+        override val cause: String get() = "dir=$dirName"
+        override val userMessage: String = "源文件已丢失，请删除后重新导入"
+    }
+}
+
 /** 导入准备结果。 */
 sealed interface PrepareResult {
     /** 解析完成，等待确认。 */
@@ -72,10 +149,10 @@ sealed interface PrepareResult {
     data class Duplicate(val existing: Book) : PrepareResult
 
     /** 格式不支持（扩展名不在 txt/epub 内）。 */
-    data class Unsupported(val reason: String) : PrepareResult
+    data class Unsupported(val error: ImportError.UnsupportedFormat) : PrepareResult
 
-    /** 失败（空间不足 / DRM / 读取异常等），临时目录已清理。 */
-    data class Failure(val message: String) : PrepareResult
+    /** 失败（空间不足 / DRM / 编码异常 / 解析异常等），临时目录已清理。 */
+    data class Failure(val error: ImportError) : PrepareResult
 }
 
 /** 解析阶段产物（EPUB 分流：OPF/spine 解析出的全文 + 章节区间）。 */
@@ -130,9 +207,9 @@ interface BookImporter {
      * 书架「重新解析」：TXT 用新策略重新切分；EPUB 重新提取正文。
      * 章节语义已变：重置阅读位置并清空书签（否则旧书签跳到错位内容）。
      *
-     * @return 成功返回 null；失败返回用户可读的错误原因（书籍保持原状，可重试）。
+     * @return 成功返回 null；失败返回结构化的 [ImportError]（书籍保持原状，可重试）。
      */
-    suspend fun reparseBook(book: Book, strategy: SplitStrategy): String?
+    suspend fun reparseBook(book: Book, strategy: SplitStrategy): ImportError?
 }
 
 /** [BookImporter] 的默认实现（真实导入流水线）。 */
@@ -152,18 +229,24 @@ class DefaultBookImporter(
         strategy: SplitStrategy,
         onProgress: (ImportProgress) -> Unit,
     ): PrepareResult = withContext(Dispatchers.IO) {
+        onProgress(ImportProgress(ImportStage.PRECHECK, 0f))
         val meta = queryMeta(uri)
-            ?: return@withContext PrepareResult.Failure("无法读取文件信息，请重试")
-        val format = BookFormat.fromExtension(meta.displayName.substringAfterLast('.', ""))
-            ?: return@withContext PrepareResult.Unsupported("仅支持 TXT / EPUB 格式")
+            ?: return@withContext PrepareResult.Failure(ImportError.ReadFailed("无法查询文件信息"))
+        val extension = meta.displayName.substringAfterLast('.', "")
+        val format = BookFormat.fromExtension(extension)
+            ?: return@withContext PrepareResult.Unsupported(
+                ImportError.UnsupportedFormat(extension.ifBlank { "(无扩展名)" }),
+            )
         if (!precheckDisk(meta.sizeBytes)) {
-            return@withContext PrepareResult.Failure("存储空间不足，无法导入")
+            return@withContext PrepareResult.Failure(ImportError.InsufficientSpace)
         }
 
         val dirName = UUID.randomUUID().toString()
         val bookDir = textStore.bookDir(dirName)
         if (!bookDir.mkdirs()) {
-            return@withContext PrepareResult.Failure("无法创建书籍目录")
+            return@withContext PrepareResult.Failure(
+                ImportError.DirCreateFailed("mkdirs 失败：${bookDir.path}"),
+            )
         }
         try {
             // 阶段间响应取消（AC-1.4：导入保持可取消）
@@ -171,8 +254,17 @@ class DefaultBookImporter(
             // 1. 流式拷贝 + SHA-256（拷贝循环内响应取消）
             onProgress(ImportProgress(ImportStage.COPYING, 0f))
             val sourceFile = File(bookDir, "source.${format.extension}")
-            val sha256 = copyAndHash(uri, sourceFile) { fraction ->
-                onProgress(ImportProgress(ImportStage.COPYING, fraction))
+            // 拷贝期失败（打开流 / 读取 / 写临时文件）统一归为读取失败；
+            // 解析期（parseEpub / streamTxt）的 IOException 由外层通用 catch 归为解析失败
+            val sha256 = try {
+                copyAndHash(uri, sourceFile) { fraction ->
+                    onProgress(ImportProgress(ImportStage.COPYING, fraction))
+                }
+            } catch (e: CancellationException) {
+                throw e // 取消照常传播，由外层统一清理目录
+            } catch (e: Exception) {
+                bookDir.deleteRecursively()
+                return@withContext PrepareResult.Failure(ImportError.ReadFailed(e.message))
             }
 
             // 2. 去重
@@ -202,7 +294,19 @@ class DefaultBookImporter(
                 totalChars = outcome.text.length.toLong()
             } else {
                 onProgress(ImportProgress(ImportStage.DETECTING, 0.2f))
-                val detection = CharsetDetector.detect(sampleOf(sourceFile))
+                val sample = sampleOf(sourceFile)
+                val detection = CharsetDetector.detect(sample)
+                // BOM 声明了编码而样本无法按该编码严格解码 → 编码失败（转换编码后重试）；
+                // 无 BOM 的探测结果（UTF-8 严格试解码失败 → GB18030 回退）是设计内容错路径，
+                // 由流式解码 REPLACE 兜底，不在此拦截
+                if (detection.bomLength > 0 &&
+                    !CharsetDetector.decodesStrictly(sample, detection.charset)
+                ) {
+                    bookDir.deleteRecursively()
+                    return@withContext PrepareResult.Failure(
+                        ImportError.DecodeFailed(detection.displayName),
+                    )
+                }
                 val result = streamTxt(
                     sourceFile = sourceFile,
                     charset = detection.charset,
@@ -245,10 +349,11 @@ class DefaultBookImporter(
             throw e
         } catch (e: EpubEncryptedException) {
             bookDir.deleteRecursively()
-            PrepareResult.Failure(e.message ?: "该 EPUB 含 DRM 加密，无法导入")
+            PrepareResult.Failure(ImportError.DrmEncrypted(e.message))
         } catch (e: Exception) {
+            // 解析期失败（结构非法 / IO 异常 / 断言失败）统一归为解析失败
             bookDir.deleteRecursively()
-            PrepareResult.Failure(e.message ?: "导入失败，请重试")
+            PrepareResult.Failure(ImportError.ParseFailed(e.message))
         }
     }
 
@@ -341,9 +446,9 @@ class DefaultBookImporter(
      *
      * book.txt 采用「临时文件 + 成功后替换」写入：解析失败或取消时原文件保持可用。
      *
-     * @return 成功返回 null；失败返回用户可读的错误原因（书籍保持原状，可重试）。
+     * @return 成功返回 null；失败返回结构化的 [ImportError]（书籍保持原状，可重试）。
      */
-    override suspend fun reparseBook(book: Book, strategy: SplitStrategy): String? =
+    override suspend fun reparseBook(book: Book, strategy: SplitStrategy): ImportError? =
         withContext(Dispatchers.IO) {
             try {
                 val sourceFile = File(
@@ -351,7 +456,7 @@ class DefaultBookImporter(
                     "source.${book.format.extension}",
                 )
                 if (!sourceFile.exists()) {
-                    return@withContext "源文件已丢失，请删除后重新导入"
+                    return@withContext ImportError.SourceMissing(book.dirName)
                 }
                 val entries: List<ChapterIndexEntry>
                 val totalChars: Long
@@ -381,8 +486,10 @@ class DefaultBookImporter(
                 null
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: EpubEncryptedException) {
+                ImportError.DrmEncrypted(e.message)
             } catch (e: Exception) {
-                e.message ?: "重新解析失败，请重试"
+                ImportError.ParseFailed(e.message)
             }
         }
 
@@ -508,8 +615,9 @@ class DefaultBookImporter(
             } else 0L
         } ?: 0L
         var copied = 0L
-        context.contentResolver.openInputStream(uri).use { input ->
-            checkNotNull(input) { "无法打开文件流" }
+        val input = context.contentResolver.openInputStream(uri)
+            ?: throw java.io.IOException("无法打开文件流")
+        input.use {
             FileOutputStream(target).use { out ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE * 8)
                 while (true) {

@@ -2,6 +2,7 @@ package io.github.lunalight.paperread.fakes
 
 import android.net.Uri
 import io.github.lunalight.paperread.data.repository.BookImporter
+import io.github.lunalight.paperread.data.repository.ImportError
 import io.github.lunalight.paperread.data.repository.ImportProgress
 import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.data.repository.PrepareResult
@@ -17,7 +18,7 @@ class FakeBookImporter : BookImporter {
 
     /** prepare 的返回结果。 */
     var prepareResult: PrepareResult =
-        PrepareResult.Failure("未配置 prepareResult")
+        PrepareResult.Failure(ImportError.ParseFailed("未配置 prepareResult"))
 
     /** 非空时 prepare 先等待该门（测试取消 / 观察运行态）。 */
     var prepareGate: CompletableDeferred<Unit>? = null
@@ -26,7 +27,7 @@ class FakeBookImporter : BookImporter {
     var progressSteps: List<ImportProgress> = emptyList()
 
     var reparseResult: PendingImport? = null
-    var reparseBookResult: String? = null
+    var reparseBookResult: ImportError? = null
     var confirmResult: Long = 1L
 
     data class PrepareCall(val uri: Uri, val strategy: SplitStrategy)
@@ -66,7 +67,7 @@ class FakeBookImporter : BookImporter {
         cancelledPendings += pending
     }
 
-    override suspend fun reparseBook(book: Book, strategy: SplitStrategy): String? {
+    override suspend fun reparseBook(book: Book, strategy: SplitStrategy): ImportError? {
         reparsedBooks += book to strategy
         return reparseBookResult
     }

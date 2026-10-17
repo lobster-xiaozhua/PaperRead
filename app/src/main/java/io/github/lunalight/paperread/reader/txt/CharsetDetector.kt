@@ -60,7 +60,13 @@ object CharsetDetector {
         return bom.indices.all { bytes[it] == bom[it].toByte() }
     }
 
-    private fun decodesStrictly(sample: ByteArray, charset: Charset): Boolean = try {
+    /**
+     * 严格解码校验（REPORT 动作）：样本可解码返回 true。
+     * 供 BOM 驱动的编码判定使用——BOM 声明了编码而内容无法按该编码解码，
+     * 属于真实的编码失败；相对地，无 BOM 时回退 GB18030 是设计内的容错路径，
+     * 不走本校验。样本外的数据不校验（调用方传前 64KB 样本即可）。
+     */
+    fun decodesStrictly(sample: ByteArray, charset: Charset): Boolean = try {
         val decoder = charset.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)

@@ -15,6 +15,7 @@ import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.nio.charset.Charset
+import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -145,6 +146,10 @@ class BookImporterTest {
         val uri = uriFor("文档.pdf", gbkNovel, gbkCharset)
         val result = importer.prepare(uri)
         assertTrue("期望 Unsupported，实际 $result", result is PrepareResult.Unsupported)
+        val error = (result as PrepareResult.Unsupported).error
+        assertEquals("pdf", error.extension)
+        assertEquals("仅支持 TXT / EPUB 格式", error.userMessage)
+        assertEquals(ImportStage.PRECHECK, error.stage)
     }
 
     @Test
@@ -154,6 +159,8 @@ class BookImporterTest {
         // （此处仅验证不再走 Unsupported 拒绝路径）
         val result = importer.prepare(uri)
         assertTrue("期望 Failure（结构非法），实际 $result", result is PrepareResult.Failure)
+        val error = (result as PrepareResult.Failure).error
+        assertTrue("期望 ParseFailed，实际 $error", error is ImportError.ParseFailed)
     }
 
     @Test
@@ -299,7 +306,54 @@ class BookImporterTest {
         val error = importer.reparseBook(book, SplitStrategy.CONSERVATIVE)
 
         assertNotNull(error)
-        assertTrue(error!!.contains("源文件"))
+        assertTrue("期望 SourceMissing，实际 $error", error is ImportError.SourceMissing)
+        assertEquals("源文件已丢失，请删除后重新导入", error!!.userMessage)
+        assertEquals(book.dirName, (error as ImportError.SourceMissing).dirName)
+    }
+
+    @Test
+    fun `bom declared utf-8 with invalid bytes reports decode failure`() = runTest {
+        // UTF-8 BOM 声明编码，但内容含非法 UTF-8 字节（0xFF / overlong 序列）：
+        // 探测阶段即判编码失败，不进入流式容错路径（B7：编码失败可区分）
+        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
+        val invalid = byteArrayOf(0xFF.toByte(), 0xC0.toByte(), 0x80.toByte())
+        val uri = Uri.parse("content://io.github.lunalight.paperread.test/broken.txt")
+        shadowOf(context.contentResolver)
+            .registerInputStream(uri, ByteArrayInputStream(bom + invalid + "正文".toByteArray(Charsets.UTF_8)))
+
+        val result = importer.prepare(uri)
+
+        assertTrue("期望 Failure，实际 $result", result is PrepareResult.Failure)
+        val error = (result as PrepareResult.Failure).error
+        assertTrue("期望 DecodeFailed，实际 $error", error is ImportError.DecodeFailed)
+        assertEquals("UTF-8", (error as ImportError.DecodeFailed).encoding)
+        assertEquals(ImportStage.DETECTING, error.stage)
+        // 临时目录已清理（books/ 下无残留）
+        val booksRoot = textStore.bookDir(UUID.randomUUID().toString()).parentFile
+        assertEquals("临时目录应已清理", 0, booksRoot?.listFiles()?.size ?: 0)
+    }
+
+    @Test
+    fun `insufficient space maps to distinct message`() = runTest {
+        // 直接验证结构化错误的用户话术两两可区分（B7 验收口径）
+        val drm = ImportError.DrmEncrypted("encrypted")
+        val space = ImportError.InsufficientSpace
+        val decode = ImportError.DecodeFailed("UTF-8")
+        val messages = setOf(drm.userMessage, space.userMessage, decode.userMessage)
+        assertEquals("三类失败话术应两两不同", 3, messages.size)
+    }
+
+    @Test
+    fun `unreadable uri reports read failure`() = runTest {
+        // 未注册输入流的 URI：打开文件流失败 → ReadFailed（与解析失败可区分）
+        val uri = Uri.parse("content://io.github.lunalight.paperread.test/missing.txt")
+
+        val result = importer.prepare(uri)
+
+        assertTrue("期望 Failure，实际 $result", result is PrepareResult.Failure)
+        val error = (result as PrepareResult.Failure).error
+        assertTrue("期望 ReadFailed，实际 $error", error is ImportError.ReadFailed)
+        assertEquals(ImportStage.COPYING, error.stage)
     }
 
     // ---- EPUB e2e（Robolectric 下走 Android XmlPullParser 路径） ----
@@ -447,6 +501,9 @@ class BookImporterTest {
 
         val result = importer.prepare(uri)
         assertTrue("期望 Failure，实际 $result", result is PrepareResult.Failure)
-        assertTrue((result as PrepareResult.Failure).message.contains("DRM"))
+        val error = (result as PrepareResult.Failure).error
+        assertTrue("期望 DrmEncrypted，实际 $error", error is ImportError.DrmEncrypted)
+        assertTrue("DRM 文案应可区分", error.userMessage.contains("DRM"))
+        assertEquals(ImportStage.PARSING, error.stage)
     }
 }

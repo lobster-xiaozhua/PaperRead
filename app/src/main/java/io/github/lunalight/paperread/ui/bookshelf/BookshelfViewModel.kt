@@ -116,12 +116,12 @@ class BookshelfViewModel(
 
                         is PrepareResult.Unsupported -> state.copy(
                             import = ImportUiState(),
-                            message = result.reason,
+                            message = result.error.userMessage,
                         )
 
                         is PrepareResult.Failure -> state.copy(
                             import = ImportUiState(),
-                            message = result.message,
+                            message = result.error.userMessage,
                         )
                     }
                 }
@@ -217,7 +217,8 @@ class BookshelfViewModel(
             val error = bookImporter.reparseBook(book, strategy)
             _uiState.update {
                 it.copy(
-                    message = error ?: "已按新策略重新解析《${book.title}》（进度与书签已重置）",
+                    message = error?.userMessage
+                        ?: "已按新策略重新解析《${book.title}》（进度与书签已重置）",
                 )
             }
         }

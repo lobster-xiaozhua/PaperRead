@@ -221,3 +221,25 @@
 - ReaderProgressTest 重写为起点表口径 +2 个 B4 专项：100 段 ×99 字符长书末段起点 9900/9999 ≈ 99.01%（误差 0）；空行 + 前导空白混合场景偏移精确到个位
 - ReaderViewModelTest +1 集成用例：带空行/前导空白的章文本，恢复位置取原始起点 8（trim 口径为 0）
 - 全量 155 单测全绿；lint 0/0；总行覆盖 89.7%
+
+## B7 失败原因结构化（v1.1，已完成）
+
+> 依据 ROADMAP B7：导入/解析错误改为 `sealed class ImportError`（含 stage + cause），UI 映射用户话术。验收：DRM/空间不足/编码失败三类错误在结果页文案可区分。
+
+### 实现
+- 新增 `ImportError` 密封类（`BookImporter.kt`，8 个子类）：每个子类三要素——`stage`（失败阶段，定位断点）、`cause`（异常信息/触发值，供日志）、`userMessage`（面向用户话术，UI 直接取用不再拼文案）
+- 子类与产出点一一对应：`UnsupportedFormat`（扩展名）、`InsufficientSpace`（磁盘预检）、`DrmEncrypted`（EPUB DRM）、`ReadFailed`（拷贝期打开/读取失败）、`DirCreateFailed`（目录创建）、`DecodeFailed`（BOM 编码严格校验失败）、`ParseFailed`（解析期异常）、`SourceMissing`（重新解析时源文件丢失）
+- `PrepareResult.Unsupported/Failure` 载荷从字符串升级为结构化错误；`reparseBook` 返回 `String?` → `ImportError?`
+- `ImportStage` 新增 `PRECHECK("检查文件")`，prepare 开头上报，预检类错误归此阶段
+- UI 层（BookshelfViewModel）三个消费点统一 `error.userMessage`，文案与原字符串字面量一致（无回归）
+
+### 关键实现说明
+- **「编码失败」的判定边界**：`TxtChapterStream` 解码器用 REPLACE 容错（产品意图：结果页可切错编码对比后选回），无 BOM 文件回退 GB18030 也是设计内容错路径——两者都不报错。真正不可恢复的是「BOM 声明了编码而内容无法按该编码严格解码」：`CharsetDetector.decodesStrictly` 公开化后在导入器做样本级校验，BOM 驱动且严格解码失败 → `DecodeFailed`（UTF-8 BOM + 非法字节的典型场景）
+- **拷贝期 vs 解析期的异常分流**：`ZipException`（EPUB 结构非法）extends `IOException`，若按异常类型分流会误判为读取失败。解法是**按阶段而非按类型**：`copyAndHash` 包独立 try（拷贝期一切失败 → `ReadFailed`），`parseEpub`/`streamTxt` 的异常走外层通用 catch → `ParseFailed`
+- **文案区分度即验收**：三类错误话术两两不同（「该 EPUB 含 DRM 加密，无法导入」/「存储空间不足，无法导入」/「文件编码异常，请转换编码后重试」），既有单测直接断言集合大小
+- `reparse`（结果页切换编码）保持 `PendingImport?` 不变：该路径失败只有一种用户动作（保留原待确认 + 「重新解析失败，请重试」），结构化收益低，刻意不做签名膨胀
+
+### 测试
+- BookImporterTest：既有 3 处断言升级为结构化类型校验（UnsupportedFormat 携带扩展名、结构非法 EPUB → ParseFailed、DRM → DrmEncrypted + stage 断言）；新增 3 用例——UTF-8 BOM + 非法字节 → DecodeFailed（含临时目录清理断言）、未注册 URI → ReadFailed、三类话术两两可区分
+- BookshelfViewModelTest：既有 4 处改用 `ImportError` 构造；新增 2 用例——DRM 与空间不足话术可区分、编码失败话术与两者可区分（B7 验收口径）
+- 全量 160 单测全绿；lint 0/0；总行覆盖 89.7%（1604/1789）；assembleDebug 通过
