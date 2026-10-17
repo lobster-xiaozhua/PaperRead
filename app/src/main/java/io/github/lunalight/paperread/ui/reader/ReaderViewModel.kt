@@ -32,6 +32,8 @@ data class ReaderUiState(
     val chapterIndex: Int = 0,
     /** 当前章段落列表（渲染单元）。 */
     val paragraphs: List<String> = emptyList(),
+    /** 每段在章内的原始字符偏移（与 paragraphs 等长；进度以原文口径为准）。 */
+    val paragraphStarts: List<Int> = emptyList(),
     /** 首次渲染要滚动到的段落（恢复进度用）。 */
     val initialParagraph: Int = 0,
     /** 首次渲染的段内像素偏移（AC-5.2 段级 + 像素级恢复）。 */
@@ -99,8 +101,8 @@ class ReaderViewModel(
             return
         }
         val index = book.lastChapterIndex.coerceIn(0, chapters.lastIndex)
-        val paragraphs = paragraphsOf(book, chapters[index])
-        val paragraphIndex = book.lastParagraphIndex.coerceIn(0, maxOf(0, paragraphs.lastIndex))
+        val scan = paragraphsOf(book, chapters[index])
+        val paragraphIndex = book.lastParagraphIndex.coerceIn(0, maxOf(0, scan.texts.lastIndex))
         val scrollOffset = book.lastScrollOffset.coerceAtLeast(0)
         _uiState.update {
             it.copy(
@@ -108,12 +110,13 @@ class ReaderViewModel(
                 book = book,
                 chapters = chapters,
                 chapterIndex = index,
-                paragraphs = paragraphs,
+                paragraphs = scan.texts,
+                paragraphStarts = scan.starts,
                 initialParagraph = paragraphIndex,
                 initialScrollOffset = scrollOffset,
                 progressPercent = ReaderProgress.percentOf(
                     cumulativeChars = chapters[index].cumulativeChars,
-                    chapterCharOffset = ReaderProgress.chapterCharOffset(paragraphs, paragraphIndex),
+                    chapterCharOffset = ReaderProgress.chapterCharOffset(scan.starts, paragraphIndex),
                     totalChars = book.totalChars,
                 ),
                 error = null,
@@ -121,11 +124,8 @@ class ReaderViewModel(
         }
     }
 
-    private fun paragraphsOf(book: Book, chapter: Chapter): List<String> =
-        bookTextStore.readChapter(book.dirName, chapter)
-            .split('\n')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
+    private fun paragraphsOf(book: Book, chapter: Chapter): ReaderProgress.ParagraphScan =
+        ReaderProgress.scanParagraphs(bookTextStore.readChapter(book.dirName, chapter))
 
     // ---- 滚动位置与进度保存 ----
 
@@ -152,7 +152,7 @@ class ReaderViewModel(
     ) {
         val book = state.book ?: return
         val chapter = state.chapters.getOrNull(chapterIndex) ?: return
-        val charOffset = ReaderProgress.chapterCharOffset(state.paragraphs, paragraphIndex)
+        val charOffset = ReaderProgress.chapterCharOffset(state.paragraphStarts, paragraphIndex)
         val percent = ReaderProgress.percentOf(
             chapter.cumulativeChars,
             charOffset,
@@ -184,20 +184,21 @@ class ReaderViewModel(
         val target = index.coerceIn(0, state.chapters.lastIndex)
         if (target == state.chapterIndex && state.paragraphs.isNotEmpty() && paragraph <= 0) return
         val book = state.book ?: return
-        val paragraphs = paragraphsOf(book, state.chapters[target])
-        val targetParagraph = paragraph.coerceIn(0, maxOf(0, paragraphs.lastIndex))
+        val scan = paragraphsOf(book, state.chapters[target])
+        val targetParagraph = paragraph.coerceIn(0, maxOf(0, scan.texts.lastIndex))
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     chapterIndex = target,
-                    paragraphs = paragraphs,
+                    paragraphs = scan.texts,
+                    paragraphStarts = scan.starts,
                     initialParagraph = targetParagraph,
                     initialScrollOffset = 0,
                     currentParagraph = targetParagraph,
                     tocVisible = false,
                     progressPercent = ReaderProgress.percentOf(
                         state.chapters[target].cumulativeChars,
-                        ReaderProgress.chapterCharOffset(paragraphs, targetParagraph),
+                        ReaderProgress.chapterCharOffset(scan.starts, targetParagraph),
                         book.totalChars,
                     ),
                 )
@@ -235,7 +236,7 @@ class ReaderViewModel(
         if (state.loading || state.paragraphs.isEmpty()) return
         val paragraphIndex = state.currentParagraph.coerceIn(0, state.paragraphs.lastIndex)
         val excerpt = state.paragraphs[paragraphIndex].take(EXCERPT_MAX_CHARS)
-        val charOffset = ReaderProgress.chapterCharOffset(state.paragraphs, paragraphIndex)
+        val charOffset = ReaderProgress.chapterCharOffset(state.paragraphStarts, paragraphIndex)
         viewModelScope.launch {
             bookRepository.addBookmark(
                 Bookmark(

@@ -9,43 +9,58 @@ import org.junit.Test
 class ReaderProgressTest {
 
     @Test
-    fun `paragraphCharStarts 空列表返回单个 0`() {
-        assertEquals(listOf(0), ReaderProgress.paragraphCharStarts(emptyList()))
+    fun `scanParagraphs 空文本`() {
+        val scan = ReaderProgress.scanParagraphs("")
+        assertEquals(emptyList<String>(), scan.texts)
+        assertEquals(emptyList<Int>(), scan.starts)
     }
 
     @Test
-    fun `paragraphCharStarts 单段`() {
-        assertEquals(listOf(0, 4), ReaderProgress.paragraphCharStarts(listOf("abc")))
+    fun `scanParagraphs 无空行时原始起点即渲染长度累加`() {
+        val scan = ReaderProgress.scanParagraphs("ab\ncde")
+        assertEquals(listOf("ab", "cde"), scan.texts)
+        // 0, "ab"+\n = 3
+        assertEquals(listOf(0, 3), scan.starts)
     }
 
     @Test
-    fun `paragraphCharStarts 累计含段间分隔符`() {
-        val starts = ReaderProgress.paragraphCharStarts(listOf("ab", "cde"))
-        // 0, "ab"+\n = 3, +"cde"+\n = 7
-        assertEquals(listOf(0, 3, 7), starts)
+    fun `scanParagraphs 空行被过滤但起点仍按原文累加`() {
+        // "a"(0) + \n(1) → 空行占 1 + \n → "c" 起点 3
+        val scan = ReaderProgress.scanParagraphs("a\n\nc")
+        assertEquals(listOf("a", "c"), scan.texts)
+        assertEquals(listOf(0, 3), scan.starts)
     }
 
     @Test
-    fun `chapterCharOffset 空列表或首段为 0`() {
-        assertEquals(0, ReaderProgress.chapterCharOffset(emptyList(), 0))
-        assertEquals(0, ReaderProgress.chapterCharOffset(listOf("ab", "cde"), 0))
-        assertEquals(0, ReaderProgress.chapterCharOffset(listOf("ab", "cde"), -3))
+    fun `scanParagraphs 段首前导空白计入原始起点`() {
+        // 行 0 "  a" 段首起点 2；行 1 "   x" 起点 4 + 前导 3 = 7
+        val scan = ReaderProgress.scanParagraphs("  a\n   x")
+        assertEquals(listOf("a", "x"), scan.texts)
+        assertEquals(listOf(2, 7), scan.starts)
     }
 
     @Test
-    fun `chapterCharOffset 为前序段落长度加一分隔符`() {
-        assertEquals(3, ReaderProgress.chapterCharOffset(listOf("ab", "cde"), 1))
-        assertEquals(7, ReaderProgress.chapterCharOffset(listOf("ab", "cde"), 2))
+    fun `scanParagraphs 尾随空白不影响后续段起点`() {
+        // "a  "(0,3) + \n → "b" 起点 4
+        val scan = ReaderProgress.scanParagraphs("a  \nb")
+        assertEquals(listOf("a", "b"), scan.texts)
+        assertEquals(listOf(0, 4), scan.starts)
     }
 
     @Test
-    fun `chapterCharOffset 越界夹到章总字符数`() {
-        val paragraphs = listOf("ab", "cde")
-        assertEquals(7, ReaderProgress.chapterCharOffset(paragraphs, 99))
-        assertEquals(
-            ReaderProgress.paragraphCharStarts(paragraphs).last(),
-            ReaderProgress.chapterCharOffset(paragraphs, 99),
-        )
+    fun `chapterCharOffset 取段落原始起点`() {
+        val starts = listOf(0, 3, 7)
+        assertEquals(0, ReaderProgress.chapterCharOffset(starts, 0))
+        assertEquals(3, ReaderProgress.chapterCharOffset(starts, 1))
+        assertEquals(7, ReaderProgress.chapterCharOffset(starts, 2))
+    }
+
+    @Test
+    fun `chapterCharOffset 空表或越界夹取`() {
+        assertEquals(0, ReaderProgress.chapterCharOffset(emptyList(), 3))
+        val starts = listOf(0, 3, 7)
+        assertEquals(0, ReaderProgress.chapterCharOffset(starts, -3))
+        assertEquals(7, ReaderProgress.chapterCharOffset(starts, 99))
     }
 
     @Test
@@ -71,5 +86,41 @@ class ReaderProgressTest {
     fun `percentOf 夹到 0 至 100`() {
         assertEquals(100f, ReaderProgress.percentOf(150, 50, 100), 0.001f)
         assertEquals(0f, ReaderProgress.percentOf(0, 0, 100), 0.001f)
+    }
+
+    // ---- B4 进度口径统一：与切分器原文偏移同一坐标系 ----
+
+    @Test
+    fun `B4 长书首尾进度误差在万分之一以内`() {
+        // 模拟一章原文：每段 99 字符 + '\n'，共 100 段 → 总长 9999
+        val raw = (0 until 100).joinToString("\n") { "段".repeat(99) }
+        assertEquals(9999, raw.length)
+        val scan = ReaderProgress.scanParagraphs(raw)
+        assertEquals(100, scan.texts.size)
+        // 首段起点 0、末段起点 9900，与手算原文偏移一致
+        assertEquals(0, scan.starts.first())
+        assertEquals(9900, scan.starts.last())
+        // 全书 = 本章，读到末段起点 = 9900/9999 ≈ 99.01%，误差 0
+        assertEquals(
+            99.01f,
+            ReaderProgress.percentOf(0, ReaderProgress.chapterCharOffset(scan.starts, 99), 9999),
+            0.001f,
+        )
+    }
+
+    @Test
+    fun `B4 空行与前导空白下偏移仍等于原文位置`() {
+        // 章原文：3 空行 + "  甲" + 空行 + "乙"，总长 9
+        // 偏移：3 空行占 4 → "  甲" 段首起点 5；+3+1+1 → "乙" 起点 8
+        val raw = "\n\n\n  甲\n\n乙"
+        val scan = ReaderProgress.scanParagraphs(raw)
+        assertEquals(listOf("甲", "乙"), scan.texts)
+        assertEquals(listOf(5, 8), scan.starts)
+        // 进度以原始起点计算：8 / 9 ≈ 88.9%（trim 口径会把两段都算成 0 偏移）
+        assertEquals(
+            88.9f,
+            ReaderProgress.percentOf(0, ReaderProgress.chapterCharOffset(scan.starts, 1), 9),
+            0.05f,
+        )
     }
 }

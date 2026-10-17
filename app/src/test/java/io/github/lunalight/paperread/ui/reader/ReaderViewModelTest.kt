@@ -116,7 +116,7 @@ class ReaderViewModelTest {
         assertEquals("恢复段下标", 2, state.initialParagraph)
         assertEquals("恢复像素偏移", 15, state.initialScrollOffset)
         assertEquals(
-            ReaderProgress.percentOf(1000L, ReaderProgress.chapterCharOffset(state.paragraphs, 2), 3000L),
+            ReaderProgress.percentOf(1000L, ReaderProgress.chapterCharOffset(state.paragraphStarts, 2), 3000L),
             state.progressPercent,
             1e-4f,
         )
@@ -225,7 +225,7 @@ class ReaderViewModelTest {
         assertEquals("摘录取自当前段", "三段", added.excerpt)
         assertEquals(
             "字符偏移与进度口径一致",
-            ReaderProgress.chapterCharOffset(viewModel.uiState.value.paragraphs, 2),
+            ReaderProgress.chapterCharOffset(viewModel.uiState.value.paragraphStarts, 2),
             added.charOffset,
         )
         assertEquals(1L, added.bookId)
@@ -310,5 +310,24 @@ class ReaderViewModelTest {
 
         viewModel.dismissError()
         assertNull(viewModel.uiState.value.error)
+    }
+
+    @Test
+    fun `B4 进度按章内原文偏移计算而非 trim 后长度`() = runTest(dispatcher) {
+        // 章原文：2 空行 + "  一段"(前导空白) + 空行 + "二段"
+        // 原始起点：空行累计 2 → "一段" 段首 4；+4+1+1 → "二段" 起点 8
+        textStore.chapterText = { _, _ -> "\n\n  一段\n\n二段" }
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(listOf("一段", "二段"), state.paragraphs)
+        assertEquals("段落携带原始起点", listOf(4, 8), state.paragraphStarts)
+        // lastParagraphIndex=2 越界夹到 1 → 取「二段」起点 8（trim 口径会算成 0）
+        assertEquals(
+            ReaderProgress.percentOf(1000L, 8, 3000L),
+            state.progressPercent,
+            1e-4f,
+        )
     }
 }

@@ -206,3 +206,18 @@
 ### 测试
 - UiSmokeTest 5 用例：空书架三处导入入口渲染、书架渲染 + 点封面回调打开、点击正文切换工具栏显隐（顶栏目录图标出现/消失/恢复）、设置面板拖字号滑块（state 更新 + UI 文本回流）、书签 Tab 空态双行提示
 - 全量 151 单测全绿；总行覆盖 89.7%（64.9% → 89.7%，UI 层纳入统计）；lint 0/0；assembleDebug 通过
+
+## B4 进度口径统一（v1.1，已完成）
+
+> 依据 ROADMAP B4：`paragraphsOf` 的 trim/空行过滤与 `chapterCharOffset` 的原文累加对齐，以原文偏移为准。验收：长书首尾进度误差 < 0.05%。
+
+### 实现
+- `ReaderProgress.scanParagraphs(raw)` 取代 VM 内的 `paragraphsOf`：按 '\n' 扫行的同时记录每段在章内的**原始起点**（行起点 + 前导空白长度），trim 后非空行进渲染列表——文本与偏移同一坐标系产出，不再依赖「渲染长度 +1」的事后累加
+- `chapterCharOffset` 签名改为接收原始起点表（`List<Int>`），取第 index 段起点、越界夹取；删除旧的 `paragraphCharStarts`（其「渲染长度累加」口径正是偏差来源）
+- `ReaderUiState` 新增 `paragraphStarts`（与 paragraphs 等长）；loadBook / persist / goToChapter / addBookmark 四个口径消费点全部切到起点表；`Bookmark.charOffset` 同口径
+- 偏差场景（修复前系统性偏小）：空行被过滤（每行少计 2）、段首前导空白被 trim（每段少计前导长度）——长书累计误差随空行数线性增长
+
+### 测试
+- ReaderProgressTest 重写为起点表口径 +2 个 B4 专项：100 段 ×99 字符长书末段起点 9900/9999 ≈ 99.01%（误差 0）；空行 + 前导空白混合场景偏移精确到个位
+- ReaderViewModelTest +1 集成用例：带空行/前导空白的章文本，恢复位置取原始起点 8（trim 口径为 0）
+- 全量 155 单测全绿；lint 0/0；总行覆盖 89.7%
