@@ -1,6 +1,6 @@
 # PaperRead 路线图（v1.1 → v2.0）
 
-> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 160 单测全绿 / lint 0/0 / 总行覆盖 89.7%（B1–B4、B7 已完成，B1 待真机验收，B5 待用户拍板）
+> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 165 单测全绿 / lint 0/0 / 总行覆盖 89.7%（B1–B5、B7 已完成，B1 待真机验收，B6 建议暂缓）
 > 原则：先发布收尾，再质量收敛，最后做体验增量；隐私红线（零网络权限）不变更
 
 ---
@@ -71,11 +71,12 @@
 - 验收：长书（100 段 ×99 字符）末段进度 9900/9999，误差 0；全量 155 单测全绿
 - 详见 TASKS.md「B4 进度口径统一」
 
-### B5 备份策略定案（0.5 天）
+### B5 备份策略定案（0.5 天）✅ 已完成（用户选定方案甲-B）
 - `allowBackup=true` 会把书库带上云。二选一：
-  - 方案甲（推荐）：`dataExtractionRules` 仅备份设置，书籍目录排除
-  - 方案乙：关闭备份，后续做「本地导出/导入」替代
-- 验收：`adb backup` 不含 `files/books/`
+  - ~~方案甲（推荐）：`dataExtractionRules` 仅备份设置，书籍目录排除~~ **已采纳并细化**
+  - ~~方案乙：关闭备份，后续做「本地导出/导入」替代~~ 留待 v1.2「备份恢复」功能
+- 落地（甲-B）：cloud-backup 排除 `files/books/`（25 MB 云配额下书籍必然超限失败，且全文不应上云），保留 sharedpref + Room 数据库；device-transfer 不排除——换机本地整库搬迁；`backup_rules.xml`（Android 11-）+ `data_extraction_rules.xml`（Android 12+）双格式接线
+- 验收口径修正：`adb backup` 已在 Android 12+ 对所有应用关闭，改在 Android 11 模拟器验证 + Android 12+ 用 `bmgr backupnow` / `dumpsys backup` 验证（列入 DEVICE_CHECKLIST）
 
 ### B6 拆分 `:reader` 模块（1 天，可选）
 - 触发条件：reader 包代码 >1,500 行或需要被第二个 app 复用；当前 936 行，**建议暂缓**

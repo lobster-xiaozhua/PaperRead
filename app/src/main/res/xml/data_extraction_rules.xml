@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+（API ≥ 31）的备份规则（dataExtractionRules）。
+  Android 12 起 allowBackup / fullBackupContent 已废弃且仅作用于云备份，
+  云端备份与 D2D 换机传输必须在此分开配置。
+
+  B5 方案甲-B：
+  - cloud-backup（Google Drive 私有目录）：排除 files/books/，
+    保留 sharedpref 阅读设置与 Room 数据库（书架/进度/书签可恢复）。
+    超限说明：单应用云配额 25 MB，书籍动辄数百 MB，排除后
+    设置+数据库通常仅数百 KB～数 MB，远低于配额
+  - device-transfer（换机本地直连）：不排除任何内容，整库搬迁。
+    本地传输不经 Google 服务器，保留书籍可迁移能力
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="books" />
+    </cloud-backup>
+    <device-transfer>
+        <!-- 不排除：换机时数据库、设置与书籍目录整体迁移 -->
+    </device-transfer>
+</data-extraction-rules>

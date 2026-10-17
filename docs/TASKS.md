@@ -243,3 +243,22 @@
 - BookImporterTest：既有 3 处断言升级为结构化类型校验（UnsupportedFormat 携带扩展名、结构非法 EPUB → ParseFailed、DRM → DrmEncrypted + stage 断言）；新增 3 用例——UTF-8 BOM + 非法字节 → DecodeFailed（含临时目录清理断言）、未注册 URI → ReadFailed、三类话术两两可区分
 - BookshelfViewModelTest：既有 4 处改用 `ImportError` 构造；新增 2 用例——DRM 与空间不足话术可区分、编码失败话术与两者可区分（B7 验收口径）
 - 全量 160 单测全绿；lint 0/0；总行覆盖 89.7%（1604/1789）；assembleDebug 通过
+
+## B5 备份策略定案（v1.1，已完成）
+
+> 依据 ROADMAP B5：`allowBackup=true` 会把书库带上云，二选一。**用户选定方案甲（数据排除，保留系统备份能力）**。
+
+### 实现
+- 新增 `res/xml/backup_rules.xml`（Android 11- 的 `fullBackupContent`）与 `res/xml/data_extraction_rules.xml`（Android 12+ 的 `dataExtractionRules`），Manifest 双属性接线，`allowBackup` 保持 true
+- **cloud-backup（Google Drive）**：`<exclude domain="file" path="books"/>`——排除 `files/books/`（source.txt + book.txt，单本数百 MB），保留 sharedpref（阅读设置）与 Room 数据库（书架/进度/书签）
+- **device-transfer（D2D 换机）**：不排除任何内容——本地直连不经 Google 服务器，整库搬迁是真实可用的换机能力
+
+### 关键实现说明
+- **为什么必须排除 books**：Auto Backup 单应用云配额仅 25 MB，书籍动辄数百 MB——不排除则备份永远超限失败（系统调用 onQuotaExceeded，早期系统甚至会将该设备对此应用的云备份长期封禁），用户备份列表里只剩一条常年失败记录；同时书籍全文属于最敏感的本地数据，不应出设备
+- **为什么两条 XML 都要**：Android 12 起 `allowBackup` / `fullBackupContent` 已废弃且仅作用于云备份，云端与 D2D 必须在新格式里分开配置；而 minSdk 26 决定旧设备（Android 11-）仍走 `fullBackupContent`。只配新的 = Android 11 书籍继续上云；只配旧的 = Android 12+ 完全不生效
+- **方案取舍记录**：甲-B（云=设置+库）与甲-C（云=全排除）之间用户选甲-B——接受书签 `excerpt` 文字摘录随数据库上云，换取重装后书架结构/进度/书签可恢复。若用户改主意，只需删掉 cloud-backup 里的 include 默认项改全排除（当前结构已预留）
+- **验收口径修正**：原 ROADMAP 的「`adb backup` 不含 `files/books/`」在 Android 12+ 设备上**不可执行**（Google 已对所有应用关闭 adb backup）。改为：Android 11 模拟器跑 `adb backup` 验证不含 books；Android 12+ 用 `bmgr backupnow` + `dumpsys backup` 或官方云备份测试脚本验证。此设备侧验证列入 DEVICE_CHECKLIST
+
+### 测试
+- 新增 BackupRulesTest 5 用例（Robolectric）：Manifest 双格式接线、旧规则只排除 books、cloud-backup 只排除 books、device-transfer 零排除、sharedpref/database 不被排除
+- 全量 165 单测全绿；lint 0/0；assembleDebug 通过
