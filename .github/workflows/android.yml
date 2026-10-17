@@ -19,7 +19,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 供应链安全：校验 Gradle wrapper JAR 未被篡改
       - name: Validate Gradle Wrapper
