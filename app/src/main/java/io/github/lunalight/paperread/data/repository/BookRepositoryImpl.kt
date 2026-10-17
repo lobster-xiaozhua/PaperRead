@@ -82,4 +82,8 @@ class BookRepositoryImpl(
     override suspend fun deleteBookmark(id: Long) {
         bookmarkDao.deleteById(id)
     }
+
+    override suspend fun deleteBookmarksByBook(bookId: Long) {
+        bookmarkDao.deleteByBook(bookId)
+    }
 }

@@ -113,3 +113,29 @@
 - [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md)：七大类 40+ 项真机验证清单（导入/书架/阅读器/书签/进度/隐私/稳定性）
 - 最终 APK：`app/build/outputs/apk/debug/app-debug.apk`（v1.0.0）
 - GitHub 仓库创建推送：需用户提供 GitHub Token（gh CLI 当前未认证），见 README「发布」节
+
+## v1.0.1 审计修复（已完成）
+
+> 依据《PaperRead 项目审计报告》逐项修复，96 单测全绿 + lint 0/0。
+
+### F1（P1）重新解析后书签失配
+- `BookRepository.deleteBookmarksByBook` + `reparseBook` 清空书签（章节语义已变，旧 bookmarks 必然错位）
+- 回归测试：BookImporterTest「reparseBook … clears bookmarks」+ BookmarkRepositoryTest「deleteBookmarksByBook clears all」
+
+### F2（AC-1.4）导入可取消
+- `copyAndHash` 改为 suspend，逐缓冲区 `ensureActive()`；阶段间检查；`CancellationException` 分支清理半成品目录后重抛
+- ViewModel 持有 `importJob`，进度对话框「取消导入」/ 外部点击均可取消，取消后提示「已取消导入」
+
+### F3（AC-1.5）判重「替换 / 取消」
+- `duplicateTarget` 状态 + `DuplicateDialog`；「替换」= 删除旧书（含文件）后用原 URI/策略重新导入
+
+### F4（AC-5.2）像素级恢复
+- 滚动上报改为 `(firstVisibleItemIndex, firstVisibleItemScrollOffset)`；`ReaderPosition.scrollOffset` 真实落库；恢复用 `scrollToItem(index, offset)`
+
+### F5（P4）重新解析失败原因透传
+- `reparseBook` 返回 `String?`（null=成功）；源文件丢失返回「源文件已丢失，请删除后重新导入」
+
+### 未处理项（评审后判定）
+- 导入期全文驻留内存（流式解码，预估 2 天，v1.1 处理）
+- VM/UI 自动化测试与 androidTest（v1.1 引入 Turbine + Compose UI Test）
+- 拆分 `:reader` 独立模块（待代码量增长观察）

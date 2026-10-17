@@ -206,17 +206,19 @@ private fun ReaderContent(
         LazyListState()
     }
 
-    // 进度恢复：滚到记忆段落
+    // 进度恢复：滚到记忆段落 + 段内像素偏移（AC-5.2）
     LaunchedEffect(state.chapterIndex, state.initialParagraph) {
-        if (state.initialParagraph > 0) {
-            listState.scrollToItem(state.initialParagraph)
+        if (state.initialParagraph > 0 || state.initialScrollOffset > 0) {
+            listState.scrollToItem(state.initialParagraph, state.initialScrollOffset)
         }
     }
 
     // 滚动位置上报（防抖保存在 VM 内完成）
     LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex }.collect { index ->
-            viewModel.onScrollPosition(index)
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.collect { (index, offset) ->
+            viewModel.onScrollPosition(index, offset)
         }
     }
 

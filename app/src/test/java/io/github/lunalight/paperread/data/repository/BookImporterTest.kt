@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import io.github.lunalight.paperread.data.local.AppDatabase
 import io.github.lunalight.paperread.domain.model.BookFormat
+import io.github.lunalight.paperread.domain.model.Bookmark
 import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
@@ -19,6 +20,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -209,25 +211,52 @@ class BookImporterTest {
     }
 
     @Test
-    fun `reparseBook replaces chapters and resets progress`() = runTest {
+    fun `reparseBook replaces chapters resets progress and clears bookmarks`() = runTest {
         val uri = uriFor("荒原之始.txt", gbkNovel, gbkCharset)
         val pending = assertSuccess(importer.prepare(uri))
         val id = importer.confirm(pending)
         repository.saveReaderPosition(id, ReaderPosition(2, 0, 0, 30), 60f)
+        repository.addBookmark(
+            Bookmark(
+                bookId = id,
+                chapterIndex = 2,
+                paragraphIndex = 0,
+                charOffset = 30,
+                excerpt = "旧章节语义下的书签",
+                createdAt = 1_000L,
+            ),
+        )
 
         val book = repository.getBook(id)!!
-        val ok = importer.reparseBook(book, SplitStrategy.CONSERVATIVE)
+        val error = importer.reparseBook(book, SplitStrategy.CONSERVATIVE)
 
-        assertTrue(ok)
+        assertNull(error)
         val updated = repository.getBook(id)!!
         assertEquals(4, updated.chapterCount)
         assertEquals(0, updated.lastChapterIndex)
         assertEquals(0f, updated.progressPercent, 0.01f)
+        // 章节语义已变：书签必须清空，避免跳到错位内容
+        assertTrue(repository.observeBookmarks(id).first().isEmpty())
         // 目录中的书籍文件被重写且可读
         val chapters = repository.getChapters(id)
         assertEquals(4, chapters.size)
         val text = textStore.readChapter(updated.dirName, chapters[0])
         assertTrue(text.startsWith("第一章 荒原之始"))
+    }
+
+    @Test
+    fun `reparseBook reports reason when source file is missing`() = runTest {
+        val uri = uriFor("荒原之始.txt", gbkNovel, gbkCharset)
+        val pending = assertSuccess(importer.prepare(uri))
+        val id = importer.confirm(pending)
+        val book = repository.getBook(id)!!
+        // 模拟源文件丢失
+        File(textStore.bookDir(book.dirName), "source.txt").delete()
+
+        val error = importer.reparseBook(book, SplitStrategy.CONSERVATIVE)
+
+        assertNotNull(error)
+        assertTrue(error!!.contains("源文件"))
     }
 
     // ---- EPUB e2e（Robolectric 下走 Android XmlPullParser 路径） ----

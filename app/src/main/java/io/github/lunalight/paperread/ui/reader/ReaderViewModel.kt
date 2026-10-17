@@ -34,6 +34,8 @@ data class ReaderUiState(
     val paragraphs: List<String> = emptyList(),
     /** 首次渲染要滚动到的段落（恢复进度用）。 */
     val initialParagraph: Int = 0,
+    /** 首次渲染的段内像素偏移（AC-5.2 段级 + 像素级恢复）。 */
+    val initialScrollOffset: Int = 0,
     /** 当前章首个可见段落（滚动上报 / 加书签锚点）。 */
     val currentParagraph: Int = 0,
     val settings: ReaderSettings = ReaderSettings(),
@@ -99,6 +101,7 @@ class ReaderViewModel(
         val index = book.lastChapterIndex.coerceIn(0, chapters.lastIndex)
         val paragraphs = paragraphsOf(book, chapters[index])
         val paragraphIndex = book.lastParagraphIndex.coerceIn(0, maxOf(0, paragraphs.lastIndex))
+        val scrollOffset = book.lastScrollOffset.coerceAtLeast(0)
         _uiState.update {
             it.copy(
                 loading = false,
@@ -107,6 +110,7 @@ class ReaderViewModel(
                 chapterIndex = index,
                 paragraphs = paragraphs,
                 initialParagraph = paragraphIndex,
+                initialScrollOffset = scrollOffset,
                 progressPercent = ReaderProgress.percentOf(
                     cumulativeChars = chapters[index].cumulativeChars,
                     chapterCharOffset = ReaderProgress.chapterCharOffset(paragraphs, paragraphIndex),
@@ -125,8 +129,8 @@ class ReaderViewModel(
 
     // ---- 滚动位置与进度保存 ----
 
-    /** 正文滚动变化（LazyColumn 首个可见段落）。防抖 500ms 后落库。 */
-    fun onScrollPosition(firstVisibleParagraph: Int) {
+    /** 正文滚动变化（首个可见段落 + 段内像素偏移）。防抖 500ms 后落库。 */
+    fun onScrollPosition(firstVisibleParagraph: Int, pixelOffset: Int = 0) {
         val state = _uiState.value
         if (state.loading || state.book == null || state.paragraphs.isEmpty()) return
         val clamped = firstVisibleParagraph.coerceIn(0, state.paragraphs.lastIndex)
@@ -136,11 +140,16 @@ class ReaderViewModel(
         saveJob?.cancel()
         saveJob = viewModelScope.launch {
             delay(SAVE_DEBOUNCE_MS)
-            persist(state.chapterIndex, clamped, state)
+            persist(state.chapterIndex, clamped, pixelOffset.coerceAtLeast(0), state)
         }
     }
 
-    private suspend fun persist(chapterIndex: Int, paragraphIndex: Int, state: ReaderUiState) {
+    private suspend fun persist(
+        chapterIndex: Int,
+        paragraphIndex: Int,
+        scrollOffset: Int,
+        state: ReaderUiState,
+    ) {
         val book = state.book ?: return
         val chapter = state.chapters.getOrNull(chapterIndex) ?: return
         val charOffset = ReaderProgress.chapterCharOffset(state.paragraphs, paragraphIndex)
@@ -154,7 +163,7 @@ class ReaderViewModel(
             position = ReaderPosition(
                 chapterIndex = chapterIndex,
                 paragraphIndex = paragraphIndex,
-                scrollOffset = 0,
+                scrollOffset = scrollOffset,
                 charOffset = charOffset,
             ),
             progressPercent = percent,
@@ -183,6 +192,7 @@ class ReaderViewModel(
                     chapterIndex = target,
                     paragraphs = paragraphs,
                     initialParagraph = targetParagraph,
+                    initialScrollOffset = 0,
                     currentParagraph = targetParagraph,
                     tocVisible = false,
                     progressPercent = ReaderProgress.percentOf(
@@ -194,7 +204,7 @@ class ReaderViewModel(
             }
             // 切章立即落库（不等防抖）
             saveJob?.cancel()
-            persist(target, targetParagraph, _uiState.value)
+            persist(target, targetParagraph, 0, _uiState.value)
         }
     }
 

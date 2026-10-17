@@ -126,6 +126,17 @@ class BookmarkRepositoryTest {
     }
 
     @Test
+    fun `deleteBookmarksByBook clears all bookmarks of that book`() = runTest {
+        val bookId = seedBook()
+        repository.addBookmark(bookmark(bookId, excerpt = "甲"))
+        repository.addBookmark(bookmark(bookId, excerpt = "乙"))
+
+        repository.deleteBookmarksByBook(bookId)
+
+        assertTrue(repository.observeBookmarks(bookId).first().isEmpty())
+    }
+
+    @Test
     fun `deleteBook cascades bookmarks`() = runTest {
         val bookId = seedBook()
         repository.addBookmark(bookmark(bookId))

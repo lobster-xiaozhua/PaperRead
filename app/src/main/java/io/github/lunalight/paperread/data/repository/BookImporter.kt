@@ -16,7 +16,10 @@ import io.github.lunalight.paperread.reader.txt.ChapterSplitter
 import io.github.lunalight.paperread.reader.txt.CharsetDetector
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.reader.xml.XmlParsers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -116,7 +119,9 @@ class BookImporter(
             return@withContext PrepareResult.Failure("无法创建书籍目录")
         }
         try {
-            // 1. 流式拷贝 + SHA-256
+            // 阶段间响应取消（AC-1.4：导入保持可取消）
+            currentCoroutineContext().ensureActive()
+            // 1. 流式拷贝 + SHA-256（拷贝循环内响应取消）
             onProgress(ImportProgress(ImportStage.COPYING, 0f))
             val sourceFile = File(bookDir, "source.${format.extension}")
             val sha256 = copyAndHash(uri, sourceFile) { fraction ->
@@ -131,6 +136,7 @@ class BookImporter(
             }
 
             // 3. 解析（TXT / EPUB 分流）
+            currentCoroutineContext().ensureActive()
             onProgress(ImportProgress(ImportStage.PARSING, 0.3f))
             val outcome = if (format == BookFormat.EPUB) {
                 parseEpub(sourceFile)
@@ -164,6 +170,10 @@ class BookImporter(
             )
             onProgress(ImportProgress(ImportStage.DONE, 1f))
             PrepareResult.Success(pending)
+        } catch (e: CancellationException) {
+            // 用户取消（AC-1.4）：清理半成品目录后照常传播取消
+            bookDir.deleteRecursively()
+            throw e
         } catch (e: EpubEncryptedException) {
             bookDir.deleteRecursively()
             PrepareResult.Failure(e.message ?: "该 EPUB 含 DRM 加密，无法导入")
@@ -234,15 +244,20 @@ class BookImporter(
 
     /**
      * 书架「重新解析」：TXT 用新策略重新切分；EPUB 重新提取正文。
-     * 重置阅读位置（章节语义已变）。成功返回 true。
+     * 章节语义已变：重置阅读位置并清空书签（否则旧书签跳到错位内容）。
+     *
+     * @return 成功返回 null；失败返回用户可读的错误原因（书籍保持原状，可重试）。
      */
-    suspend fun reparseBook(book: Book, strategy: SplitStrategy): Boolean =
+    suspend fun reparseBook(book: Book, strategy: SplitStrategy): String? =
         withContext(Dispatchers.IO) {
             try {
                 val sourceFile = File(
                     textStore.bookDir(book.dirName),
                     "source.${book.format.extension}",
                 )
+                if (!sourceFile.exists()) {
+                    return@withContext "源文件已丢失，请删除后重新导入"
+                }
                 val outcome = if (book.format == BookFormat.EPUB) {
                     parseEpub(sourceFile)
                 } else {
@@ -254,9 +269,10 @@ class BookImporter(
                 val chapters = entries.toChapters().map { it.copy(bookId = book.id) }
                 bookRepository.replaceChapters(book.id, chapters, outcome.text.length.toLong())
                 bookRepository.resetReaderPosition(book.id)
-                true
+                bookRepository.deleteBookmarksByBook(book.id)
+                null
             } catch (e: Exception) {
-                false
+                e.message ?: "重新解析失败，请重试"
             }
         }
 
@@ -342,8 +358,12 @@ class BookImporter(
         return context.filesDir.freeSpace > sizeBytes * 2.2
     }
 
-    /** 流式拷贝并计算 SHA-256，返回十六进制摘要。 */
-    private fun copyAndHash(uri: Uri, target: File, onProgress: (Float) -> Unit): String {
+    /** 流式拷贝并计算 SHA-256，返回十六进制摘要；每个缓冲区响应协程取消。 */
+    private suspend fun copyAndHash(
+        uri: Uri,
+        target: File,
+        onProgress: (Float) -> Unit,
+    ): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val total = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) {
@@ -363,6 +383,8 @@ class BookImporter(
                     digest.update(buffer, 0, read)
                     copied += read
                     if (total > 0) onProgress((copied.toFloat() / total).coerceIn(0f, 1f))
+                    // 取消检查放在 IO 之后：取消时上层统一清理目录
+                    currentCoroutineContext().ensureActive()
                 }
                 out.flush()
             }

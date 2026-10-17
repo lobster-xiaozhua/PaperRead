@@ -240,7 +240,11 @@ fun BookshelfScreen(
 
     val import = state.import
     if (import.running) {
-        ImportProgressDialog(stageLabel = import.stageLabel, fraction = import.fraction)
+        ImportProgressDialog(
+            stageLabel = import.stageLabel,
+            fraction = import.fraction,
+            onCancel = viewModel::cancelRunningImport,
+        )
     }
 
     val pending = import.pending
@@ -250,6 +254,15 @@ fun BookshelfScreen(
             onReparse = { charset, strategy -> viewModel.reparsePending(charset, strategy) },
             onConfirm = viewModel::confirmImport,
             onDismiss = viewModel::dismissImport,
+        )
+    }
+
+    val duplicateTarget = state.duplicateTarget
+    if (duplicateTarget != null) {
+        DuplicateDialog(
+            existing = duplicateTarget,
+            onReplace = viewModel::replaceDuplicate,
+            onDismiss = viewModel::dismissDuplicate,
         )
     }
 
@@ -417,9 +430,9 @@ private fun BookCard(
 }
 
 @Composable
-private fun ImportProgressDialog(stageLabel: String, fraction: Float) {
+private fun ImportProgressDialog(stageLabel: String, fraction: Float, onCancel: () -> Unit) {
     AlertDialog(
-        onDismissRequest = { /* 导入中不可取消 */ },
+        onDismissRequest = onCancel,
         title = { Text("正在导入") },
         text = {
             Column {
@@ -432,6 +445,31 @@ private fun ImportProgressDialog(stageLabel: String, fraction: Float) {
             }
         },
         confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onCancel) { Text("取消导入") }
+        },
+    )
+}
+
+/** 判重对话框（AC-1.5）：SHA-256 命中，替换 / 取消。 */
+@Composable
+private fun DuplicateDialog(
+    existing: Book,
+    onReplace: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("书籍已存在") },
+        text = {
+            Text("书架中已有《${existing.title}》，内容与所选文件完全相同。要替换为新导入的版本吗？（替换会清除旧书的进度与书签）")
+        },
+        confirmButton = {
+            TextButton(onClick = onReplace) { Text("替换") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
     )
 }
 

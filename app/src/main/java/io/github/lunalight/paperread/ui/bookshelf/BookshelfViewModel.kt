@@ -14,6 +14,7 @@ import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +44,8 @@ data class BookshelfUiState(
     val import: ImportUiState = ImportUiState(),
     /** 重新解析对话框目标（非空时展示）。 */
     val reparseTarget: Book? = null,
+    /** 判重对话框目标（SHA-256 命中，非空时展示「替换 / 取消」，AC-1.5）。 */
+    val duplicateTarget: Book? = null,
     /** 一次性提示（Snackbar）。 */
     val message: String? = null,
 )
@@ -55,6 +58,13 @@ class BookshelfViewModel(
 
     private val _uiState = MutableStateFlow(BookshelfUiState())
     val uiState: StateFlow<BookshelfUiState> = _uiState.asStateFlow()
+
+    /** 进行中的导入任务（可取消，AC-1.4）。 */
+    private var importJob: Job? = null
+
+    /** 最近一次导入参数（判重「替换」时重跑）。 */
+    private var lastImportUri: android.net.Uri? = null
+    private var lastImportStrategy: SplitStrategy = SplitStrategy.CONSERVATIVE
 
     init {
         viewModelScope.launch {
@@ -70,44 +80,81 @@ class BookshelfViewModel(
 
     fun importBook(uri: android.net.Uri, strategy: SplitStrategy = SplitStrategy.CONSERVATIVE) {
         if (_uiState.value.import.running) return
-        viewModelScope.launch {
+        lastImportUri = uri
+        lastImportStrategy = strategy
+        launchImport(uri, strategy)
+    }
+
+    private fun launchImport(uri: android.net.Uri, strategy: SplitStrategy) {
+        importJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     import = ImportUiState(running = true, stageLabel = ImportStage.COPYING.label),
                 )
             }
-            val result = bookImporter.prepare(uri, strategy) { progress ->
+            try {
+                val result = bookImporter.prepare(uri, strategy) { progress ->
+                    _uiState.update {
+                        it.copy(
+                            import = it.import.copy(
+                                stageLabel = progress.stage.label,
+                                fraction = progress.fraction,
+                            ),
+                        )
+                    }
+                }
+                _uiState.update { state ->
+                    when (result) {
+                        is PrepareResult.Success -> state.copy(
+                            import = ImportUiState(pending = result.pending),
+                        )
+
+                        is PrepareResult.Duplicate -> state.copy(
+                            import = ImportUiState(),
+                            duplicateTarget = result.existing,
+                        )
+
+                        is PrepareResult.Unsupported -> state.copy(
+                            import = ImportUiState(),
+                            message = result.reason,
+                        )
+
+                        is PrepareResult.Failure -> state.copy(
+                            import = ImportUiState(),
+                            message = result.message,
+                        )
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 用户取消导入（AC-1.4）：导入器已清理半成品目录
                 _uiState.update {
-                    it.copy(
-                        import = it.import.copy(
-                            stageLabel = progress.stage.label,
-                            fraction = progress.fraction,
-                        ),
-                    )
+                    it.copy(import = ImportUiState(), message = "已取消导入")
                 }
+                throw e
             }
-            _uiState.update { state ->
-                when (result) {
-                    is PrepareResult.Success -> state.copy(
-                        import = ImportUiState(pending = result.pending),
-                    )
+        }
+    }
 
-                    is PrepareResult.Duplicate -> state.copy(
-                        import = ImportUiState(),
-                        message = "书架中已有《${result.existing.title}》",
-                    )
+    /** 取消进行中的导入（进度对话框外点 / 返回键，AC-1.4）。 */
+    fun cancelRunningImport() {
+        importJob?.cancel()
+    }
 
-                    is PrepareResult.Unsupported -> state.copy(
-                        import = ImportUiState(),
-                        message = result.reason,
-                    )
+    /** 判重对话框：取消（AC-1.5）。 */
+    fun dismissDuplicate() {
+        _uiState.update { it.copy(duplicateTarget = null) }
+    }
 
-                    is PrepareResult.Failure -> state.copy(
-                        import = ImportUiState(),
-                        message = result.message,
-                    )
-                }
-            }
+    /** 判重对话框：替换——删除旧书后用原参数重新导入（AC-1.5）。 */
+    fun replaceDuplicate() {
+        val existing = _uiState.value.duplicateTarget ?: return
+        val uri = lastImportUri ?: return
+        _uiState.update { it.copy(duplicateTarget = null) }
+        viewModelScope.launch {
+            bookRepository.deleteBook(existing)
+            bookTextStore.deleteBookDir(existing.dirName)
+            _uiState.update { it.copy(message = "已替换《${existing.title}》，正在导入") }
+            launchImport(uri, lastImportStrategy)
         }
     }
 
@@ -167,9 +214,11 @@ class BookshelfViewModel(
         val book = _uiState.value.reparseTarget ?: return
         _uiState.update { it.copy(reparseTarget = null) }
         viewModelScope.launch {
-            val ok = bookImporter.reparseBook(book, strategy)
+            val error = bookImporter.reparseBook(book, strategy)
             _uiState.update {
-                it.copy(message = if (ok) "已按新策略重新解析《${book.title}》" else "重新解析失败")
+                it.copy(
+                    message = error ?: "已按新策略重新解析《${book.title}》（进度与书签已重置）",
+                )
             }
         }
     }

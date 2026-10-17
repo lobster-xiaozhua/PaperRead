@@ -42,4 +42,7 @@ interface BookRepository {
 
     /** 删除书签。 */
     suspend fun deleteBookmark(id: Long)
+
+    /** 清空某书全部书签（重新解析后章节语义已变，书签必然失配）。 */
+    suspend fun deleteBookmarksByBook(bookId: Long)
 }
