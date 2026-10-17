@@ -23,18 +23,21 @@
 
 ---
 
-## A. 发布收尾（0.5 天 · 阻塞中）
+## A. 发布收尾（0.5 天）✅ 已完成
 
-| # | 事项 | 负责 | 说明 |
+| # | 事项 | 负责 | 状态 |
 |---|---|---|---|
-| A1 | GitHub 连接器重新授权（勾选 repo 权限） | **用户** | 当前 Token 零作用域，建仓/推送均 403 |
-| A2 | 建仓 `lobster-xiaozhua/PaperRead`（public）并推送 main | 我 | 7 个提交待推（dc70126 之后含 3ecac68） |
-| A3 | 修正 README clone 地址为实际账户 | 我 | 现写作 `lunalight`，与实际授权账户不一致 |
-| A4 | 打 tag `v1.0.1` + GitHub Release 附两个 APK | 我 | Release notes 直接用 TASKS 的 v1.0.1 修复记录 |
-| A5 | 首次 CI 运行验证（test/lint/assemble 三 job） | 我 | 观察 Actions 日志，修正任何环境差异 |
-| A6 | 仓库元信息：topics、Issue 模板、README badge | 我 | topics: android / kotlin / jetpack-compose / ebook-reader / offline-first |
+| A1 | GitHub 授权（repo + workflow 作用域） | 用户 | ✅ 用户提供 PAT，身份 `lobster-xiaozhua` |
+| A2 | 建仓 `lobster-xiaozhua/PaperRead`（public）并推送 main | 我 | ✅ <https://github.com/lobster-xiaozhua/PaperRead>，17 提交已推 |
+| A3 | 修正 README clone 地址为实际账户 | 我 | ✅ `c9d3677` 已改为 lobster-xiaozhua |
+| A4 | 打 tag `v1.0.1` + GitHub Release 附两个 APK | 我 | ✅ <https://github.com/lobster-xiaozhua/PaperRead/releases/tag/v1.0.1> |
+| A5 | 首次 CI 运行验证（test / lint / assemble） | 我 | ✅ 全绿（冷启动 3m48s，缓存后 59s） |
+| A6 | 仓库元信息：topics、Issue 模板、README badge | 我 | ✅ 8 个 topics + 3 枚 badge + 2 类 Issue 模板 |
 
-**风险**：CI 首次跑 Robolectric 需从 Maven Central 拉 137 MB android-all jar，冷启动约 5–8 分钟；若超时需加缓存 action。
+**踩坑记录（环境相关）**
+- 沙箱网络只放行 `api.github.com`，`github.com` 的 HTTPS 443 被拦（TCP 可连、TLS 挂起）→ 改走 SSH 推送（生成临时 ed25519 密钥，经 API 注册到账号）
+- `android-actions/setup-android@v3` 默认 packages 含已废弃的 `tools` 包，sdkmanager 找不到即整步失败（CI 15 秒红）→ 改用 runner 预装 SDK 显式安装 platform-tools / platforms;android-35 / build-tools;35.0.0
+- release 构建无签名密钥，产出 `app-release-unsigned.apk`（不可直接安装）；正式签名密钥待用户定夺
 
 ---
 
