@@ -34,7 +34,7 @@ Roadmap：TTS 语音朗读、Wi-Fi 传书、备份恢复、仿真翻页、自定
 
 ```bash
 # 克隆
-git clone https://github.com/lunalight/PaperRead.git
+git clone https://github.com/lobster-xiaozhua/PaperRead.git
 cd PaperRead
 
 # 本地 SDK 路径（按实际修改）
@@ -102,7 +102,7 @@ Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlP
 
 ```bash
 gh auth login                 # 或设置 GH_TOKEN 环境变量
-gh repo create lunalight/PaperRead --public --source=. --push
+gh repo create lobster-xiaozhua/PaperRead --public --source=. --push
 ```
 
 ## 依赖清单
