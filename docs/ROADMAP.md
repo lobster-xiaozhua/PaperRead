@@ -1,6 +1,6 @@
 # PaperRead 路线图（v1.1 → v2.0）
 
-> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 165 单测全绿 / lint 0/0 / 总行覆盖 89.7%（B1–B5、B7 已完成，B1 待真机验收，B6 建议暂缓）
+> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 v1.1.0 已发布：165 单测全绿 / lint 0/0 / 总行覆盖 89.7%（B1–B5、B7 已完成，B1 待真机验收，B6 建议暂缓）
 > 原则：先发布收尾，再质量收敛，最后做体验增量；隐私红线（零网络权限）不变更
 
 ---
@@ -86,6 +86,12 @@
 - 导入/解析错误改为 `sealed class ImportError`（8 子类，各含 stage/cause/userMessage），UI 映射用户话术；`ImportStage` 增 `PRECHECK`
 - 验收：DRM/空间不足/编码失败三类错误在结果页文案可区分 ✅（160 单测含 3 处区分度断言）
 - 详见 TASKS.md「B7 失败原因结构化」
+
+### v1.1.0 发布记录 ✅
+- Release：<https://github.com/lobster-xiaozhua/PaperRead/releases/tag/v1.1.0>（commit `e0a29f2`）
+- 资产：`app-debug.apk`（9.8 MB，可直接安装）+ `app-release-unsigned.apk`（1.4 MB，需自行签名）
+- 版本：versionCode 3 / versionName 1.1.0；发布说明含主要变更、质量指标与已知限制
+- 发布前质量门禁：165 单测 0 失败、lint 0/0、assembleDebug + assembleRelease 通过、CI 全绿
 
 ---
 

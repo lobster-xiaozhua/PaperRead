@@ -284,3 +284,16 @@
 
 ### 测试
 - UiSmokeTest 本地连跑 3 次全绿；全量 165 单测 0 失败；lint 0/0
+
+## v1.1.0 发版（已完成）
+
+### 变更
+- `app/build.gradle.kts`：versionCode 3 / versionName 1.1.0
+- README：状态行与功能表补充 v1.1 三项（流式导入 / 失败原因结构化 / 备份策略）
+- ROADMAP：决策点 #1、#2 标记已定；新增 v1.1.0 发布记录
+
+### 产物与验收
+- 构建：`assembleDebug` + `assembleRelease` 通过，aapt2 校验两包均为 versionCode 3 / 1.1.0
+- 资产：debug 9.8 MB（可安装）+ release-unsigned 1.4 MB（需签名）
+- Release：<https://github.com/lobster-xiaozhua/PaperRead/releases/tag/v1.1.0>，tag 指向 `e0a29f2`
+- 已知限制：B1 真机内存验收、B5 设备侧备份验收待完成（DEVICE_CHECKLIST）
