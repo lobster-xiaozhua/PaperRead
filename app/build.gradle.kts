@@ -15,8 +15,8 @@ android {
         applicationId = "io.github.lunalight.paperread"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.1.0"
     }
 
     // Release 签名：keystore 不入库，经 gradle properties / 环境变量注入：
