@@ -27,6 +27,14 @@ interface BookTextStore {
     /** 读取单章文本（字节偏移定位 + UTF-8 解码）。 */
     fun readChapter(dirName: String, chapter: Chapter): String
 
+    /**
+     * 正文文件是否存在且非空。
+     *
+     * [readChapter] 在「文件丢失」与「该章本身为空」两种情况下都返回空串，
+     * 调用方据此区分错误性质：前者只能删条目重导，后者可重新解析章节。
+     */
+    fun hasText(dirName: String): Boolean
+
     /** 读取原始文件全文（重新解析场景）。 */
     fun readSourceText(book: Book, charset: Charset): String
 
@@ -57,6 +65,9 @@ class FileBookTextStore(context: Context) : BookTextStore {
             String(buffer, Charsets.UTF_8)
         }
     }
+
+    override fun hasText(dirName: String): Boolean =
+        textFile(dirName).let { it.isFile && it.length() > 0L }
 
     override fun readSourceText(book: Book, charset: Charset): String =
         sourceFile(book).readText(charset)

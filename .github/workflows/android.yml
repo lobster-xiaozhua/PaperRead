@@ -49,3 +49,9 @@ jobs:
         with:
           name: paperread-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Release 门禁：R8 混淆 + 资源压缩只在发布路径生效，
+      # 之前的 CI 只跑 debug，混淆规则缺失/keep 漏写要等到发版前才暴露。
+      # 不配置签名（keystore 不入库），产出未签名 APK，仅验证能正常打包。
+      - name: Assemble Release (R8 gate)
+        run: ./gradlew assembleRelease --console=plain

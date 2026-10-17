@@ -9,18 +9,25 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -63,6 +70,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -71,6 +79,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lunalight.paperread.PaperReadApp
@@ -81,6 +92,11 @@ import io.github.lunalight.paperread.ui.theme.ReaderThemes
 /**
  * 阅读器页：LazyColumn 段落排版 + 工具栏显隐 + 切章 + 目录/设置面板 +
  * ReaderPosition 恢复与防抖保存 + 亮度/常亮/沉浸/音量键系统效果。
+ *
+ * 系统栏适配（顶栏/底栏/正文/提示条）统一走 [WindowInsets.safeDrawing]：
+ * 系统栏可见时自动避让，被隐藏（沉浸）或手势导航自动缩回时安全区归零、
+ * 布局自动铺满——同一份代码覆盖「三键导航 / 手势导航 / 沉浸隐藏」三种形态，
+ * 不依赖任何屏幕尺寸或机型的硬编码高度。
  */
 @Composable
 fun ReaderScreen(
@@ -96,6 +112,17 @@ fun ReaderScreen(
     BrightnessEffect(state.settings.brightness)
     KeepScreenOnEffect(state.settings.keepScreenOn)
     ImmersiveEffect(enabled = state.settings.immersive, chromeVisible = state.chromeVisible)
+    SystemBarIconEffect(darkBackground = readerTheme.isDark)
+
+    // 退到后台立即补存最后一次位置（防抖窗口内退出不丢进度）
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) viewModel.flushPendingSave()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val snackbarHostState = remember { SnackbarHostState() }
@@ -121,6 +148,14 @@ fun ReaderScreen(
                 ReaderError(
                     message = state.error!!,
                     onBack = onBack,
+                    onDelete = if (state.textMissing) {
+                        {
+                            viewModel.deleteBrokenBook()
+                            onBack()
+                        }
+                    } else {
+                        null
+                    },
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
@@ -167,10 +202,16 @@ fun ReaderScreen(
             )
         }
 
-        // 一次性提示
+        // 一次性提示（避开导航栏/手势条）
         SnackbarHost(
             hostState = snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                    ),
+                ),
         )
     }
 
@@ -206,10 +247,17 @@ private fun ReaderContent(
         LazyListState()
     }
 
-    // 进度恢复：滚到记忆段落 + 段内像素偏移（AC-5.2）
-    LaunchedEffect(state.chapterIndex, state.initialParagraph) {
-        if (state.initialParagraph > 0 || state.initialScrollOffset > 0) {
-            listState.scrollToItem(state.initialParagraph, state.initialScrollOffset)
+    // 进度恢复 / 跳转定位：以 restoreSeq 作为一次性票据。
+    // 用序号而非 (章节, 段落) 做 key，才能覆盖「同章跳到首段」；
+    // 消费后记入 consumedSeq，旋转屏幕重建组合时不会把用户拖回旧位置。
+    var consumedSeq by rememberSaveable(state.chapterIndex) { mutableStateOf(-1L) }
+    LaunchedEffect(state.restoreSeq) {
+        if (state.restoreSeq > consumedSeq) {
+            consumedSeq = state.restoreSeq
+            listState.scrollToItem(
+                index = state.initialParagraph.coerceAtLeast(0),
+                scrollOffset = state.initialScrollOffset.coerceAtLeast(0),
+            )
         }
     }
 
@@ -231,6 +279,11 @@ private fun ReaderContent(
         lineHeight = (state.settings.fontSizeSp * state.settings.lineHeightRatio).sp,
         color = theme.onBackground,
     )
+
+    // 正文也要避开安全区：系统栏可见时让位，隐藏时归零；
+    // 横屏刘海/挖孔即使系统栏隐藏也不会消失，靠 safeDrawing 的 displayCutout 部分保住文字。
+    val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
 
     LazyColumn(
         state = listState,
@@ -260,10 +313,10 @@ private fun ReaderContent(
                 interactionSource = remember { MutableInteractionSource() },
             ) { viewModel.toggleChrome() },
         contentPadding = PaddingValues(
-            start = state.settings.horizontalMarginDp.dp,
-            end = state.settings.horizontalMarginDp.dp,
-            top = if (isLandscape) 8.dp else 56.dp,
-            bottom = if (isLandscape) 8.dp else 96.dp,
+            start = state.settings.horizontalMarginDp.dp + safeInsets.calculateLeftPadding(layoutDirection),
+            end = state.settings.horizontalMarginDp.dp + safeInsets.calculateRightPadding(layoutDirection),
+            top = (if (isLandscape) 8.dp else 56.dp) + safeInsets.calculateTopPadding(),
+            bottom = (if (isLandscape) 8.dp else 96.dp) + safeInsets.calculateBottomPadding(),
         ),
     ) {
         item(key = "chapter-header") {
@@ -310,10 +363,17 @@ private fun ReaderTopBar(
     onAddBookmark: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    // 背景铺到屏幕边缘（沉浸观感），交互内容让进安全区（不被状态栏吃掉点击/图标）。
+    // padding 加在内层 Row 而不是 Surface：Surface 仍全宽绘制，系统栏区域不会露出底层正文。
     Surface(color = theme.background, contentColor = theme.onBackground) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+                    ),
+                )
                 .padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -357,6 +417,11 @@ private fun ReaderBottomBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                    ),
+                )
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -421,9 +486,16 @@ private fun ChapterFooter(
 }
 
 @Composable
-private fun ReaderError(message: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun ReaderError(
+    message: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    onDelete: (() -> Unit)? = null,
+) {
     Column(
-        modifier = modifier.padding(32.dp),
+        modifier = modifier
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
@@ -434,6 +506,12 @@ private fun ReaderError(message: String, onBack: () -> Unit, modifier: Modifier 
         )
         Spacer(Modifier.height(16.dp))
         TextButton(onClick = onBack) { Text("返回书架") }
+        if (onDelete != null) {
+            // 正文文件缺失时「重新解析」无用且可能是破坏性操作，只给删除出口
+            TextButton(onClick = onDelete) {
+                Text("删除该条目", color = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }
 
@@ -471,6 +549,36 @@ private fun BrightnessEffect(brightness: Float) {
 private fun KeepScreenOnEffect(keepScreenOn: Boolean) {
     val view = LocalView.current
     SideEffect { view.keepScreenOn = keepScreenOn }
+}
+
+/**
+ * 系统栏图标明暗跟随阅读背景。
+ *
+ * `enableEdgeToEdge()` 只按系统深浅色决定图标颜色，而阅读区配色与 Material 主题
+ * 完全解耦（5 套预设在任何系统主题下都一致）：系统浅色 + 「墨黑」阅读主题时，
+ * 深色图标压在深色背景上等于消失。这里以阅读背景为唯一依据，
+ * 离开阅读器时按系统深浅色还原，避免污染书架页。
+ */
+@Composable
+private fun SystemBarIconEffect(darkBackground: Boolean) {
+    val view = LocalView.current
+    val systemDark = isSystemInDarkTheme()
+    DisposableEffect(darkBackground, systemDark) {
+        val window = (view.context as? Activity)?.window
+        if (window != null) {
+            val controller = WindowInsetsControllerCompat(window, view)
+            controller.isAppearanceLightStatusBars = !darkBackground
+            controller.isAppearanceLightNavigationBars = !darkBackground
+        }
+        onDispose {
+            val w = (view.context as? Activity)?.window
+            if (w != null) {
+                val controller = WindowInsetsControllerCompat(w, view)
+                controller.isAppearanceLightStatusBars = !systemDark
+                controller.isAppearanceLightNavigationBars = !systemDark
+            }
+        }
+    }
 }
 
 /** 沉浸模式：隐藏系统栏，工具栏显示时临时唤出。 */

@@ -1,6 +1,7 @@
 package io.github.lunalight.paperread.reader
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -47,9 +48,55 @@ class ReaderProgressTest {
         assertEquals(listOf(0, 4), scan.starts)
     }
 
+    // ---- 长行软切分（单行 TXT：整章只有一个换行时进度才能动） ----
+
     @Test
-    fun `chapterCharOffset 取段落原始起点`() {
-        val starts = listOf(0, 3, 7)
+    fun `scanParagraphs 短行不触发软切分`() {
+        // 400 字以内保持一段（正常段落永不受影响）
+        val raw = "段".repeat(ReaderProgress.SOFT_SPLIT_CHARS)
+        val scan = ReaderProgress.scanParagraphs(raw)
+        assertEquals(1, scan.texts.size)
+        assertEquals(listOf(0), scan.starts)
+    }
+
+    @Test
+    fun `scanParagraphs 超长无标点行按阈值硬切且起点连续`() {
+        val raw = "甲".repeat(1000)
+        val scan = ReaderProgress.scanParagraphs(raw)
+
+        assertEquals("1000 / 400 → 3 段", 3, scan.texts.size)
+        assertEquals(listOf(0, 400, 800), scan.starts)
+        assertEquals("文本不丢字", 1000, scan.texts.sumOf { it.length })
+    }
+
+    @Test
+    fun `scanParagraphs 软切分优先落在句末标点`() {
+        // 每句 44 字 + 句号 = 45 字，共 20 句 = 900 字
+        val raw = (1..20).joinToString("") { "甲".repeat(44) + "。" }
+
+        val scan = ReaderProgress.scanParagraphs(raw)
+
+        assertEquals(listOf(0, 360, 720), scan.starts)
+        assertTrue("每段都应断在句末", scan.texts.all { it.endsWith("。") })
+        assertEquals(900, scan.texts.sumOf { it.length })
+    }
+
+    @Test
+    fun `scanParagraphs 软切分后进度随段落推进`() {
+        // 单行 900 字，读到第 2 段起点 = 360 字
+        val raw = (1..20).joinToString("") { "甲".repeat(44) + "。" }
+        val scan = ReaderProgress.scanParagraphs(raw)
+
+        assertEquals(360, ReaderProgress.chapterCharOffset(scan.starts, 1))
+        assertEquals(
+            40f,
+            ReaderProgress.percentOf(0, ReaderProgress.chapterCharOffset(scan.starts, 1), 900),
+            0.01f,
+        )
+    }
+
+    @Test
+    fun `chapterCharOffset 取段落原始起点`() {        val starts = listOf(0, 3, 7)
         assertEquals(0, ReaderProgress.chapterCharOffset(starts, 0))
         assertEquals(3, ReaderProgress.chapterCharOffset(starts, 1))
         assertEquals(7, ReaderProgress.chapterCharOffset(starts, 2))

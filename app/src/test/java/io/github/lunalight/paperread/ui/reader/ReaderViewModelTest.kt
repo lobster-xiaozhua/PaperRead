@@ -197,6 +197,90 @@ class ReaderViewModelTest {
     }
 
     @Test
+    fun `同章内跳到首段也会重新定位`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        val before = viewModel.uiState.value
+        // 先滚动到第 3 段，模拟「用户读到章中，再点章首书签」
+        viewModel.onScrollPosition(2)
+        advanceUntilIdle()
+        assertTrue("先离开章首", viewModel.uiState.value.currentParagraph == 2)
+
+        viewModel.goToChapter(before.chapterIndex, paragraph = 0)
+        advanceUntilIdle()
+
+        val after = viewModel.uiState.value
+        assertEquals("章不变", before.chapterIndex, after.chapterIndex)
+        assertEquals("定位回章首", 0, after.initialParagraph)
+        assertTrue(
+            "恢复票据必须自增，否则 UI 的 LaunchedEffect 不会重放",
+            after.restoreSeq > before.restoreSeq,
+        )
+        assertEquals("章首落库", 0, repository.savedPositions.last().position.paragraphIndex)
+    }
+
+    @Test
+    fun `正文文件缺失时给出可操作错误态而非空白页`() = runTest(dispatcher) {
+        // 章节索引还在，但 book.txt 不存在（云备份恢复后的典型状态）
+        textStore.textAvailable = false
+        textStore.chapterText = { _, _ -> "" }
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.loading)
+        assertTrue("标记为正文缺失（错误页提供删除入口）", state.textMissing)
+        assertEquals(ReaderViewModel.TEXT_MISSING_MESSAGE, state.error)
+        assertTrue("书名等元信息仍可用", state.book != null)
+    }
+
+    @Test
+    fun `正文在但本章为空时不引导删书`() = runTest(dispatcher) {
+        // 文件存在、章节也声称有内容，却按偏移读不出字：属索引损坏，可重新解析
+        textStore.textAvailable = true
+        textStore.chapterText = { _, _ -> "" }
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse("不应提示删除条目", state.textMissing)
+        assertEquals(ReaderViewModel.CHAPTER_EMPTY_MESSAGE, state.error)
+    }
+
+    @Test
+    fun `空章不算正文缺失`() = runTest(dispatcher) {
+        // charCount = 0 的章本来就该是空：不能被误判成文件丢失
+        repository.chapters = chapters.map { it.copy(charCount = 0L, charEnd = it.charStart) }
+        textStore.chapterText = { _, _ -> "" }
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertNull("不报错", state.error)
+        assertFalse(state.textMissing)
+        assertTrue(state.paragraphs.isEmpty())
+    }
+
+    @Test
+    fun `防抖窗口内退出可由 flush 补存位置`() = runTest(dispatcher) {
+        advanceUntilIdle()
+
+        viewModel.onScrollPosition(3)
+        advanceTimeBy(100) // 防抖尚未触发
+        assertTrue(repository.savedPositions.isEmpty())
+
+        viewModel.flushPendingSave()
+        advanceUntilIdle()
+
+        assertEquals("补存一次", 1, repository.savedPositions.size)
+        assertEquals(3, repository.savedPositions.single().position.paragraphIndex)
+
+        // 已写出的位置不应被重复补存
+        viewModel.flushPendingSave()
+        advanceUntilIdle()
+        assertEquals("无新位置时不重复写", 1, repository.savedPositions.size)
+    }
+
+    @Test
     fun `边界章不重复落库`() = runTest(dispatcher) {
         advanceUntilIdle()
 

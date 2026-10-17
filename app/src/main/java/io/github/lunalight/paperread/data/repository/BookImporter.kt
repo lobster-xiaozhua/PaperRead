@@ -14,6 +14,7 @@ import io.github.lunalight.paperread.reader.txt.ChapterIndexEntry
 import io.github.lunalight.paperread.reader.txt.ChapterIndexWriter
 import io.github.lunalight.paperread.reader.txt.ChapterSplitter
 import io.github.lunalight.paperread.reader.txt.CharsetDetector
+import io.github.lunalight.paperread.reader.txt.InlineChapterScanner
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.reader.txt.TxtChapterStream
 import io.github.lunalight.paperread.reader.txt.TxtStreamResult
@@ -509,6 +510,11 @@ class DefaultBookImporter(
     /**
      * TXT 流式解析：单遍解码 + 切分 + 写出 book.txt（经临时文件原子替换）。
      * 失败/取消时删除临时文件，原有 book.txt 不受影响。
+     *
+     * 流式切分若退化到「强制分段」（行级规则一条未命中：单行 TXT 常见），
+     * 会在**替换前**对临时文件做一次只读的行内标记补切（[resplitFallback]），
+     * 把「每 3000 字一段」还原成真实章节；正文不改写，双偏移保持自洽。
+     * 补切取消/失败时临时文件照常丢弃，原有 book.txt 不受影响。
      */
     private fun streamTxt(
         sourceFile: File,
@@ -522,7 +528,7 @@ class DefaultBookImporter(
         val textFile = textStore.textFile(dirName)
         val tmp = File(textFile.parentFile, "book.txt.tmp")
         val result = try {
-            FileOutputStream(tmp).use { out ->
+            val streamed = FileOutputStream(tmp).use { out ->
                 sourceFile.inputStream().use { input ->
                     TxtChapterStream(charset, strategy, bomLength).process(
                         input = input,
@@ -533,6 +539,7 @@ class DefaultBookImporter(
                     )
                 }
             }
+            resplitFallback(tmp, streamed, shouldContinue)
         } catch (e: Throwable) {
             tmp.delete()
             throw e
@@ -543,6 +550,76 @@ class DefaultBookImporter(
         }
         return result
     }
+
+    /**
+     * 兜底补切：仅当流式切分退化为强制分段时执行，且只读现有正文文件，
+     * 不改写正文（行内标题不插入换行），因此 charStart/byteStart 与正文完全一致。
+     *
+     * 扫描失败（IO 异常 / 命中不足）时原样返回强制分段结果，导入流程不受影响。
+     */
+    private fun resplitFallback(
+        bodyFile: File,
+        result: TxtStreamResult,
+        shouldContinue: () -> Boolean,
+    ): TxtStreamResult {
+        if (!result.usedFallback) return result
+        val headings = try {
+            bodyFile.inputStream().use { InlineChapterScanner.scan(it, shouldContinue) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return result
+        }
+        if (headings.isEmpty()) return result
+        val entries = headings.toEntries(result.totalChars, bodyFile.length())
+        if (entries.isEmpty()) return result // 防御：宁可保留强制分段，也不要空章节表
+        return result.copy(entries = entries)
+    }
+
+    /**
+     * 行内边界 → 章节索引。
+     *
+     * 首个边界不在 0 时保留一段「开头」章（与 [TxtChapterStream] 的 leading opening 语义一致），
+     * 保证索引连续且覆盖 [0, totalChars]；末章 byteEnd 取文件实际长度。
+     */
+    private fun List<InlineChapterScanner.Heading>.toEntries(
+        totalChars: Long,
+        totalBytes: Long,
+    ): List<ChapterIndexEntry> {
+        val refs = ArrayList<InlineRef>(size + 1)
+        if (isNotEmpty() && first().charStart > 0) {
+            refs.add(InlineRef(0L, 0L, "开头"))
+        }
+        for (h in this) {
+            if (h.charStart >= totalChars) break // 防御：边界不越界
+            refs.add(InlineRef(h.charStart, h.byteStart, h.title))
+        }
+        val entries = ArrayList<ChapterIndexEntry>(refs.size)
+        var cumulative = 0L
+        for (i in refs.indices) {
+            val ref = refs[i]
+            val next = refs.getOrNull(i + 1)
+            val charEnd = next?.charStart ?: totalChars
+            val charCount = charEnd - ref.charStart
+            entries.add(
+                ChapterIndexEntry(
+                    index = i,
+                    title = ref.title,
+                    charStart = ref.charStart,
+                    charEnd = charEnd,
+                    byteStart = ref.byteStart,
+                    byteEnd = next?.byteStart ?: totalBytes,
+                    charCount = charCount,
+                    cumulativeChars = cumulative,
+                ),
+            )
+            cumulative += charCount
+        }
+        return entries
+    }
+
+    /** 行内补切产生的章节边界（char/byte 同源于 book.txt）。 */
+    private data class InlineRef(val charStart: Long, val byteStart: Long, val title: String)
 
     private fun List<ChapterIndexEntry>.toChapters(): List<Chapter> =
         map { entry ->

@@ -13,6 +13,9 @@ import io.github.lunalight.paperread.data.settings.SettingsStore
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.FileBookTextStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * 手动依赖容器（服务定位器）。
@@ -45,4 +48,13 @@ class AppContainer(context: Context) {
     val bookImporter: BookImporter by lazy {
         DefaultBookImporter(applicationContext, bookRepository, bookTextStore)
     }
+
+    /**
+     * 应用级协程作用域：只用于「ViewModel 已销毁仍必须落地」的收尾写入
+     * （退出阅读器时补存最后一次阅读位置、删除损坏条目）。
+     *
+     * 与 viewModelScope 的区别：后者在 onCleared 后立即取消，
+     * 用它做收尾写会静默丢数据。与进程同生命周期，不需要也不应该取消。
+     */
+    val appScope: CoroutineScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
 }

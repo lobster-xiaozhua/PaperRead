@@ -176,24 +176,64 @@ class BookshelfViewModelTest {
     }
 
     @Test
-    fun `替换导入先删旧书再用原参数重跑`() = runTest(mainDispatcher) {
+    fun `替换导行走原地重新解析且绝不先删旧书`() = runTest(mainDispatcher) {
         val existing = book(id = 2L, title = "旧书", lastReadAt = 50L, addedAt = 5L)
         importer.prepareResult = PrepareResult.Duplicate(existing)
         viewModel.importBook(uri, SplitStrategy.AGGRESSIVE)
         advanceUntilIdle()
 
-        importer.prepareResult = PrepareResult.Success(pending())
         viewModel.replaceDuplicate()
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
         assertNull("对话框关闭", state.duplicateTarget)
-        assertEquals("旧书被删除", listOf(existing), repository.deletedBooks)
-        assertEquals("旧书目录被清理", listOf("dir-2"), textStore.deletedDirs)
-        assertEquals("原参数重跑", 2, importer.prepareCalls.size)
-        assertEquals(uri, importer.prepareCalls[1].uri)
-        assertEquals(SplitStrategy.AGGRESSIVE, importer.prepareCalls[1].strategy)
-        assertEquals("已替换《旧书》，正在导入", state.message)
+        assertTrue("不得先删旧书（第二次导入失败将无法回滚）", repository.deletedBooks.isEmpty())
+        assertTrue("不得删旧书目录", textStore.deletedDirs.isEmpty())
+        assertEquals(
+            "内容相同则原地重新解析，沿用原策略",
+            listOf(existing to SplitStrategy.AGGRESSIVE),
+            importer.reparsedBooks,
+        )
+        assertEquals("已替换《旧书》（进度与书签已重置）", state.message)
+        assertFalse("进度弹窗关闭", state.import.running)
+    }
+
+    @Test
+    fun `旧书源文件已丢失时删记录并重新导入把书补回来`() = runTest(mainDispatcher) {
+        val existing = book(id = 2L, title = "旧书", lastReadAt = 50L, addedAt = 5L)
+        importer.prepareResult = PrepareResult.Duplicate(existing)
+        viewModel.importBook(uri, SplitStrategy.CONSERVATIVE)
+        advanceUntilIdle()
+
+        // 云备份恢复后只剩数据库：source 与 book.txt 都没了，重新解析无源可用
+        importer.reparseBookResult = ImportError.SourceMissing("dir-2")
+        importer.prepareResult = PrepareResult.Success(pending())
+        viewModel.replaceDuplicate()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals("旧记录被清理", listOf(existing), repository.deletedBooks)
+        assertEquals("旧目录被清理", listOf("dir-2"), textStore.deletedDirs)
+        assertEquals("重新走一遍导入", 2, importer.prepareCalls.size)
+        assertEquals("正在重新导入《旧书》", state.message)
+    }
+
+    @Test
+    fun `替换失败时旧书保持可用并提示原因`() = runTest(mainDispatcher) {
+        val existing = book(id = 2L, title = "旧书", lastReadAt = 50L, addedAt = 5L)
+        importer.prepareResult = PrepareResult.Duplicate(existing)
+        viewModel.importBook(uri)
+        advanceUntilIdle()
+
+        importer.reparseBookResult = ImportError.ParseFailed("boom")
+        viewModel.replaceDuplicate()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertTrue("旧书仍在书架上", repository.deletedBooks.isEmpty())
+        assertTrue("旧书目录未被清理", textStore.deletedDirs.isEmpty())
+        assertEquals("文件解析失败，请重试", state.message)
+        assertFalse(state.import.running)
     }
 
     @Test

@@ -23,6 +23,9 @@ class FakeBookTextStore : BookTextStore {
     /** 提供的 book.txt 内容（readSourceText 场景，默认空串）。 */
     var sourceText: String = ""
 
+    /** 正文文件是否被认为存在（默认 true；置 false 模拟云备份恢复后的空壳书）。 */
+    var textAvailable: Boolean = true
+
     override fun bookDir(dirName: String): File = File("/tmp/fake-books/$dirName")
 
     override fun textFile(dirName: String): File = File(bookDir(dirName), "book.txt")
@@ -33,6 +36,8 @@ class FakeBookTextStore : BookTextStore {
         readChapterCalls += dirName to chapter
         return chapterText(dirName, chapter)
     }
+
+    override fun hasText(dirName: String): Boolean = textAvailable
 
     override fun readSourceText(book: Book, charset: Charset): String = sourceText
 

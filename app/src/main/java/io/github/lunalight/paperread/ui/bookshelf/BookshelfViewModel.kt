@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.github.lunalight.paperread.data.repository.BookImporter
+import io.github.lunalight.paperread.data.repository.ImportError
 import io.github.lunalight.paperread.data.repository.ImportStage
 import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.data.repository.PrepareResult
@@ -62,7 +63,7 @@ class BookshelfViewModel(
     /** 进行中的导入任务（可取消，AC-1.4）。 */
     private var importJob: Job? = null
 
-    /** 最近一次导入参数（判重「替换」时重跑）。 */
+    /** 最近一次导入来源与策略（判重「替换」时使用）。 */
     private var lastImportUri: android.net.Uri? = null
     private var lastImportStrategy: SplitStrategy = SplitStrategy.CONSERVATIVE
 
@@ -145,16 +146,55 @@ class BookshelfViewModel(
         _uiState.update { it.copy(duplicateTarget = null) }
     }
 
-    /** 判重对话框：替换——删除旧书后用原参数重新导入（AC-1.5）。 */
+    /**
+     * 判重对话框：替换（AC-1.5）。
+     *
+     * SHA-256 命中意味着所选文件与旧书的 source 逐字节相同，因此「替换」默认走
+     * **原地重新解析**，而不是「先删旧书再重新导入」：后者一旦第二次导入失败，
+     * 旧书连同正文一起没了，没有任何回滚手段。
+     * [BookImporter.reparseBook] 走「临时文件 + 成功后替换」，失败时书籍保持原状。
+     *
+     * 唯一例外：旧书连 source 都没了（云备份恢复后只剩数据库）。
+     * 此时无可回滚内容，改用「删记录 + 重新导入」把书真正补回来。
+     */
     fun replaceDuplicate() {
         val existing = _uiState.value.duplicateTarget ?: return
         val uri = lastImportUri ?: return
         _uiState.update { it.copy(duplicateTarget = null) }
-        viewModelScope.launch {
-            bookRepository.deleteBook(existing)
-            bookTextStore.deleteBookDir(existing.dirName)
-            _uiState.update { it.copy(message = "已替换《${existing.title}》，正在导入") }
-            launchImport(uri, lastImportStrategy)
+        importJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(import = ImportUiState(running = true, stageLabel = ImportStage.PARSING.label))
+            }
+            try {
+                val error = bookImporter.reparseBook(existing, lastImportStrategy)
+                when {
+                    error == null -> _uiState.update {
+                        it.copy(
+                            import = ImportUiState(),
+                            message = "已替换《${existing.title}》（进度与书签已重置）",
+                        )
+                    }
+
+                    error is ImportError.SourceMissing -> {
+                        bookRepository.deleteBook(existing)
+                        bookTextStore.deleteBookDir(existing.dirName)
+                        _uiState.update {
+                            it.copy(import = ImportUiState(), message = "正在重新导入《${existing.title}》")
+                        }
+                        launchImport(uri, lastImportStrategy)
+                    }
+
+                    else -> _uiState.update {
+                        it.copy(import = ImportUiState(), message = error.userMessage)
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // 取消发生在替换生效之前：book.txt 未被改写，旧书保持可用
+                _uiState.update {
+                    it.copy(import = ImportUiState(), message = "已取消替换")
+                }
+                throw e
+            }
         }
     }
 

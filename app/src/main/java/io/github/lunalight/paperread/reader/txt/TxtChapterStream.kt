@@ -10,10 +10,17 @@ import java.nio.charset.CharsetDecoder
 import java.nio.charset.CoderResult
 import java.nio.charset.CodingErrorAction
 
-/** 流式导入产物：章节索引 + 标准化后的全文字符数。 */
+/**
+ * 流式导入产物：章节索引 + 标准化后的全文字符数。
+ *
+ * @param usedFallback 是否为「强制分段」兜底（行级规则一条未命中）。
+ *   为 true 时调用方可用 [InlineChapterScanner] 做一次行内补切，
+ *   把「每 3000 字一段」恢复成真实章节。
+ */
 data class TxtStreamResult(
     val entries: List<ChapterIndexEntry>,
     val totalChars: Long,
+    val usedFallback: Boolean = false,
 )
 
 /**
@@ -68,6 +75,9 @@ class TxtChapterStream(
 
     // ---- 强制分段状态 ----
     private var fSegStart = 0L
+
+    /** 是否走到强制分段兜底（行级规则未命中任何章节）。 */
+    private var usedFallback = false
 
     // ---- 候选指针（flush 时按序解析字节偏移）----
     private var strongPtr = 0
@@ -413,7 +423,7 @@ class TxtChapterStream(
         flushTo(writtenEnd)
         out.flush()
         val refs = chooseRefs()
-        return TxtStreamResult(buildEntries(refs, writtenEnd), writtenEnd)
+        return TxtStreamResult(buildEntries(refs, writtenEnd), writtenEnd, usedFallback)
     }
 
     private fun chooseRefs(): List<Ref> {
@@ -428,6 +438,7 @@ class TxtChapterStream(
                 return withLeadingOpening(short.map { Ref(it.charPos, it.bytePos, it.title) })
             }
         }
+        usedFallback = true
         // 强制分段：章起点 = [0] + 各完整段边界；末尾不足一段的内容并入末章，不产生空段
         val starts = ArrayList<Ref>(forcedBoundaries.size + 1)
         if (writtenEnd > 0) starts.add(Ref(0L, 0L, "第 1 段"))

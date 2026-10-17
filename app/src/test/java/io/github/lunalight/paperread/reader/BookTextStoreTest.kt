@@ -99,6 +99,22 @@ class BookTextStoreTest {
     }
 
     @Test
+    fun `hasText distinguishes missing file from empty chapter`() {
+        // 文件不存在（云备份恢复后的空壳书）
+        assertFalse(store.hasText("no-such-dir"))
+
+        // 文件存在但为空：同样读不出内容，语义上也算「没有正文」
+        val dir = store.bookDir(book.dirName)
+        dir.mkdirs()
+        File(dir, "book.txt").writeBytes(ByteArray(0))
+        assertFalse(store.hasText(book.dirName))
+
+        // 有内容
+        File(dir, "book.txt").writeText("第一章 荒原")
+        assertTrue(store.hasText(book.dirName))
+    }
+
+    @Test
     fun `readSourceText decodes with given charset`() {
         val dir = store.bookDir(book.dirName)
         dir.mkdirs()

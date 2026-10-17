@@ -93,6 +93,14 @@ kotlin {
     }
 }
 
+// Room schema 导出目录（`app/schemas/`，随代码入库）。
+// 作用：每次编译把当前 schema 写成 JSON，字段变更在 PR diff 里可见，
+// 也是 Room 编译期「迁移缺失」校验的依据——v1.1 之前 exportSchema=false，
+// 加一个字段就会让升级用户崩在启动。
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 // JaCoCo 覆盖率：`./gradlew jacocoTestReport` → build/reports/jacoco/jacocoTestReport
 //
 // 两个非默认项的原因（都有实测依据，勿随意删除）：
