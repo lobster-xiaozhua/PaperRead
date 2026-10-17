@@ -351,3 +351,15 @@
   从源头杜绝「版本组合勿随意升级」被自动通道绕过
 - 关闭 6 个大版本 PR（#1/#2/#3/#5/#6/#7）并附说明；保留 #4（Robolectric
   4.14.1→4.17，minor，CI 绿、可合并）供人工审阅
+
+### Dependabot 二轮收敛（gradle 仅 patch）
+- 改为忽略 major 后，Dependabot 续开 5 个 minor PR（#4/#8/#10/#11/#12）；
+  CI 复验：仅 #4（Robolectric 4.14.1→4.17）绿，其余全红
+- 抓日志定位根因：`Module was compiled with an incompatible version of Kotlin.
+  binary version of its metadata is 2.2.0, expected version is 2.0.0`
+  ——新版 AndroidX/kotlinx 由 Kotlin 2.2+ 编译，项目锁 Kotlin 2.0.21，消费即编译失败
+  （coroutines 1.11.0 / room 2.8.5 / navigation 2.10.2 / ksp 2.3.12 均如此）
+- 结论：依赖图随 Kotlin 工具链整体迁移，单包升级无解
+- 处置：gradle 生态收敛为**仅 patch**（忽略 major+minor），从源头停止必然飘红的 churn；
+  关闭 #8/#10/#11/#12（附根因）；保留 #4（Robolectric，CI 绿）供人工审阅
+- 待办：Kotlin/工具链升级工单（AGENTS.md 把关）完成后，放宽 gradle 策略

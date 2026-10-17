@@ -1,10 +1,17 @@
 # Dependabot 自动依赖更新。
 #
 # 策略（对齐 AGENTS.md「版本组合勿随意升级」）：
-#   仅自动提议 minor / patch 更新；**忽略 semver-major**。
-#   大版本（AGP / Kotlin / Gradle / KSP / Compose BOM / Room 等）属于锁定版本组合，
-#   升级需专门的迁移工单 + 人工审查，不在此自动通道内（实例：AGP 8.7.3→9 与
-#   Kotlin 2.0.21→2.4 均被 CI 证实与 Gradle 8.9 不兼容）。
+#
+# gradle 生态——仅 patch（忽略 major + minor）：
+#   项目锁定 Kotlin 2.0.21（AGENTS.md 版本组合）。当前 AndroidX / kotlinx 的
+#   minor / major 版本多由 Kotlin 2.2+ 编译（metadata 2.2.0），Kotlin 2.0.21 消费即
+#   报「Module was compiled with an incompatible version of Kotlin」编译失败。
+#   实例（均被 CI 证伪）：coroutines 1.11.0 / room 2.8.5 / navigation 2.10.2 /
+#   ksp 2.3.12 / AGP 9.x / Kotlin 2.4.x。
+#   依赖图整体升级需专门的 Kotlin / 工具链迁移工单，届时再放宽此策略。
+#
+# github-actions 生态——忽略 major（允许 minor + patch）：
+#   Action 大版本可能要求更新 runner / node，保守起见手动跟进。
 #
 # 所有 PR 仅「提议」、不自动合并，仍需本地全量门禁 + 人工审查。
 version: 2
@@ -24,7 +31,7 @@ updates:
       prefix: "chore(deps)"
     ignore:
       - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # GitHub Actions 版本
   - package-ecosystem: "github-actions"
