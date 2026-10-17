@@ -1,6 +1,6 @@
 # PaperRead 路线图（v1.1 → v2.0）
 
-> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 115 单测全绿 / lint 0/0（B1 已完成，待真机验收）
+> 制定依据：v1.0.1 审计报告（综合 8.3/10）· 当前 146 单测全绿 / lint 0/0（B1、B2 已完成，B1 待真机验收）
 > 原则：先发布收尾，再质量收敛，最后做体验增量；隐私红线（零网络权限）不变更
 
 ---
@@ -48,10 +48,12 @@
 - **待真机验收**：200 MB GBK TXT 导入成功；`dumpsys meminfo` 峰值 < 100 MB；进度条仍平滑（DEVICE_CHECKLIST 第 7 节）
 - 详见 TASKS.md「B1 导入流式解码」
 
-### B2 ViewModel 自动化测试（1 天）
+### B2 ViewModel 自动化测试（1 天）✅ 已完成
 - 栈：`kotlinx-coroutines-test` + Turbine + 手工 fake repository
 - 覆盖：500ms 防抖保存（推进虚拟时间验证落库次数）、切章立即落库、书签增删、导入取消状态机、判重替换流程
-- 验收：ReaderViewModel / BookshelfViewModel 行覆盖 ≥70%
+- 落地：三接口抽取（BookTextStore/SettingsStore/BookImporter）+ 4 个 fake；ReaderViewModel 12 用例 + BookshelfViewModel 19 用例；全量 146 单测全绿
+- 验收：ReaderViewModel 行覆盖 100%（104/104）、BookshelfViewModel 100%（63/63），≥70% 达标（`./gradlew :app:jacocoTestReport`）
+- 详见 TASKS.md「B2 ViewModel 自动化测试」
 
 ### B3 Compose UI 冒烟测试（1–2 天）
 - 栈：`androidTest` + `compose-ui-test-junit4`（Robolectric 也可跑 `createAndroidComposeRule`）

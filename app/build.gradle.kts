@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
+    id("jacoco")
 }
 
 android {
@@ -92,6 +93,49 @@ kotlin {
     }
 }
 
+// JaCoCo 覆盖率：`./gradlew jacocoTestReport` → build/reports/jacoco/jacocoTestReport
+//
+// 两个非默认项的原因（都有实测依据，勿随意删除）：
+// 1. inclNoLocationClasses = true：Robolectric 的 sandbox classloader 定义的类
+//    ProtectionDomain 无 source location，默认配置下 agent 直接跳过 → 覆盖率恒 0%。
+//    单独开启此项会让 agent 插桩 JVM 反序列化时动态生成的
+//    GeneratedSerializationConstructorAccessor* 类，worker 启动即崩
+//    （NoClassDefFoundError，测试根本不运行）。
+// 2. includes 白名单：与上一项配套，把插桩范围收紧到本模块的类，
+//    worker 基础设施与 JDK 内部类一概不碰，worker 崩溃与覆盖率兼得。
+tasks.withType<Test>().configureEach {
+    extensions.configure(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class.java) {
+        isIncludeNoLocationClasses = true
+        includes = listOf("io.github.lunalight.paperread.*")
+    }
+}
+
+tasks.register<JacocoReport>("jacocoTestReport") {
+    group = "verification"
+    description = "生成单元测试覆盖率报告（XML + HTML）"
+    dependsOn("testDebugUnitTest")
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
+    classDirectories.setFrom(
+        fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/debug") {
+            exclude(
+                "**/R.class",
+                "**/R$*.class",
+                "**/BuildConfig.class",
+                "**/Manifest.class",
+                "**/*\$*.class",
+            )
+        },
+    )
+    executionData.setFrom(
+        fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("*.exec") },
+        fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/*.exec") },
+    )
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -117,6 +161,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
 }

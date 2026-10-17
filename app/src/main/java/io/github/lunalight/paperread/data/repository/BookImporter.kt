@@ -88,7 +88,7 @@ private data class ParseOutcome(
 )
 
 /**
- * 导入流水线：
+ * 导入流水线（UI 层只依赖本接口，单测以 fake 替代）：
  * SAF 选文件 → 磁盘预检 → 流式拷贝 + SHA-256 → 去重 →
  * 解析（TXT：[TxtChapterStream] 流式解码切分直写 book.txt；EPUB：OPF/spine/NCX + 正文提取）→
  * [PendingImport] 待确认 → confirm 入库 / cancel 删目录。
@@ -96,11 +96,7 @@ private data class ParseOutcome(
  * TXT 路径全程流式：内存占用与文件大小无关（滚动缓冲 ≤ 256KB），
  * 200 MB 级文件不再有 OOM 风险；EPUB 因需先解出 spine 结构仍走全量提取。
  */
-class BookImporter(
-    private val context: Context,
-    private val bookRepository: BookRepository,
-    private val textStore: BookTextStore,
-) {
+interface BookImporter {
 
     /**
      * 完整准备流程。失败时自动清理临时目录。
@@ -111,6 +107,50 @@ class BookImporter(
         uri: Uri,
         strategy: SplitStrategy = SplitStrategy.CONSERVATIVE,
         onProgress: (ImportProgress) -> Unit = {},
+    ): PrepareResult
+
+    /**
+     * 结果页切换编码 / 切分策略后重新解析（不重新拷贝文件）。
+     * EPUB 忽略编码/策略参数（其章节结构来自 OPF/spine）。
+     * 返回新的 PendingImport；失败返回 null（目录已保留，可重试）。
+     */
+    suspend fun reparse(
+        pending: PendingImport,
+        charsetName: String,
+        strategy: SplitStrategy,
+    ): PendingImport?
+
+    /** 确认入库，返回书籍 id。 */
+    suspend fun confirm(pending: PendingImport): Long
+
+    /** 取消导入：删除临时目录。 */
+    fun cancel(pending: PendingImport)
+
+    /**
+     * 书架「重新解析」：TXT 用新策略重新切分；EPUB 重新提取正文。
+     * 章节语义已变：重置阅读位置并清空书签（否则旧书签跳到错位内容）。
+     *
+     * @return 成功返回 null；失败返回用户可读的错误原因（书籍保持原状，可重试）。
+     */
+    suspend fun reparseBook(book: Book, strategy: SplitStrategy): String?
+}
+
+/** [BookImporter] 的默认实现（真实导入流水线）。 */
+class DefaultBookImporter(
+    private val context: Context,
+    private val bookRepository: BookRepository,
+    private val textStore: BookTextStore,
+) : BookImporter {
+
+    /**
+     * 完整准备流程。失败时自动清理临时目录。
+     *
+     * @param onProgress 进度回调（调用线程为 IO）
+     */
+    override suspend fun prepare(
+        uri: Uri,
+        strategy: SplitStrategy,
+        onProgress: (ImportProgress) -> Unit,
     ): PrepareResult = withContext(Dispatchers.IO) {
         val meta = queryMeta(uri)
             ?: return@withContext PrepareResult.Failure("无法读取文件信息，请重试")
@@ -217,7 +257,7 @@ class BookImporter(
      * EPUB 忽略编码/策略参数（其章节结构来自 OPF/spine）。
      * 返回新的 PendingImport；失败返回 null（目录已保留，可重试）。
      */
-    suspend fun reparse(
+    override suspend fun reparse(
         pending: PendingImport,
         charsetName: String,
         strategy: SplitStrategy,
@@ -273,7 +313,7 @@ class BookImporter(
     }
 
     /** 确认入库，返回书籍 id。 */
-    suspend fun confirm(pending: PendingImport): Long = withContext(Dispatchers.IO) {
+    override suspend fun confirm(pending: PendingImport): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val book = Book(
             title = pending.title,
@@ -291,7 +331,7 @@ class BookImporter(
     }
 
     /** 取消导入：删除临时目录。 */
-    fun cancel(pending: PendingImport) {
+    override fun cancel(pending: PendingImport) {
         textStore.deleteBookDir(pending.dirName)
     }
 
@@ -303,7 +343,7 @@ class BookImporter(
      *
      * @return 成功返回 null；失败返回用户可读的错误原因（书籍保持原状，可重试）。
      */
-    suspend fun reparseBook(book: Book, strategy: SplitStrategy): String? =
+    override suspend fun reparseBook(book: Book, strategy: SplitStrategy): String? =
         withContext(Dispatchers.IO) {
             try {
                 val sourceFile = File(

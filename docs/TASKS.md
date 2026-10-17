@@ -166,3 +166,23 @@
 
 ### 待真机验证
 - 200 MB GBK TXT 导入 + `dumpsys meminfo` 峰值 < 100 MB + 进度平滑（见 DEVICE_CHECKLIST 第 7 节）
+
+## B2 ViewModel 自动化测试 + 覆盖率度量（v1.1，已完成）
+
+> 依据 ROADMAP B2：`kotlinx-coroutines-test` + Turbine + 手工 fake，覆盖防抖保存、切章落库、书签、导入取消状态机、判重替换。验收：ReaderViewModel / BookshelfViewModel 行覆盖 ≥70%。
+
+### 实现
+- 三个状态协作类抽取接口以便测试替身：`BookTextStore` → `FileBookTextStore`、`SettingsStore` → `PreferencesSettingsStore`、`BookImporter` → `DefaultBookImporter`；`AppContainer` 暴露类型仍为接口，ViewModel 构造签名不变（override 方法不得重复声明参数默认值）
+- 新增 4 个手工 fake（`app/src/test/.../fakes/`）：`FakeBookRepository`（内存实现 + 调用记录 + `emitBooks/emitBookmarks` 驱动流）、`FakeSettingsStore`（MutableStateFlow 支撑）、`FakeBookTextStore`（可配置 `chapterText` + 调用记录）、`FakeBookImporter`（`prepareGate: CompletableDeferred` 挂起导入 + 全调用记录）
+- JaCoCo 接入：`jacocoTestReport` 任务（XML + HTML，排除 R/BuildConfig/Manifest/匿名类），验证入口 `./gradlew :app:jacocoTestReport`
+
+### 关键实现说明
+- **JaCoCo 与 Robolectric 的兼容坑（本环境实测，配置已注释在 build.gradle.kts）**：Robolectric 的 sandbox classloader 定义的类 ProtectionDomain 无 source location，agent 默认直接跳过 → Robolectric 测试的类覆盖率恒 0%。开启 `inclNoLocationClasses=true` 后 agent 会插桩 JVM 反序列化时动态生成的 `GeneratedSerializationConstructorAccessor*` 类，导致每个测试 worker 启动即崩（`NoClassDefFoundError`，测试根本不运行）。解法：`inclNoLocationClasses=true` + `includes` 白名单收紧到 `io.github.lunalight.paperread.*`，两者缺一不可
+- **500ms 防抖验证**：`advanceTimeBy(300)` → `advanceTimeBy(400)` → `advanceTimeBy(150)` 三段推进虚拟时间，断言 `savedPositions` 只在累计 ≥500ms 时落库且仅最后一次生效；切章显式取消前一个防抖 job（落库次数 +1 且取消防抖）
+- **导入状态机挂起点**：`FakeBookImporter.prepareGate`（CompletableDeferred）让 prepare 停在运行态中，配合 Turbine 序列断言「进入运行态 → 阶段标签 → 完成后退出并转待确认」的完整流转
+- **Turbine + StateFlow**：StateFlow 会去重发射，`uiState.test { awaitItem() }` 按 distinct 值序列断言；ReaderViewModel 用 `StandardTestDispatcher`（保留防抖时序语义），BookshelfViewModel 用 `UnconfinedTestDispatcher`（即时执行，适合状态机断言）
+
+### 测试
+- ReaderViewModelTest 12 用例（纯 JVM）：位置恢复（章/段/像素偏移/进度）、越界夹取、错误态、防抖落库时序、切章落库、书签增删与跳转、设置回流、面板显隐
+- BookshelfViewModelTest 19 用例（Robolectric 提供 `android.net.Uri`）：导入运行态/取消/防重入、判重对话框、替换导入（先删旧书再原参数重跑）、确认/取消待确认、重新解析（成功/失败保留）、排序 4 种口径、删除联动、消息消除
+- 全量 146 单测全绿；ReaderViewModel 行覆盖 100%（104/104），BookshelfViewModel 100%（63/63），B2 验收达标

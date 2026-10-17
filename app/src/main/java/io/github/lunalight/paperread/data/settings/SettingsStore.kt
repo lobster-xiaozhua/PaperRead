@@ -15,15 +15,25 @@ import kotlinx.coroutines.flow.map
 private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "reader_settings")
 
 /**
- * 阅读设置存储（DataStore Preferences）。
+ * 阅读设置存储（UI 层只依赖本接口，单测以 fake 替代）。
+ */
+interface SettingsStore {
+
+    val settings: Flow<ReaderSettings>
+
+    suspend fun update(transform: (ReaderSettings) -> ReaderSettings)
+}
+
+/**
+ * [SettingsStore] 的 DataStore Preferences 实现。
  *
  * 单例语义：同一进程内共享同一 DataStore 实例（by 委托绑定 Context）。
  */
-class SettingsStore(context: Context) {
+class PreferencesSettingsStore(context: Context) : SettingsStore {
 
     private val dataStore = context.applicationContext.settingsDataStore
 
-    val settings: Flow<ReaderSettings> = dataStore.data.map { prefs ->
+    override val settings: Flow<ReaderSettings> = dataStore.data.map { prefs ->
         val defaults = ReaderSettings()
         ReaderSettings(
             themeId = prefs[KEY_THEME] ?: defaults.themeId,
@@ -39,7 +49,7 @@ class SettingsStore(context: Context) {
         )
     }
 
-    suspend fun update(transform: (ReaderSettings) -> ReaderSettings) {
+    override suspend fun update(transform: (ReaderSettings) -> ReaderSettings) {
         dataStore.edit { prefs ->
             val current = ReaderSettings(
                 themeId = prefs[KEY_THEME] ?: ReaderSettings().themeId,

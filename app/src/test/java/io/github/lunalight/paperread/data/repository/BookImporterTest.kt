@@ -10,6 +10,7 @@ import io.github.lunalight.paperread.domain.model.Bookmark
 import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
+import io.github.lunalight.paperread.reader.FileBookTextStore
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -63,8 +64,8 @@ class BookImporterTest {
             database.chapterDao(),
             database.bookmarkDao(),
         )
-        textStore = BookTextStore(context)
-        importer = BookImporter(context, repository, textStore)
+        textStore = FileBookTextStore(context)
+        importer = DefaultBookImporter(context, repository, textStore)
     }
 
     @After

@@ -18,7 +18,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class SettingsStoreTest {
 
-    private fun store() = SettingsStore(ApplicationProvider.getApplicationContext())
+    private fun store() = PreferencesSettingsStore(ApplicationProvider.getApplicationContext())
 
     @Test
     fun `默认设置即开箱可读`() = runTest {

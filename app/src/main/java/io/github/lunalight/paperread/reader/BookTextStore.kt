@@ -13,20 +13,39 @@ import java.nio.charset.Charset
  * 目录约定：filesDir/books/<dirName>/ 下
  * - book.txt：标准化 UTF-8 正文（章节按 byteStart/byteEnd 定位）
  * - source.<ext>：导入时的原始文件（保留用于重新解析 / 切换编码）
+ *
+ * UI 层只依赖本接口（单测以内存 fake 替代）；文件系统实见 [FileBookTextStore]。
  */
-class BookTextStore(context: Context) {
+interface BookTextStore {
+
+    fun bookDir(dirName: String): File
+
+    fun textFile(dirName: String): File
+
+    fun sourceFile(book: Book): File
+
+    /** 读取单章文本（字节偏移定位 + UTF-8 解码）。 */
+    fun readChapter(dirName: String, chapter: Chapter): String
+
+    /** 读取原始文件全文（重新解析场景）。 */
+    fun readSourceText(book: Book, charset: Charset): String
+
+    fun deleteBookDir(dirName: String)
+}
+
+/** [BookTextStore] 的文件系统实现（filesDir/books/<dirName>/）。 */
+class FileBookTextStore(context: Context) : BookTextStore {
 
     private val booksRoot: File = File(context.filesDir, "books")
 
-    fun bookDir(dirName: String): File = File(booksRoot, dirName)
+    override fun bookDir(dirName: String): File = File(booksRoot, dirName)
 
-    fun textFile(dirName: String): File = File(bookDir(dirName), "book.txt")
+    override fun textFile(dirName: String): File = File(bookDir(dirName), "book.txt")
 
-    fun sourceFile(book: Book): File =
+    override fun sourceFile(book: Book): File =
         File(bookDir(book.dirName), "source.${book.format.extension}")
 
-    /** 读取单章文本（字节偏移定位 + UTF-8 解码）。 */
-    fun readChapter(dirName: String, chapter: Chapter): String {
+    override fun readChapter(dirName: String, chapter: Chapter): String {
         val file = textFile(dirName)
         if (!file.exists()) return ""
         val length = (chapter.byteEnd - chapter.byteStart).toInt()
@@ -39,11 +58,10 @@ class BookTextStore(context: Context) {
         }
     }
 
-    /** 读取原始文件全文（重新解析场景）。 */
-    fun readSourceText(book: Book, charset: Charset): String =
+    override fun readSourceText(book: Book, charset: Charset): String =
         sourceFile(book).readText(charset)
 
-    fun deleteBookDir(dirName: String) {
+    override fun deleteBookDir(dirName: String) {
         bookDir(dirName).deleteRecursively()
     }
 }

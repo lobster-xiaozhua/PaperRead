@@ -26,7 +26,7 @@ class BookTextStoreTest {
 
     @Before
     fun setUp() {
-        store = BookTextStore(ApplicationProvider.getApplicationContext())
+        store = FileBookTextStore(ApplicationProvider.getApplicationContext())
         book = Book(
             title = "测试书",
             author = "未知",
