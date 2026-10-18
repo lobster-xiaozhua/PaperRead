@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.1.0（versionCode 3，质量收敛版：流式导入、结构化失败原因、备份策略定案）
 - **main 未发布变更**：Kotlin 工具链 2.0.21 → 2.2.20（配套 KSP 2.2.20-2.0.4、Room 2.8.5），解锁新版依赖图
-- **质量基线**：244 单测全绿、lint 0 error / 0 warning、行覆盖率约 87%、CI 双门禁（Debug + Release）全绿
+- **质量基线**：271 单测全绿、lint 0 error / 0 warning、行覆盖率约 81%、CI 双门禁（Debug + Release）全绿
 
 ## 当前能力（已完成）
 
@@ -46,6 +46,12 @@
 - 书架多选发送（进度 + 可取消，失败携带原因并清理现场）；接收端落盘 cacheDir → FileProvider → 复用既有导入流水线（SHA-256 去重 / 解析 / 待确认，单一逻辑）
 - 设备标识为随机持久化 UUID（不使用 MAC / IMEI / ANDROID_ID）
 
+### 换机迁移（T3）
+- 整库打包为单一 zip：清单（每本书元数据 + 进度 + 书签）+ 源文件（按 SHA-256 去重）
+- 接收端逐本导入（复用导入流水线），单本失败记入清单、不中断整体，结束汇报成功 / 失败明细
+- 进度与书签按「最后阅读时间较新者胜」回写，已存在的书不重复导入
+- 迁移包解包含路径穿越防护（可疑条目丢弃、不中断）
+
 ### 备份与测试
 - 备份策略（方案甲-B）：云备份排除书库目录（`books/`），换机（D2D）保留整库；双 XML 规则覆盖 Android 11–12+
 - 测试：JVM 单测 + Turbine ViewModel 测试 + Robolectric Compose UI 冒烟 + JaCoCo 覆盖率度量
@@ -73,11 +79,19 @@
 - 约束达成：零新增第三方依赖（JSON 用已引入的 kotlinx.serialization）；传输核心纯 JVM 单测覆盖（localhost 真实 socket）；UI 层不直连 socket
 - 验收：SPEC AC-9.1 – AC-9.7 全部达成（AC-9.7 由「仅绑 wlan* 地址」实现 + lint / 代码审查保证）
 
-### T3 换机迁移（约 3h）
+### T3 换机迁移（约 3h）✅ 已完成（feat/migration-core，271 单测全绿）
 
 - 涉及：整库迁移包（书籍 source + 进度/书签 JSON，zip）打包 / 解包 / 逐本导入 / 按 SHA-256 回写进度书签
-- 约束：单本失败不中断整体；回写按「最后阅读时间较新者胜」
-- 验收：SPEC AC-10.1 – AC-10.4
+- 交付物：
+  - `transfer/MigrationBundle.kt`：`MigrationManifest` / `BookStateSnapshot` / `BookmarkSnapshot` 数据契约；`MigrationBundleCodec.pack/unpack`（zip + JSON；源文件按 SHA-256 命名去重；解包拒绝绝对路径与 `..` 穿越，可疑条目丢弃而不中断；高版本清单 / 损坏包返回 null）；`WriteBackDecider` 回写决策纯函数；`Book.toSnapshot` 域模型转换
+  - `transfer/MigrationProcessor.kt`：接收编排（`MigrationImportGateway` 接口 + `MigrationProcessor`）——逐本处理、单本失败入清单不中断、已存在（SHA-256）不重复导入、导入后按「最后阅读时间较新者胜」回写进度与书签（两者同一决策单元），产出 `MigrationReport`
+  - `TransferHttpServer`：新增 `POST /bundle` 端点（`X-Bundle-Name` 头），与 `/upload` 共用前导逻辑；`TransferClient.uploadBundle`
+  - `LanTransferManager`：迁移状态流 `migration`（方向 / 阶段 / 进度 / 计数 / 清单 / 错误）；发送端「收集书库 → 打包 → 上传」；接收端「落盘 → 后台解包 → 逐本导入 → 回写」（HTTP 尽早应答避免对端超时）；Android 侧网关实现复用 `BookImporter` 与 `BookRepository`，无第二套导入逻辑
+  - UI：传书页新增「换机迁移」卡片（阶段 / 进度 / 可取消 / 结果清单）与设备行「迁移整库」按钮；VM 汇总一次性提示
+  - 测试：`MigrationBundleTest` 9 项（往返 / 缺源 / 坏包 / 高版本 / zip slip / 未知条目 / 回写决策矩阵 / 快照）、`MigrationProcessorTest` 7 项（逐本导入 / 单本失败不中断 / 已存在不重复导入 / 本地较新不回写 / 缺源记失败 / 进度回调 / 空清单）、`/bundle` 端到端 1 项、VM 迁移 4 项、`ImportResultDialogTest` 5 项（共享对话框）
+- 约束达成：单本失败不中断整体（AC-10.3）；回写按「最后阅读时间较新者胜」（AC-10.4）
+- 验收：SPEC AC-10.1 – AC-10.4 全部达成
+- 已知边界：回写走 `saveReaderPosition`，会将 `lastReadAt` 置为当前时间（语义上「本地态即最新」，符合 AC-10.4 单向迁移场景）
 
 ### T4 进度同步（约 3h）
 

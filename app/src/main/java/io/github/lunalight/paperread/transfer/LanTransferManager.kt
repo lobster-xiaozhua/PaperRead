@@ -5,6 +5,9 @@ import io.github.lunalight.paperread.data.repository.BookImporter
 import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.data.repository.PrepareResult
 import io.github.lunalight.paperread.domain.model.Book
+import io.github.lunalight.paperread.domain.model.Bookmark
+import io.github.lunalight.paperread.domain.model.ReaderPosition
+import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import java.io.File
@@ -19,6 +22,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -56,6 +60,27 @@ data class TransferReceiveState(
     val importedTitle: String? = null,
 )
 
+/** 迁移方向（发送端打包上行 / 接收端解包导入）。 */
+enum class MigrationDirection { NONE, SEND, RECEIVE }
+
+/**
+ * 换机迁移状态（AC-10.1 ~ AC-10.4）。
+ *
+ * @param report 完成后的成功 / 失败清单（AC-10.3）；仅接收端产出
+ *   （发送端完成以 active 落潮 + VM 一次性提示表达）
+ */
+data class TransferMigrationState(
+    val active: Boolean = false,
+    val direction: MigrationDirection = MigrationDirection.NONE,
+    val phaseLabel: String = "",
+    val fraction: Float = 0f,
+    val index: Int = 0,
+    val total: Int = 0,
+    val currentTitle: String = "",
+    val error: String? = null,
+    val report: MigrationReport? = null,
+)
+
 @Serializable
 private data class ServerMeta(
     val ok: Boolean,
@@ -74,6 +99,7 @@ interface LanTransferManager {
     val devices: StateFlow<List<DiscoveredDevice>>
     val sendState: StateFlow<TransferSendState>
     val receiveState: StateFlow<TransferReceiveState>
+    val migration: StateFlow<TransferMigrationState>
 
     /** 启动局域网服务（发现 + HTTP 服务）。已在运行时幂等返回。 */
     fun startService()
@@ -98,6 +124,18 @@ interface LanTransferManager {
 
     /** 消费「已导入」一次性提示（Snackbar 展示后调用，避免重组重复弹出）。 */
     fun consumeImportedTitle()
+
+    /**
+     * 换机迁移（AC-10.1）：把整库（书籍源文件 + 进度 / 书签）打包为单一 zip
+     * 发送至对端。已在迁移中时幂等忽略。
+     */
+    fun startMigration(target: DiscoveredDevice)
+
+    /** 取消进行中的迁移（发送或接收）。 */
+    fun cancelMigration()
+
+    /** 关闭迁移结果报告（AC-10.3 清单展示后）。 */
+    fun dismissMigrationReport()
 }
 
 /**
@@ -108,11 +146,14 @@ interface LanTransferManager {
  * - [TransferHttpServer]（仅绑 WiFi 网卡地址，AC-9.7）+ 本类的接收 handler；
  * - [TransferClient]（发送）；
  * - 接收落盘 cacheDir/transfer/ → FileProvider content Uri → [BookImporter]
- *   （复用既有导入流水线，不出现第二条导入逻辑，AC-9.5）。
+ *   （复用既有导入流水线，不出现第二条导入逻辑，AC-9.5）；
+ * - 换机迁移（[MigrationBundleCodec] 打包 / 解包 + [MigrationProcessor] 编排，
+ *   导入与回写同样复用 [BookImporter] / [BookRepository]，AC-10.2）。
  */
 class DefaultLanTransferManager(
     private val context: Context,
     private val bookImporter: BookImporter,
+    private val bookRepository: BookRepository,
     private val bookTextStore: BookTextStore,
     private val identityStore: DeviceIdentityStore,
     private val scope: CoroutineScope,
@@ -130,11 +171,81 @@ class DefaultLanTransferManager(
     private val _receiveState = MutableStateFlow(TransferReceiveState())
     override val receiveState: StateFlow<TransferReceiveState> = _receiveState.asStateFlow()
 
+    private val _migration = MutableStateFlow(TransferMigrationState())
+    override val migration: StateFlow<TransferMigrationState> = _migration.asStateFlow()
+
     private var server: TransferHttpServer? = null
     private var discovery: LanDiscovery? = null
     private var transport: UdpSocketTransport? = null
     private var serviceJob: Job? = null
     private var sendJob: Job? = null
+    private var migrationJob: Job? = null
+
+    /** 迁移导入网关（FileProvider → 导入流水线 → 仓储回写）。 */
+    private val migrationGateway = object : MigrationImportGateway {
+
+        override suspend fun importFromSource(
+            sourceFile: File,
+            snapshot: BookStateSnapshot,
+        ): ImportOutcome {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                sourceFile,
+            )
+            return when (val result = bookImporter.prepare(uri)) {
+                is PrepareResult.Success -> {
+                    val bookId = bookImporter.confirm(result.pending)
+                    val book = bookRepository.getBook(bookId)
+                    if (book != null) {
+                        ImportOutcome.Imported(book)
+                    } else {
+                        ImportOutcome.Skipped("入库成功但读取失败")
+                    }
+                }
+
+                is PrepareResult.Duplicate -> ImportOutcome.Skipped("内容已存在于书架")
+
+                is PrepareResult.Unsupported -> ImportOutcome.Skipped(result.error.userMessage)
+
+                is PrepareResult.Failure -> ImportOutcome.Skipped(result.error.userMessage)
+            }
+        }
+
+        override suspend fun findBySha256(sha256: String): Book? =
+            bookRepository.findBySha256(sha256)
+
+        override suspend fun writeProgress(book: Book, snapshot: BookStateSnapshot) {
+            bookRepository.saveReaderPosition(
+                bookId = book.id,
+                position = ReaderPosition(
+                    chapterIndex = snapshot.lastChapterIndex,
+                    paragraphIndex = snapshot.lastParagraphIndex,
+                    scrollOffset = snapshot.lastScrollOffset,
+                    charOffset = snapshot.lastCharOffset,
+                ),
+                progressPercent = snapshot.progressPercent,
+            )
+        }
+
+        override suspend fun writeBookmarks(book: Book, snapshot: BookStateSnapshot) {
+            bookRepository.deleteBookmarksByBook(book.id)
+            snapshot.bookmarks.forEach { mark ->
+                bookRepository.addBookmark(
+                    Bookmark(
+                        bookId = book.id,
+                        chapterIndex = mark.chapterIndex,
+                        paragraphIndex = mark.paragraphIndex,
+                        charOffset = mark.charOffset,
+                        excerpt = mark.excerpt,
+                        createdAt = mark.createdAt,
+                    ),
+                )
+            }
+        }
+    }
+
+    private val migrationProcessor = MigrationProcessor(migrationGateway)
 
     /** 收到的临时文件（确认 / 取消后删除）。 */
     @Volatile
@@ -213,6 +324,54 @@ class DefaultLanTransferManager(
                     null
                 }
             }
+        }
+
+        override fun onBundle(fileName: String, contentLength: Long, body: InputStream): String? {
+            if (_migration.value.active) return "busy"
+            val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
+            val target = File(tempDir, "incoming.bundle.zip")
+            _migration.value = TransferMigrationState(
+                active = true,
+                direction = MigrationDirection.RECEIVE,
+                phaseLabel = "接收迁移包",
+            )
+            val copied = try {
+                var count = 0L
+                target.outputStream().use { out ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE * 8)
+                    while (count < contentLength) {
+                        val want = minOf(buffer.size.toLong(), contentLength - count).toInt()
+                        val read = body.read(buffer, 0, want)
+                        if (read <= 0) break
+                        out.write(buffer, 0, read)
+                        count += read
+                        _migration.value = _migration.value.copy(
+                            fraction = (count.toFloat() / contentLength).coerceIn(0f, 1f),
+                        )
+                    }
+                }
+                count
+            } catch (e: Exception) {
+                target.delete()
+                _migration.value = _migration.value.copy(
+                    active = false,
+                    error = "接收迁移包失败：${e.message}",
+                )
+                return e.message ?: "io"
+            }
+            if (copied != contentLength) {
+                target.delete()
+                _migration.value = _migration.value.copy(
+                    active = false,
+                    error = "迁移包传输不完整，已丢弃",
+                )
+                return "incomplete"
+            }
+            // 字节已完整落盘：解包与逐本导入转为后台，HTTP 尽早应答（避免对端超时）
+            migrationJob = scope.launch {
+                processIncomingBundle(target)
+            }
+            return null
         }
     }
 
@@ -367,6 +526,138 @@ class DefaultLanTransferManager(
     override fun consumeImportedTitle() {
         if (_receiveState.value.importedTitle != null) {
             _receiveState.value = _receiveState.value.copy(importedTitle = null)
+        }
+    }
+
+    // ---- 换机迁移 ----
+
+    override fun startMigration(target: DiscoveredDevice) {
+        if (_migration.value.active) return
+        _migration.value = TransferMigrationState(
+            active = true,
+            direction = MigrationDirection.SEND,
+            phaseLabel = "收集书库",
+        )
+        migrationJob = scope.launch {
+            var bundleFile: File? = null
+            try {
+                val books = bookRepository.observeBooks().first()
+                if (books.isEmpty()) {
+                    _migration.value = TransferMigrationState(error = "书架为空，没有可迁移的书籍")
+                    return@launch
+                }
+                _migration.value = _migration.value.copy(total = books.size, phaseLabel = "打包书库")
+                val snapshots = mutableListOf<BookStateSnapshot>()
+                val sources = mutableMapOf<String, File>()
+                books.forEachIndexed { index, book ->
+                    _migration.value = _migration.value.copy(
+                        index = index + 1,
+                        currentTitle = book.title,
+                        fraction = (index.toFloat() / books.size) * 0.2f,
+                    )
+                    val bookmarks = bookRepository.observeBookmarks(book.id).first()
+                    snapshots += book.toSnapshot(bookmarks)
+                    val source = bookTextStore.sourceFile(book)
+                    if (source.isFile) sources[book.sha256] = source
+                }
+                val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
+                val zip = File(tempDir, "paperread-migrate.zip")
+                MigrationBundleCodec.pack(MigrationManifest(books = snapshots), sources, zip)
+                bundleFile = zip
+                _migration.value = _migration.value.copy(
+                    phaseLabel = "发送迁移包",
+                    fraction = 0.2f,
+                    currentTitle = "${books.size} 本书",
+                )
+                val result = TransferClient().uploadBundle(
+                    host = target.host,
+                    port = target.httpPort,
+                    file = zip,
+                    displayName = "paperread-migrate.zip",
+                ) { fraction ->
+                    _migration.value = _migration.value.copy(fraction = 0.2f + fraction * 0.8f)
+                }
+                when (result) {
+                    is UploadResult.Success -> _migration.value = _migration.value.copy(
+                        active = false,
+                        fraction = 1f,
+                        phaseLabel = "已发送",
+                    )
+
+                    is UploadResult.Failure -> _migration.value = _migration.value.copy(
+                        active = false,
+                        error = "迁移包发送失败：${result.message}",
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                _migration.value = TransferMigrationState(error = "已取消迁移")
+                throw e
+            } catch (e: Exception) {
+                _migration.value = _migration.value.copy(
+                    active = false,
+                    error = e.message ?: "迁移异常",
+                )
+            } finally {
+                bundleFile?.delete()
+            }
+        }
+    }
+
+    override fun cancelMigration() {
+        migrationJob?.cancel()
+        migrationJob = null
+        _migration.value = TransferMigrationState()
+    }
+
+    override fun dismissMigrationReport() {
+        _migration.value = TransferMigrationState()
+    }
+
+    /** 解包 → 逐本导入 → 按 AC-10.4 回写（在 [scope] 的后台上下文中执行）。 */
+    private suspend fun processIncomingBundle(zip: File) {
+        val workDir = File(context.cacheDir, "transfer/unpack").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        try {
+            _migration.value = _migration.value.copy(phaseLabel = "解包迁移包", fraction = 1f)
+            val unpacked = MigrationBundleCodec.unpack(zip, workDir)
+            if (unpacked == null) {
+                _migration.value = _migration.value.copy(
+                    active = false,
+                    error = "迁移包损坏或版本不兼容",
+                )
+                return
+            }
+            _migration.value = _migration.value.copy(
+                total = unpacked.manifest.books.size,
+                phaseLabel = "导入书籍",
+            )
+            val report = migrationProcessor.process(unpacked) { done, total, title ->
+                _migration.value = _migration.value.copy(
+                    index = done,
+                    total = total,
+                    currentTitle = title,
+                    fraction = if (total == 0) 1f else done.toFloat() / total,
+                )
+            }
+            _migration.value = _migration.value.copy(
+                active = false,
+                phaseLabel = "迁移完成",
+                fraction = 1f,
+                report = report,
+            )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            _migration.value = TransferMigrationState(error = "已取消迁移")
+            throw e
+        } catch (e: Exception) {
+            _migration.value = _migration.value.copy(
+                active = false,
+                error = e.message ?: "迁移失败",
+            )
+        } finally {
+            zip.delete()
+            workDir.deleteRecursively()
         }
     }
 

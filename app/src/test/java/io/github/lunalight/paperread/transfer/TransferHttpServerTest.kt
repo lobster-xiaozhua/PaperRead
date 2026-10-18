@@ -33,6 +33,7 @@ class TransferHttpServerTest {
     }
 
     private val uploads = mutableListOf<Upload>()
+    private val bundles = mutableListOf<Upload>()
     private var failNextUpload = false
 
     private val handler = object : TransferHttpHandler {
@@ -45,6 +46,11 @@ class TransferHttpServerTest {
             }
             val bytes = body.readNBytes(contentLength.toInt())
             uploads += Upload(fileName, bytes)
+            return null
+        }
+
+        override fun onBundle(fileName: String, contentLength: Long, body: InputStream): String? {
+            bundles += Upload(fileName, body.readNBytes(contentLength.toInt()))
             return null
         }
     }
@@ -154,5 +160,27 @@ class TransferHttpServerTest {
         val result = TransferClient().upload("127.0.0.1", port(), file, "空书.txt")
         assertTrue("空文件应失败：$result", result is UploadResult.Failure)
         file.delete()
+    }
+
+    @Test
+    fun `POST bundle 端到端送达且字节一致`() {
+        val zip = Files.createTempFile("migrate", ".zip").toFile()
+        val bytes = ByteArray(4096) { (it % 251).toByte() }
+        zip.writeBytes(bytes)
+        try {
+            val result = TransferClient().uploadBundle(
+                host = "127.0.0.1",
+                port = port(),
+                file = zip,
+                displayName = "paperread-migrate.zip",
+            )
+            assertEquals(UploadResult.Success, result)
+            val received = bundles.single()
+            assertEquals("paperread-migrate.zip", received.fileName)
+            assertArrayEquals(bytes, received.bytes)
+            assertTrue("不应落到 /upload 通道", uploads.isEmpty())
+        } finally {
+            zip.delete()
+        }
     }
 }

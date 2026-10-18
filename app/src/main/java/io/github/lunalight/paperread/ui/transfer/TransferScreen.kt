@@ -41,12 +41,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lunalight.paperread.PaperReadApp
 import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
+import io.github.lunalight.paperread.transfer.MigrationDirection
+import io.github.lunalight.paperread.transfer.TransferMigrationState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
@@ -122,11 +125,20 @@ fun TransferScreen(
                 ReceiveProgressCard(receive = state.receive)
             }
 
+            // ---- 换机迁移（AC-10.1 ~ AC-10.4） ----
+            MigrationCard(
+                migration = state.migration,
+                onCancel = viewModel::cancelMigration,
+                onDismissReport = viewModel::dismissMigrationReport,
+            )
+
             // ---- 在线设备（AC-9.2 / AC-9.3） ----
             DeviceListCard(
                 devices = state.devices,
                 sendEnabled = state.send.active.not() && state.books.isNotEmpty(),
+                migrationEnabled = state.migration.active.not() && state.devices.isNotEmpty(),
                 onDeviceClick = viewModel::sendTo,
+                onMigrateClick = viewModel::startMigration,
             )
 
             Spacer(Modifier.height(24.dp))
@@ -338,10 +350,120 @@ private fun ReceiveProgressCard(
 }
 
 @Composable
+private fun MigrationCard(
+    migration: TransferMigrationState,
+    onCancel: () -> Unit,
+    onDismissReport: () -> Unit,
+) {
+    // 进行中 / 出错 / 结果清单：三者都无则不占位
+    val visible = migration.active ||
+        migration.error != null ||
+        migration.report != null ||
+        migration.phaseLabel == "已发送"
+    if (!visible) return
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_transfer_send),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (migration.direction == MigrationDirection.RECEIVE) "接收整库迁移" else "换机迁移",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            when {
+                migration.error != null -> Text(
+                    migration.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+
+                migration.active -> {
+                    Text(
+                        buildString {
+                            append(migration.phaseLabel)
+                            if (migration.total > 0) {
+                                append("（${migration.index}/${migration.total}）")
+                            }
+                            if (migration.currentTitle.isNotBlank()) {
+                                append(" · ${migration.currentTitle}")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = { migration.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = onCancel) { Text("取消迁移") }
+                    }
+                }
+
+                else -> {
+                    val report = migration.report
+                    if (report != null) {
+                        Text(
+                            "新导入 ${report.imported} 本 · 已存在 ${report.duplicates} 本 · " +
+                                "回写进度 ${report.progressWritten} 本",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        if (report.failed.isNotEmpty()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "失败 ${report.failed.size} 本：",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            report.failed.forEach { entry ->
+                                Text(
+                                    "· ${entry.title}：${entry.reason}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    } else {
+                        Text("迁移包已发送", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = onDismissReport) { Text("知道了") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DeviceListCard(
     devices: List<DiscoveredDevice>,
     sendEnabled: Boolean,
+    migrationEnabled: Boolean,
     onDeviceClick: (DiscoveredDevice) -> Unit,
+    onMigrateClick: (DiscoveredDevice) -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -401,8 +523,20 @@ private fun DeviceListCard(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        TextButton(
+                            onClick = { onMigrateClick(device) },
+                            enabled = migrationEnabled,
+                        ) {
+                            Text("迁移整库", fontSize = 12.sp)
+                        }
                     }
                 }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "点设备名 = 发送上方所选书籍；「迁移整库」= 把全部书籍与进度 / 书签打包发给该设备",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

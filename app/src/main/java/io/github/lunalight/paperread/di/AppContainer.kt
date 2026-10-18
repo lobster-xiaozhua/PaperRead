@@ -63,6 +63,7 @@ class AppContainer(context: Context) {
         DefaultLanTransferManager(
             context = applicationContext,
             bookImporter = bookImporter,
+            bookRepository = bookRepository,
             bookTextStore = bookTextStore,
             identityStore = DeviceIdentityStore(applicationContext),
             scope = appScope,

@@ -4,6 +4,7 @@ import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
 import io.github.lunalight.paperread.transfer.LanTransferManager
+import io.github.lunalight.paperread.transfer.TransferMigrationState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
@@ -30,6 +31,9 @@ class FakeLanTransferManager : LanTransferManager {
     private val _receiveState = MutableStateFlow(TransferReceiveState())
     override val receiveState: StateFlow<TransferReceiveState> = _receiveState.asStateFlow()
 
+    private val _migration = MutableStateFlow(TransferMigrationState())
+    override val migration: StateFlow<TransferMigrationState> = _migration.asStateFlow()
+
     // ---- 调用记录 ----
 
     var startServiceCount = 0
@@ -44,7 +48,12 @@ class FakeLanTransferManager : LanTransferManager {
         private set
     var consumeImportedTitleCount = 0
         private set
+    var cancelMigrationCount = 0
+        private set
+    var dismissMigrationReportCount = 0
+        private set
 
+    val migrationTargets = mutableListOf<DiscoveredDevice>()
     val sentTargets = mutableListOf<SentBooks>()
     val reparses = mutableListOf<Reparse>()
 
@@ -67,6 +76,10 @@ class FakeLanTransferManager : LanTransferManager {
 
     fun emitReceive(state: TransferReceiveState) {
         _receiveState.value = state
+    }
+
+    fun emitMigration(state: TransferMigrationState) {
+        _migration.value = state
     }
 
     // ---- 接口实现 ----
@@ -101,5 +114,17 @@ class FakeLanTransferManager : LanTransferManager {
 
     override fun consumeImportedTitle() {
         consumeImportedTitleCount++
+    }
+
+    override fun startMigration(target: DiscoveredDevice) {
+        migrationTargets += target
+    }
+
+    override fun cancelMigration() {
+        cancelMigrationCount++
+    }
+
+    override fun dismissMigrationReport() {
+        dismissMigrationReportCount++
     }
 }
