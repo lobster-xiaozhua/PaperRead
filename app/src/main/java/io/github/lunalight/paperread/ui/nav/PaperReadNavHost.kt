@@ -10,6 +10,7 @@ import io.github.lunalight.paperread.ui.about.LicenseScreen
 import io.github.lunalight.paperread.ui.bookshelf.BookshelfScreen
 import io.github.lunalight.paperread.ui.reader.ReaderScreen
 import io.github.lunalight.paperread.ui.settings.SettingsScreen
+import io.github.lunalight.paperread.ui.transfer.TransferScreen
 
 /** 全应用导航图。 */
 @Composable
@@ -21,6 +22,7 @@ fun PaperReadNavHost() {
             BookshelfScreen(
                 onOpenSettings = { navController.navigate(SettingsRoute) },
                 onOpenBook = { bookId -> navController.navigate(ReaderRoute(bookId)) },
+                onStartTransfer = { bookIds -> navController.navigate(TransferRoute(bookIds)) },
             )
         }
 
@@ -45,6 +47,14 @@ fun PaperReadNavHost() {
 
         composable<LicenseRoute> {
             LicenseScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable<TransferRoute> { backStackEntry ->
+            val route: TransferRoute = backStackEntry.toRoute()
+            TransferScreen(
+                bookIds = route.bookIds,
+                onBack = { navController.popBackStack() },
+            )
         }
     }
 }

@@ -18,3 +18,7 @@ data object AboutRoute
 
 @Serializable
 data object LicenseRoute
+
+/** 传书页：携带书架多选出的待发送书籍 id（空列表 = 仅待命发现）。 */
+@Serializable
+data class TransferRoute(val bookIds: List<Long>)

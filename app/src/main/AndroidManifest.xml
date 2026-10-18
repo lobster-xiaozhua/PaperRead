@@ -33,6 +33,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          局域网传书接收端：把落盘的临时文件包成 content Uri，直接复用
+          BookImporter.prepare() 既有导入流水线（AC-9.5：不出现第二条导入逻辑）。
+          仅本进程使用（exported=false），接收文件位于 cacheDir/transfer/。
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

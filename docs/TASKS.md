@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.1.0（versionCode 3，质量收敛版：流式导入、结构化失败原因、备份策略定案）
 - **main 未发布变更**：Kotlin 工具链 2.0.21 → 2.2.20（配套 KSP 2.2.20-2.0.4、Room 2.8.5），解锁新版依赖图
-- **质量基线**：185 单测全绿、lint 0 error / 0 warning、行覆盖率约 87%、CI 双门禁（Debug + Release）全绿
+- **质量基线**：244 单测全绿、lint 0 error / 0 warning、行覆盖率约 87%、CI 双门禁（Debug + Release）全绿
 
 ## 当前能力（已完成）
 
@@ -40,6 +40,12 @@
 - 设置页：主题 / 字体 / 字号 / 行距 / 段距 / 页边距 / 亮度 / 屏幕常亮 / 沉浸模式 / 音量键翻章，与阅读器底部弹层共用同一套控件（`ReadingPreferencesPanel`）与数据源（`SettingsStore`），实时生效、自动持久化
 - 关于页：应用名与版本号、隐私承诺（最小权限：唯一 INTERNET，仅用于局域网传输，不连接互联网）、Apache-2.0 许可全文、GitHub 主页与 Issue 反馈（系统浏览器打开，无内置 WebView）、无第三方依赖声明、维护者信息
 
+### 局域网传书（T2）
+- UDP 广播发现（协议魔数 / 版本 / 设备名 / HTTP 端口，广播才应答防乒乓，3 秒内可被发现）
+- 零依赖 HTTP 传输（JDK 原生 socket）：`GET /meta` + `POST /upload`，服务仅绑 WiFi 网卡地址（不听其他接口）
+- 书架多选发送（进度 + 可取消，失败携带原因并清理现场）；接收端落盘 cacheDir → FileProvider → 复用既有导入流水线（SHA-256 去重 / 解析 / 待确认，单一逻辑）
+- 设备标识为随机持久化 UUID（不使用 MAC / IMEI / ANDROID_ID）
+
 ### 备份与测试
 - 备份策略（方案甲-B）：云备份排除书库目录（`books/`），换机（D2D）保留整库；双 XML 规则覆盖 Android 11–12+
 - 测试：JVM 单测 + Turbine ViewModel 测试 + Robolectric Compose UI 冒烟 + JaCoCo 覆盖率度量
@@ -55,11 +61,17 @@
 - 约束：除 INTERNET 外零权限；client 为唯一对外交付版；dev 与 client 可同机安装
 - 验收：SPEC AC-7.1 – AC-7.4；CI 两 flavor 测试 + 覆盖率门禁 + lint + 双 APK 产物全绿
 
-### T2 传书核心（约 4h）
+### T2 传书核心（约 4h）✅ 已完成（feat/transfer-core，244 单测全绿）
 
 - 涉及：`app/src/main/java/.../transfer/`——UDP 发现（广播/响应编解码，纯 JVM 可测）、极简 HTTP 服务（JDK ServerSocket，仅绑定 WiFi 网卡地址）、书架多选发送入口、接收端落盘 + FileProvider 复用现有导入流水线
-- 约束：零新增第三方依赖（JSON 用已引入的 kotlinx.serialization）；传输核心纯 JVM 单测覆盖（localhost 真实 socket）；UI 层不直连 socket
-- 验收：SPEC AC-9.1 – AC-9.7
+- 交付物：
+  - `transfer/`：`TransferProtocol`（UDP 报文 + 编解码，魔数 / 版本校验）、`LanDiscovery`（发现状态机，广播才应答防乒乓，注入时钟可测）、`TransferHttpServer` / `TransferClient`（零依赖 HTTP，仅绑 WiFi 网卡地址）、`LanAddresses`（wlan* IPv4 站点本地）、`DeviceIdentityStore`（随机 UUID 落盘 + Build.MODEL 设备名）、`LanTransferManager`（编排：服务生命周期 / 发送 / 接收 / 待确认，接口隔离便于 fake）
+  - `ui/transfer/`：`TransferViewModel`（四状态流透传 + 书目按 id 实时解析 + 一次性消息）、`TransferScreen`（本机标识卡 / 待发送书目 / 在线设备 / 发送进度可取消 / 接收进度 / 复用共享 `ImportResultDialog`）
+  - 入口：书架多选顶栏发送按钮 + overflow「局域网传书」；`TransferRoute(bookIds)` 类型安全导航；`AppContainer.transferManager` 装配
+  - `ImportResultDialog` 抽取为 shared internal（本地导入与传书接收同一对话框，AC-9.5 单一下导入逻辑）
+  - 测试：传输核心 28 用例（含 localhost 真实 socket 端到端）+ `TransferViewModelTest` 14 用例（FakeLanTransferManager）+ 传书页 UI 冒烟；新增 4 个矢量图标
+- 约束达成：零新增第三方依赖（JSON 用已引入的 kotlinx.serialization）；传输核心纯 JVM 单测覆盖（localhost 真实 socket）；UI 层不直连 socket
+- 验收：SPEC AC-9.1 – AC-9.7 全部达成（AC-9.7 由「仅绑 wlan* 地址」实现 + lint / 代码审查保证）
 
 ### T3 换机迁移（约 3h）
 

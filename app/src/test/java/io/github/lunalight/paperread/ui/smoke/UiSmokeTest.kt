@@ -28,6 +28,7 @@ import io.github.lunalight.paperread.ui.reader.ReaderUiState
 import io.github.lunalight.paperread.ui.reader.TocSheet
 import io.github.lunalight.paperread.ui.theme.PaperReadTheme
 import io.github.lunalight.paperread.ui.theme.ReaderThemes
+import io.github.lunalight.paperread.ui.transfer.TransferScreen
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -52,6 +53,7 @@ import org.robolectric.annotation.GraphicsMode
  * 3. 点击正文区域切换工具栏显隐
  * 4. 设置面板调整字号（UI 回流验证）
  * 5. 书签 Tab 空态
+ * 6. 传书页骨架渲染（本机标识 / 待发送书目 / 在线设备，AC-9.1）
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -126,7 +128,7 @@ class UiSmokeTest {
     @Test
     fun `空书架显示导入入口`() {
         composeRule.setContent {
-            PaperReadTheme { BookshelfScreen(onOpenSettings = {}, onOpenBook = {}) }
+            PaperReadTheme { BookshelfScreen(onOpenSettings = {}, onOpenBook = {}, onStartTransfer = {}) }
         }
         // 首帧是加载态（CircularProgressIndicator），Room 空流到达后才切空态。
         // waitForIdle 只保证 Compose 空闲、不保证异步状态已到达，CI 高负载下
@@ -152,7 +154,7 @@ class UiSmokeTest {
         val id = seedBook()
         var opened: Long? = null
         composeRule.setContent {
-            PaperReadTheme { BookshelfScreen(onOpenSettings = {}, onOpenBook = { opened = it }) }
+            PaperReadTheme { BookshelfScreen(onOpenSettings = {}, onOpenBook = { opened = it }, onStartTransfer = {}) }
         }
         composeRule.waitUntilAtLeastOneExists(hasText("冒烟之书"))
         composeRule.onNodeWithText("冒烟之书").assertRendered()
@@ -267,5 +269,31 @@ class UiSmokeTest {
         composeRule.onNodeWithText("书签 · 0").performClick()
         composeRule.onNodeWithText("还没有书签").assertIsDisplayed()
         composeRule.onNodeWithText("阅读时点击工具栏星标即可添加").assertIsDisplayed()
+    }
+
+    /**
+     * 传书页冒烟（AC-9.1）：断言只取「有 WiFi / 无 WiFi」两条服务路径下
+     * 都必然渲染的静态内容——服务状态本身依赖宿主网络（CI 无 wlan 网卡走
+     * 「未接入 WiFi」错误分支），不做状态断言，避免环境相关抖动。
+     *
+     * 待发送书目来自书架流（Room 异步），标题行为「· <title>」，
+     * 故用 substring 匹配 + 显式等待。
+     */
+    @Test
+    fun `传书页渲染本机标识与待发送书目`() {
+        val id = seedBook()
+        composeRule.setContent {
+            PaperReadTheme { TransferScreen(bookIds = listOf(id), onBack = {}) }
+        }
+        composeRule.waitUntilAtLeastOneExists(hasText("局域网传书"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("局域网传书").assertRendered()
+        composeRule.waitUntilAtLeastOneExists(hasText("本机标识"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("本机标识").assertRendered()
+        composeRule.waitUntilAtLeastOneExists(hasText("待发送书籍"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("待发送书籍").assertRendered()
+        composeRule.waitUntilAtLeastOneExists(hasText("在线设备"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("在线设备").assertRendered()
+        // 书架流到达后，待发送列表出现所传书籍
+        composeRule.waitUntilAtLeastOneExists(hasText("冒烟之书", substring = true), timeoutMillis = 30_000)
     }
 }
