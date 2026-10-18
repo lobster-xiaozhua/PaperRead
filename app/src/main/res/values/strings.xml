@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">纸阅</string>
+    <string name="about_app_title">纸阅 PaperRead</string>
+    <string name="about_intro">纸阅是一款本地小说阅读器：支持 TXT / EPUB 导入、智能章节切分、书签与阅读进度恢复，所有数据只保存在本机。</string>
+    <string name="about_privacy_promise">纸阅仅申请 INTERNET 权限，用于同一局域网内的设备发现与书籍传输（传书 / 迁移 / 同步）：不连接互联网、不收集、不上传任何个人信息，书籍与阅读记录仅存储在本机。</string>
 </resources>

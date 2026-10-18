@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.lunalight.paperread.BuildConfig
 import io.github.lunalight.paperread.R
@@ -47,7 +48,9 @@ import io.github.lunalight.paperread.R
  * 无第三方依赖声明、维护者。
  *
  * 对应 SPEC US-8（AC-8.4 ~ AC-8.9）：外链一律以系统浏览器 ACTION_VIEW 打开，
- * 不内置 WebView、不申请网络权限。
+ * 不内置 WebView。权限口径（2026-10-18 用户拍板）：允许申请最小权限，
+ * 唯一声明项为 INTERNET——局域网传书 / 迁移 / 同步使用，不访问公网；
+ * 涉及权限的文案经字符串资源集中管理，保证页面陈述与实际合并 Manifest 一致。
  */
 internal object AboutLinks {
     const val HOME = "https://github.com/lobster-xiaozhua/PaperRead"
@@ -99,7 +102,7 @@ fun AboutScreen(
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text(
-                        text = "纸阅 PaperRead",
+                        text = stringResource(R.string.about_app_title),
                         style = MaterialTheme.typography.titleLarge,
                     )
                     Text(
@@ -112,17 +115,11 @@ fun AboutScreen(
 
             // ---- 功能简介 ----
             AboutSectionLabel("功能简介")
-            AboutBody(
-                "纸阅是一款完全离线的本地小说阅读器：支持 TXT / EPUB 导入、" +
-                    "智能章节切分、书签与阅读进度恢复，所有数据只保存在本机。",
-            )
+            AboutBody(stringResource(R.string.about_intro))
 
             // ---- 隐私承诺 ----
             AboutSectionLabel("隐私承诺")
-            AboutBody(
-                "纸阅完全离线运行，不申请网络权限：不收集、不上传任何个人信息，" +
-                    "书籍与阅读记录仅存储在本机。",
-            )
+            AboutBody(stringResource(R.string.about_privacy_promise))
 
             // ---- 开源许可 ----
             AboutSectionLabel("开源许可")

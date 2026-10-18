@@ -13,7 +13,7 @@
 
 ## 本地门禁（合并前需全绿）
 
-- [ ] `./gradlew testDebugUnitTest lint assembleDebug` 全绿
+- [ ] `./gradlew testClientDebugUnitTest testDevDebugUnitTest lint assembleDebug` 全绿
 - [ ] `./gradlew jacocoTestCoverageVerification` 通过（行覆盖率不低于门禁阈值）
 
 ## 人工把关项（命中请在描述中重点说明，见 AGENTS.md）

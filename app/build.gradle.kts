@@ -19,6 +19,31 @@ android {
         versionName = "1.1.0"
     }
 
+    // 分发渠道（单一维度 distribution），2026-10-18 用户拍板（ROADMAP C9 决策点 2）：
+    // 项目允许申请权限、保持最小权限即可——INTERNET 进主包（Android 上任何
+    // socket，含连接局域网 IP，都必须声明 INTERNET，系统无「仅局域网」权限），
+    // 传书 / 迁移 / 同步均只在局域网内进行，不访问公网。原「standard 零权限 +
+    // lanTransfer 传书版」双包策略取消，传输能力进主包，两个 flavor 仅区分
+    // 交付形态：
+    // - client：客户端正式版，唯一对外交付渠道。
+    // - debug：调试版。applicationId 后缀保证与 client 可同机安装（一台设备
+    //   即可自测传书互发），并携带 IS_DEBUG_BUILD 标记供调试能力判定。
+    //   （AGP 禁止 flavor 与 build type 同名，故调试版 flavor 取名 dev，
+    //   与 build type debug 组合出 devDebug 变体。）
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("client") {
+            dimension = "distribution"
+            buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
+        }
+        create("dev") {
+            dimension = "distribution"
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
+        }
+    }
+
     // Release 签名：keystore 不入库，经 gradle properties / 环境变量注入：
     //   RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD
     // 未配置时产出未签名 release APK（可用 apksigner 后续重签）。
@@ -119,6 +144,11 @@ ksp {
 //    （NoClassDefFoundError，测试根本不运行）。
 // 2. includes 白名单：与上一项配套，把插桩范围收紧到本模块的类，
 //    worker 基础设施与 JDK 内部类一概不碰，worker 崩溃与覆盖率兼得。
+//
+// flavor 口径：classDirectories / dependsOn 锁定 clientDebug 变体——
+// 覆盖率门禁保护的是唯一对外交付版（client 客户端版）；debug 调试版除
+// applicationId 后缀与 IS_DEBUG_BUILD 标记外与 client 同源同代码，其单测由
+// CI 的 testDebugDebugUnitTest 同步执行，不重复计入本门禁。
 tasks.withType<Test>().configureEach {
     extensions.configure(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class.java) {
         isIncludeNoLocationClasses = true
@@ -129,14 +159,14 @@ tasks.withType<Test>().configureEach {
 tasks.register<JacocoReport>("jacocoTestReport") {
     group = "verification"
     description = "生成单元测试覆盖率报告（XML + HTML）"
-    dependsOn("testDebugUnitTest")
+    dependsOn("testClientDebugUnitTest")
     reports {
         xml.required.set(true)
         html.required.set(true)
     }
     sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
     classDirectories.setFrom(
-        fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/debug") {
+        fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/clientDebug") {
             exclude(
                 "**/R.class",
                 "**/R$*.class",
@@ -146,9 +176,12 @@ tasks.register<JacocoReport>("jacocoTestReport") {
             )
         },
     )
+    // 只取 client 变体的 exec：build/jacoco 下同时存在 dev 变体（以及历史变体
+    // 残留）的 exec 文件，通配 *.exec 会误吃 testDevDebugUnitTest 的输出——
+    // 既触发 Gradle 隐式依赖校验失败，又会把旧变体数据混进本次度量。
     executionData.setFrom(
-        fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("*.exec") },
-        fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/*.exec") },
+        fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("testClientDebugUnitTest.exec") },
+        fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/testClientDebugUnitTest.exec") },
     )
 }
 
@@ -163,7 +196,7 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     group = "verification"
     description = "校验单元测试行覆盖率不低于阈值，防止覆盖率回归"
-    dependsOn("testDebugUnitTest")
+    dependsOn("testClientDebugUnitTest")
     violationRules {
         rule {
             element = "BUNDLE"
@@ -176,7 +209,7 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     }
     sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
     classDirectories.setFrom(
-        fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/debug") {
+        fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/clientDebug") {
             exclude(
                 "**/R.class",
                 "**/R$*.class",
@@ -186,9 +219,12 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
             )
         },
     )
+    // 只取 client 变体的 exec：build/jacoco 下同时存在 dev 变体（以及历史变体
+    // 残留）的 exec 文件，通配 *.exec 会误吃 testDevDebugUnitTest 的输出——
+    // 既触发 Gradle 隐式依赖校验失败，又会把旧变体数据混进本次度量。
     executionData.setFrom(
-        fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("*.exec") },
-        fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/*.exec") },
+        fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("testClientDebugUnitTest.exec") },
+        fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/testClientDebugUnitTest.exec") },
     )
 }
 

@@ -29,8 +29,8 @@ import org.robolectric.annotation.GraphicsMode
 /**
  * S1 关于页冒烟（Robolectric + createComposeRule，范式同 UiSmokeTest）。
  *
- * 覆盖 SPEC AC-8.4 ~ AC-8.9：版本号 / 隐私承诺 / 许可入口 / 外链系统浏览器 /
- * 无第三方依赖与维护者 / 零网络权限。
+ * 覆盖 SPEC US-8（AC-8.4 ~ AC-8.9）：版本号 / 隐私承诺 / 许可入口 / 外链系统浏览器 /
+ * 无第三方依赖与维护者 / 最小权限（仅 INTERNET）。
  *
  * 注意：Robolectric 默认设备视口较小，页面下半部分的节点需先
  * performScrollTo 滚入视口再断言 / 交互（与 UiSmokeTest 弹层用例同口径）。
@@ -100,7 +100,8 @@ class AboutScreenTest {
         }
         composeRule.onNodeWithText("隐私承诺").assertRendered()
         composeRule.onNodeWithText(
-            "纸阅完全离线运行，不申请网络权限：不收集、不上传任何个人信息，" +
+            "纸阅仅申请 INTERNET 权限，用于同一局域网内的设备发现与书籍传输" +
+                "（传书 / 迁移 / 同步）：不连接互联网、不收集、不上传任何个人信息，" +
                 "书籍与阅读记录仅存储在本机。",
         ).assertRendered()
     }
@@ -162,18 +163,31 @@ class AboutScreenTest {
     }
 
     @Test
-    fun `关于页不申请网络权限`() {
-        // AC-8.9 / AC-7.1：合并 Manifest 不得含 INTERNET 权限。
-        // （Android 13+ 合并器会注入 DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION，
-        // 属系统行为、非本应用声明，故不断言「零权限」而聚焦网络权限。）
+    fun `关于页仅申请 INTERNET 权限`() {
+        // 权限策略（2026-10-18 用户拍板）：允许申请权限、保持最小权限。
+        // 本应用唯一声明项为 INTERNET——Android 无「仅局域网」权限，任何 socket
+        // （含连接局域网 IP）都必须声明它；传书 / 迁移 / 同步只在同一局域网内进行，
+        // 不访问公网（AC-7.1 / AC-9.7）。
+        // （Android 13+ 合并器会注入 <applicationId>.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+        // 供应用自我保护非导出 Receiver，属系统行为、非本应用主动声明的敏感权限，
+        // 故不断言「零权限」而聚焦白名单；其前缀随 flavor 的 applicationIdSuffix
+        // 变化，这里动态拼接而非写死。）
         val info = app.packageManager.getPackageInfo(
             app.packageName,
             PackageManager.GET_PERMISSIONS,
         )
         val requested = info.requestedPermissions?.toList().orEmpty()
         assertTrue(
-            "不应申请 INTERNET 网络权限，实际 $requested",
-            android.Manifest.permission.INTERNET !in requested,
+            "应申请 INTERNET（最小权限，局域网传输用），实际 $requested",
+            android.Manifest.permission.INTERNET in requested,
+        )
+        val unexpected = requested.toSet() - setOf(
+            android.Manifest.permission.INTERNET,
+            "${app.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+        )
+        assertTrue(
+            "除 INTERNET 与系统注入项外不得申请其他权限，实际 $requested",
+            unexpected.isEmpty(),
         )
     }
 
