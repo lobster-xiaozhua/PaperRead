@@ -12,3 +12,9 @@ data class ReaderRoute(val bookId: Long)
 
 @Serializable
 data object SettingsRoute
+
+@Serializable
+data object AboutRoute
+
+@Serializable
+data object LicenseRoute
