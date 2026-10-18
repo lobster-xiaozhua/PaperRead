@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.test.core.app.ApplicationProvider
@@ -295,5 +296,40 @@ class UiSmokeTest {
         composeRule.onNodeWithText("在线设备").assertRendered()
         // 书架流到达后，待发送列表出现所传书籍
         composeRule.waitUntilAtLeastOneExists(hasText("冒烟之书", substring = true), timeoutMillis = 30_000)
+    }
+
+    /**
+     * 书架 → 传书的两个入口（AC-9.3 入口侧）：
+     * 1. overflow「局域网传书」：未多选时传空列表，进页面仅待命发现；
+     * 2. 长按进入多选后顶栏出现发送按钮，回调携带所选书籍 id。
+     */
+    @Test
+    fun `书架多选后出现传书入口并可回调所选书籍`() {
+        val id = seedBook()
+        var transferred: List<Long>? = null
+        composeRule.setContent {
+            PaperReadTheme {
+                BookshelfScreen(
+                    onOpenSettings = {},
+                    onOpenBook = {},
+                    onStartTransfer = { transferred = it },
+                )
+            }
+        }
+        composeRule.waitUntilAtLeastOneExists(hasText("冒烟之书"))
+        // overflow 菜单里的「局域网传书」：不进多选也能进入（待命发现模式）
+        composeRule.onNodeWithContentDescription("排序").performClick()
+        composeRule.waitUntilAtLeastOneExists(hasText("局域网传书"))
+        composeRule.onNodeWithText("局域网传书").performClick()
+        composeRule.waitForIdle()
+        assertEquals("未多选时应传空列表（仅待命发现）", emptyList<Long>(), transferred)
+
+        // 长按进入多选 → 顶栏出现发送入口
+        composeRule.onNodeWithText("TXT").performTouchInput { longClick(center) }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithContentDescription("传书到其他设备").assertRendered()
+        composeRule.onNodeWithContentDescription("传书到其他设备").performClick()
+        composeRule.waitForIdle()
+        assertEquals(listOf(id), transferred)
     }
 }

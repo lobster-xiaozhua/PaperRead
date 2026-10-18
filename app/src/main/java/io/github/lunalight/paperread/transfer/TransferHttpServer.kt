@@ -32,6 +32,15 @@ interface TransferHttpHandler {
      * @return null = 成功；非 null = 失败原因（记日志；对端收到 500）
      */
     fun onUpload(fileName: String, contentLength: Long, body: InputStream): String?
+
+    /**
+     * 处理 `POST /bundle`（换机迁移包上传，AC-10.1）。
+     *
+     * 与 [onUpload] 同一契约：实现方读满请求体，返回 null = 成功。
+     * 迁移包的处理（解包 / 逐本导入 / 回写）由实现方自行安排——
+     * 本服务只保证字节完整送达。
+     */
+    fun onBundle(fileName: String, contentLength: Long, body: InputStream): String?
 }
 
 /** 计数输入流：服务端据此兜底排空未读尽的请求体。 */
@@ -57,6 +66,7 @@ private class CountingInputStream(input: InputStream) : FilterInputStream(input)
  *
  * - `GET /meta` → 200 JSON（[TransferHttpHandler.meta]）
  * - `POST /upload` → 200 JSON 或 500（[TransferHttpHandler.onUpload]）
+ * - `POST /bundle` → 200 JSON 或 500（[TransferHttpHandler.onBundle]，换机迁移包）
  *
  * 设计约束：
  * - **仅绑定调用方指定的网卡地址**（AC-9.7：WiFi 局域网地址，不听其他接口）；
@@ -130,16 +140,31 @@ class TransferHttpServer(
             method == "GET" && path == "/meta" ->
                 respond(socket, 200, handler.meta())
 
-            method == "POST" && path == "/upload" -> handleUpload(socket, headers, input)
+            method == "POST" && path == "/upload" ->
+                handlePayloadUpload(socket, headers, input, "x-book-name") { name, length, body ->
+                    handler.onUpload(name, length, body)
+                }
+
+            method == "POST" && path == "/bundle" ->
+                handlePayloadUpload(socket, headers, input, "x-bundle-name") { name, length, body ->
+                    handler.onBundle(name, length, body)
+                }
 
             else -> respond(socket, 404, """{"error":"not found"}""")
         }
     }
 
-    private fun handleUpload(socket: Socket, headers: Map<String, String>, input: InputStream) {
-        val rawName = headers["x-book-name"]
+    /** 上传类端点的共用前导：校验名称 / 长度头 → 调用实现 → 兜底排空 → 应答。 */
+    private fun handlePayloadUpload(
+        socket: Socket,
+        headers: Map<String, String>,
+        input: InputStream,
+        nameHeader: String,
+        call: (fileName: String, contentLength: Long, body: InputStream) -> String?,
+    ) {
+        val rawName = headers[nameHeader]
         if (rawName.isNullOrBlank()) {
-            respond(socket, 400, """{"error":"missing x-book-name"}""")
+            respond(socket, 400, """{"error":"missing $nameHeader"}""")
             return
         }
         val contentLength = headers["content-length"]?.toLongOrNull()
@@ -150,11 +175,11 @@ class TransferHttpServer(
         val fileName = try {
             URLDecoder.decode(rawName, "UTF-8")
         } catch (e: Exception) {
-            respond(socket, 400, """{"error":"bad x-book-name"}""")
+            respond(socket, 400, """{"error":"bad $nameHeader"}""")
             return
         }
         val counting = CountingInputStream(input)
-        val error = handler.onUpload(fileName, contentLength, counting)
+        val error = call(fileName, contentLength, counting)
         // 兜底排空未读尽的请求体，避免对端写入中途被 RST
         var remaining = contentLength - counting.count
         val skipBuffer = ByteArray(DEFAULT_BUFFER_SIZE * 8)
@@ -228,7 +253,7 @@ sealed interface UploadResult {
 }
 
 /**
- * 传输 HTTP 客户端（JDK HttpURLConnection，零依赖）：向对端上传单本书。
+ * 传输 HTTP 客户端（JDK HttpURLConnection，零依赖）：向对端上传单本书或迁移包。
  *
  * 进度经 [onProgress] 回调（0..1，单调）；大文件走分块流式发送，不常驻内存
  * （与导入流水线一致的流式口径）。
@@ -249,13 +274,52 @@ class TransferClient {
         file: File,
         displayName: String,
         onProgress: (Float) -> Unit = {},
+    ): UploadResult = uploadTo(
+        host = host,
+        port = port,
+        file = file,
+        displayName = displayName,
+        path = "/upload",
+        nameHeader = "X-Book-Name",
+        onProgress = onProgress,
+    )
+
+    /**
+     * 上传换机迁移包（zip）到对端（AC-10.1）。
+     *
+     * 与 [upload] 同一连接语义，仅端点 / 名称头不同。
+     */
+    fun uploadBundle(
+        host: String,
+        port: Int,
+        file: File,
+        displayName: String,
+        onProgress: (Float) -> Unit = {},
+    ): UploadResult = uploadTo(
+        host = host,
+        port = port,
+        file = file,
+        displayName = displayName,
+        path = "/bundle",
+        nameHeader = "X-Bundle-Name",
+        onProgress = onProgress,
+    )
+
+    private fun uploadTo(
+        host: String,
+        port: Int,
+        file: File,
+        displayName: String,
+        path: String,
+        nameHeader: String,
+        onProgress: (Float) -> Unit,
     ): UploadResult {
         if (!file.isFile) return UploadResult.Failure("文件不存在或不可读")
         val total = file.length()
         if (total <= 0L) return UploadResult.Failure("文件为空")
         var connection: java.net.HttpURLConnection? = null
         return try {
-            val url = java.net.URL("http://$host:$port/upload")
+            val url = java.net.URL("http://$host:$port$path")
             connection = (url.openConnection() as java.net.HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
@@ -265,7 +329,7 @@ class TransferClient {
                 setFixedLengthStreamingMode(total)
                 setRequestProperty("Content-Type", "application/octet-stream")
                 setRequestProperty(
-                    "X-Book-Name",
+                    nameHeader,
                     java.net.URLEncoder.encode(displayName, "UTF-8"),
                 )
             }

@@ -6,6 +6,9 @@ import io.github.lunalight.paperread.fakes.FakeBookRepository
 import io.github.lunalight.paperread.fakes.FakeLanTransferManager
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
+import io.github.lunalight.paperread.transfer.MigrationDirection
+import io.github.lunalight.paperread.transfer.MigrationReport
+import io.github.lunalight.paperread.transfer.TransferMigrationState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
@@ -266,5 +269,72 @@ class TransferViewModelTest {
 
         assertEquals(2, viewModel.uiState.value.devices.size)
         assertEquals("对端设备", viewModel.uiState.value.devices.first().deviceName)
+    }
+
+    // ---- 换机迁移（AC-10.1 ~ AC-10.4） ----
+
+    @Test
+    fun `发起迁移委托管理器并透传状态`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.startMigration(device)
+        advanceUntilIdle()
+        manager.emitMigration(
+            TransferMigrationState(
+                active = true,
+                direction = MigrationDirection.SEND,
+                phaseLabel = "打包书库",
+                fraction = 0.2f,
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(device, manager.migrationTargets.single())
+        assertTrue(viewModel.uiState.value.migration.active)
+        assertEquals("打包书库", viewModel.uiState.value.migration.phaseLabel)
+    }
+
+    @Test
+    fun `迁移失败转为一次性消息`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        manager.emitMigration(TransferMigrationState(error = "迁移包损坏或版本不兼容"))
+        advanceUntilIdle()
+
+        assertEquals("迁移包损坏或版本不兼容", viewModel.uiState.value.message)
+    }
+
+    @Test
+    fun `接收迁移完成汇总成功与失败清单`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        val report = MigrationReport(
+            imported = 3,
+            duplicates = 1,
+            progressWritten = 2,
+            failed = listOf(
+                io.github.lunalight.paperread.transfer.FailedEntry("坏书", "该 EPUB 含 DRM 加密，无法导入"),
+            ),
+        )
+        manager.emitMigration(TransferMigrationState(direction = MigrationDirection.RECEIVE, report = report))
+        advanceUntilIdle()
+
+        val summary = viewModel.uiState.value.message!!
+        assertTrue(summary, summary.contains("新导入 3 本"))
+        assertTrue(summary, summary.contains("已存在 1 本"))
+        assertTrue(summary, summary.contains("回写进度 2 本"))
+        assertTrue(summary, summary.contains("失败 1 本"))
+        assertEquals(report, viewModel.uiState.value.migration.report)
+    }
+
+    @Test
+    fun `取消迁移与关闭报告委托管理器`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.cancelMigration()
+        viewModel.dismissMigrationReport()
+
+        assertEquals(1, manager.cancelMigrationCount)
+        assertEquals(1, manager.dismissMigrationReportCount)
     }
 }

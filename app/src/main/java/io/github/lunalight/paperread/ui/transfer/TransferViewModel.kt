@@ -11,6 +11,8 @@ import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
 import io.github.lunalight.paperread.transfer.LanTransferManager
+import io.github.lunalight.paperread.transfer.MigrationReport
+import io.github.lunalight.paperread.transfer.TransferMigrationState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
@@ -31,9 +33,10 @@ data class TransferUiState(
     val devices: List<DiscoveredDevice> = emptyList(),
     val send: TransferSendState = TransferSendState(),
     val receive: TransferReceiveState = TransferReceiveState(),
+    val migration: TransferMigrationState = TransferMigrationState(),
     val books: List<Book> = emptyList(),
     val booksResolved: Boolean = false,
-    /** 一次性提示（Snackbar）：发送 / 接收错误、导入成功。 */
+    /** 一次性提示（Snackbar）：发送 / 接收错误、导入成功、迁移结果。 */
     val message: String? = null,
 )
 
@@ -92,6 +95,20 @@ class TransferViewModel(
             }
         }
         viewModelScope.launch {
+            transferManager.migration.collect { migration ->
+                _uiState.update { state ->
+                    // 错误一次性提示；接收端完成（无错误、有报告）时同样给一次性汇总
+                    val notice = migration.error ?: migration.report?.let { report ->
+                        if (migration.active) null else migrationSummary(report)
+                    }
+                    state.copy(
+                        migration = migration,
+                        message = notice ?: state.message,
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
             bookRepository.observeBooks().collect { all ->
                 val byId = all.associateBy { it.id }
                 _uiState.update { state ->
@@ -137,11 +154,34 @@ class TransferViewModel(
         transferManager.reparseReceived(charsetName, strategy)
     }
 
+    /** 向该设备发起整库迁移（AC-10.1）。 */
+    fun startMigration(device: DiscoveredDevice) {
+        transferManager.startMigration(device)
+    }
+
+    /** 取消进行中的迁移（发送或接收）。 */
+    fun cancelMigration() {
+        transferManager.cancelMigration()
+    }
+
+    /** 关闭迁移结果清单（AC-10.3）。 */
+    fun dismissMigrationReport() {
+        transferManager.dismissMigrationReport()
+    }
+
     fun dismissMessage() {
         _uiState.update { it.copy(message = null) }
     }
 
     companion object {
+        /** 迁移结果一次性汇总（AC-10.3：成功 / 失败清单）。 */
+        fun migrationSummary(report: MigrationReport): String = buildString {
+            append("迁移完成：新导入 ${report.imported} 本")
+            if (report.duplicates > 0) append("，已存在 ${report.duplicates} 本")
+            if (report.progressWritten > 0) append("，回写进度 ${report.progressWritten} 本")
+            if (report.failed.isNotEmpty()) append("，失败 ${report.failed.size} 本")
+        }
+
         fun factory(bookIds: List<Long>, container: AppContainer): ViewModelProvider.Factory =
             viewModelFactory {
                 initializer {
