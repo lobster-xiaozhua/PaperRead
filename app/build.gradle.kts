@@ -63,6 +63,9 @@ android {
 
     buildFeatures {
         compose = true
+        // 关于页展示版本号（AC-S1.1：BuildConfig.VERSION_NAME / VERSION_CODE）；
+        // 单一来源仍是上方 defaultConfig 的 versionCode / versionName
+        buildConfig = true
     }
 
     testOptions {

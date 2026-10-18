@@ -5,6 +5,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import io.github.lunalight.paperread.ui.about.AboutScreen
+import io.github.lunalight.paperread.ui.about.LicenseScreen
 import io.github.lunalight.paperread.ui.bookshelf.BookshelfScreen
 import io.github.lunalight.paperread.ui.reader.ReaderScreen
 import io.github.lunalight.paperread.ui.settings.SettingsScreen
@@ -28,7 +30,21 @@ fun PaperReadNavHost() {
         }
 
         composable<SettingsRoute> {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenAbout = { navController.navigate(AboutRoute) },
+            )
+        }
+
+        composable<AboutRoute> {
+            AboutScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLicense = { navController.navigate(LicenseRoute) },
+            )
+        }
+
+        composable<LicenseRoute> {
+            LicenseScreen(onBack = { navController.popBackStack() })
         }
     }
 }
