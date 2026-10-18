@@ -42,7 +42,7 @@
 ## 规划工单（待建，S 系列）
 
 > 来源：代码实探发现——独立 `SettingsScreen` 仍是 M1 空壳（文案"关于信息将在 M4 交付"），且无 `About` 页；
-> 文档声称 M4 设置已完成，与代码冲突（以代码为准）。验收标准建议同步补 `SPEC.md` 的 US-8（设置与关于）。
+> 文档声称 M4 设置已完成，与代码冲突（以代码为准）。验收标准已同步补 `SPEC.md` 的 US-8（设置与关于）。
 > 门禁：`./gradlew testDebugUnitTest lint assembleDebug` 全绿；CI 不引入 `INTERNET` 权限。
 
 ### S1 关于 / 信息页（约 2.5h）
