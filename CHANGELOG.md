@@ -32,21 +32,5 @@
 - 单元测试全绿；lint 0 error / 0 warning
 - 行覆盖率约 87%（JaCoCo，见下方 CI 覆盖率门禁）
 
-## [1.0.1] - 2026-10-17
-
-首个公开发布：从工程脚手架到可导入 / 可阅读的完整闭环，并完成一轮审计修复。
-
-### 新增
-- 工程脚手架：Compose + Material 3 + 类型安全导航 + Gradle 版本目录
-- 数据层：Room（书库 / 章节 / 书签 / 进度，双偏移索引）+ DataStore 设置
-- TXT 导入：SAF + 流式拷贝 + SHA-256 去重 + 磁盘预检 + 编码探测（BOM → 严格 UTF-8 → GB18030 回退，结果页可切换）
-- EPUB 导入：OPF / spine / NCX / DRM 检测 / GBK 条目名兜底
-- 阅读器：LazyColumn 排版 / 5 套主题 / 亮度 / 常亮 / 沉浸 / 音量键翻章 / 段级+像素级进度恢复 / 目录 / 书签
-- 测试与 CI：JVM 单测 + Robolectric + Compose 冒烟 + JaCoCo + GitHub Actions（测试 / lint / Debug + Release 双门禁）
-
-### 修复
-- 书签与进度一致性；导入可取消 / 可替换；像素级恢复偏差
-
 [未发布]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.1.0...HEAD
 [1.1.0]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.0.1...v1.1.0
-[1.0.1]: https://github.com/lobster-xiaozhua/PaperRead/releases/tag/v1.0.1
