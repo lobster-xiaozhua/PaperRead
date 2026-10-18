@@ -1,6 +1,7 @@
 package io.github.lunalight.paperread.ui.nav
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -9,6 +10,8 @@ import androidx.navigation.toRoute
 import io.github.lunalight.paperread.MainActivity
 import io.github.lunalight.paperread.ui.about.AboutScreen
 import io.github.lunalight.paperread.ui.about.LicenseScreen
+import io.github.lunalight.paperread.ui.adaptive.LocalWindowWidthClass
+import io.github.lunalight.paperread.ui.adaptive.rememberWindowWidthClass
 import io.github.lunalight.paperread.ui.bookshelf.BookshelfScreen
 import io.github.lunalight.paperread.ui.reader.ReaderScreen
 import io.github.lunalight.paperread.ui.settings.SettingsScreen
@@ -29,7 +32,8 @@ fun PaperReadNavHost() {
         }
     }
 
-    NavHost(navController = navController, startDestination = BookshelfRoute) {
+    CompositionLocalProvider(LocalWindowWidthClass provides rememberWindowWidthClass()) {
+        NavHost(navController = navController, startDestination = BookshelfRoute) {
 
         composable<BookshelfRoute> {
             BookshelfScreen(
@@ -68,6 +72,7 @@ fun PaperReadNavHost() {
                 bookIds = route.bookIds,
                 onBack = { navController.popBackStack() },
             )
+        }
         }
     }
 }

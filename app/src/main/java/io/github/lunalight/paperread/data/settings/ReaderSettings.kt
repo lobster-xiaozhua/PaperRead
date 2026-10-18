@@ -26,6 +26,8 @@ data class ReaderSettings(
      * HorizontalPager 分页），false 用连续滚动（LazyColumn）。默认关闭，滚动为开箱体验。
      */
     val pageTurnMode: Boolean = false,
+    /** 双页跨页：平板/横屏大屏（WindowWidthSizeClass=Expanded）自动左右两页；Compact 自动忽略。 */
+    val twoPageSpread: Boolean = true,
     /** 朗读语速：0.5 ~ 2.0，1.0 为系统默认。 */
     val ttsRate: Float = 1.0f,
     /** 朗读音调：0.5 ~ 2.0，1.0 为系统默认。 */
