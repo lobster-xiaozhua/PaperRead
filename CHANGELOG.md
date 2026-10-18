@@ -5,6 +5,14 @@
 
 ## [未发布]
 
+### 变更
+- **Kotlin 工具链升级 2.0.21 → 2.2.20**（配套 KSP 2.2.20-2.0.4、Room 2.8.5）：解锁 AndroidX / kotlinx 新版依赖（其 class 文件 metadata 为 Kotlin 2.2 编译，与 2.0.21 工具链不兼容，此前 Dependabot 的 minor 更新全部飘红）。AGP 8.7.3 内置 R8 早于 Kotlin 2.2.20，release 构建存在 Kotlin 元数据解析警告（非致命，保守保留相关类），后续随 AGP 升级消解
+
+### 基础设施
+- 覆盖率门禁落地（JaCoCo 行覆盖率 ≥ 0.80，CI 强制执行）
+- CI 增强：wrapper 校验、concurrency 取消、测试报告与覆盖率报告上传
+- Dependabot 策略：gradle 生态仅 patch、actions 生态忽略大版本（Kotlin 锁定期收敛 churn）
+
 ## [1.1.0] - 2026-10-17
 
 质量收敛版：流式导入、结构化失败原因、备份策略定案。

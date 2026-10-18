@@ -363,3 +363,21 @@
 - 处置：gradle 生态收敛为**仅 patch**（忽略 major+minor），从源头停止必然飘红的 churn；
   关闭 #8/#10/#11/#12（附根因）；保留 #4（Robolectric，CI 绿）供人工审阅
 - 待办：Kotlin/工具链升级工单（AGENTS.md 把关）完成后，放宽 gradle 策略
+
+### Kotlin 2.2 工具链升级（解锁依赖图）
+- 动机：新版 AndroidX / kotlinx 由 Kotlin 2.2+ 编译（metadata 2.2.0），项目锁
+  Kotlin 2.0.21 消费即 `incompatible version of Kotlin` 编译失败；单包升级无解，
+  必须整条工具链迁移
+- 升级内容（`gradle/libs.versions.toml`）：kotlin 2.0.21→2.2.20、
+  ksp 2.0.21-1.0.28→2.2.20-2.0.4、room 2.6.1→2.8.5
+- 关键踩坑：KSP 2.2.20-2.0.4 为 KSP2，Room 2.6.1 处理器报
+  `unexpected jvm signature V`，Room 必须 ≥ 2.7 才支持 KSP2 → 选定 2.8.5
+- proven-green 组合：Kotlin 2.2.20 + KSP 2.2.20-2.0.4 + AGP 8.7.3 +
+  Gradle 8.9 + compileSdk 35，本地全量门禁验证共存
+- 过程坑：Kotlin 版本切换导致旧 daemon 标记 incompatible 后挂死（worker 未起、
+  0% CPU、无 main 线程），`kill -9` + `gradle --stop` + 干净 daemon 重试解决
+- 验证：BUILD SUCCESSFUL；单测 185 个 0 失败；Room schema 无变更
+  （`app/schemas/.../1.json` 保持 v1）
+- 已知限制：AGP 8.7.3 内置 R8 早于 Kotlin 2.2.20，release 构建报约 40 处
+  Kotlin 元数据解析警告（非致命，保守保留类），随 AGP 升级消解
+- 文档同步：AGENTS.md 版本组合行、CHANGELOG 未发布段

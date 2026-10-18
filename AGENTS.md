@@ -31,4 +31,4 @@
 
 ## 版本组合（勿随意升级）
 
-AGP 8.7.3 · Gradle 8.9 · Kotlin 2.0.21 · KSP 2.0.21-1.0.28 · JDK 17 · compileSdk 35 / minSdk 26。
+AGP 8.7.3 · Gradle 8.9 · Kotlin 2.2.20 · KSP 2.2.20-2.0.4 · Room 2.8.5 · JDK 17 · compileSdk 35 / minSdk 26。
