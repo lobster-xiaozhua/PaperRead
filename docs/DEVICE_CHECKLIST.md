@@ -6,7 +6,7 @@
 
 ## 0. 安装
 
-- [ ] `adb install -r app-debug.apk`（或 release 签名后安装 `app-release.apk`）成功
+- [ ] `adb install -r app/build/outputs/apk/client/debug/app-client-debug.apk`（或 release 签名后安装对应 APK）成功
 - [ ] 桌面图标正常显示（自适应图标；Android 13+ 可见单色主题图标）
 - [ ] 首次启动进入书架页，无崩溃
 - [ ] 系统设置 → 应用 → 纸阅 → 权限：**未申请任何权限**（无 INTERNET、无存储权限——SAF 按需授权）

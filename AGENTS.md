@@ -7,16 +7,16 @@
 1. **任务制**：只修改当前工单（`docs/TASKS.md`）指定的文件；需要动工单外文件时，先在 PR/对话中说明理由。
 2. **CI 门禁**：每次修改后必须本地执行并通过：
    ```bash
-   ./gradlew testDebugUnitTest lint assembleDebug
+   ./gradlew testClientDebugUnitTest testDevDebugUnitTest lint assembleDebug
    ```
-   三项全绿才算完成。
+   全绿才算完成（flavor 拆分后两变体都跑；覆盖率门禁见下）。
 3. **禁止改测试凑通过**：测试失败先修生产代码。确需修改测试时，必须说明是测试本身写错（并保留原用例意图）。
 4. **依赖控制**：不新增第三方依赖。确有必要时需明确批准，并在 README 依赖清单登记。AndroidX / JetBrains 官方库优先。
 5. **分层纪律**：
    - `reader/` 引擎保持零 Android 依赖（XML 解析只依赖 `XmlParser` 接口，由外层装配）；
    - UI 层禁止直接访问 Room / 文件系统；
    - `data/` 实现类型不得向上泄漏。
-6. **隐私承诺**：`AndroidManifest.xml` 永不添加 `INTERNET` 权限（v1）。新增任何权限都需单独说明理由。
+6. **最小权限**：`AndroidManifest.xml` 只声明 `INTERNET` 一项权限（2026-10-18 用户拍板，ROADMAP C9 决策点 2：允许申请权限、保持最小权限）。INTERNET 仅可用于同一局域网内的设备发现与书籍 / 状态传输（传书 / 迁移 / 同步），**不得访问公网**；新增任何其他权限都需单独说明理由并经人类审查。
 7. **测试先行**：`reader/` 引擎的每个新逻辑先写 JVM 单测（fixture 放 `app/src/test/resources/`）。
 
 ## 人工把关重点

@@ -71,15 +71,22 @@ jobs:
 
       # 全部门禁合并为单次 Gradle 调用：省去 3 次重复的配置阶段
       # （AGP + KSP + Room + Compose 编译器，每次约 10s），
-      # 且 lint / assemble 直接复用 testDebugUnitTest 的编译产物。
+      # 且 lint / assemble 直接复用测试任务的编译产物。
       # 默认 fail-fast：测试失败即停，不会浪费时间去跑后续任务。
       # Release 门禁保留：R8 混淆 + 资源压缩只在发布路径生效，
       # 混淆规则缺失/keep 漏写要等到发版前才暴露；不配置签名
       # （keystore 不入库），产出未签名 APK，仅验证能正常打包。
+      #
+      # flavor 口径（2026-10-18 分发形态调整）：两个 flavor 的测试都跑——
+      # client 为唯一对外交付版（jacoco 覆盖率门禁经 dependsOn 绑定其测试），
+      # dev 为调试版（applicationId 后缀 + IS_DEBUG_BUILD 标记，与 client
+      # 同源代码，供同机安装自测与调试能力分流；AGP 不允许 flavor 与 build
+      # type 同名，故调试版 flavor 取名 dev，变体为 devDebug）。
       - name: Build and verify (tests + coverage + lint + debug + release)
         run: >
           ./gradlew
-          testDebugUnitTest
+          testClientDebugUnitTest
+          testDevDebugUnitTest
           jacocoTestReport
           jacocoTestCoverageVerification
           lint
@@ -87,11 +94,19 @@ jobs:
           assembleRelease
           --console=plain
 
-      - name: Upload APK
+      - name: Upload client APK
         uses: actions/upload-artifact@v4
         with:
-          name: paperread-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: paperread-client-debug-apk
+          path: app/build/outputs/apk/client/debug/app-client-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload dev APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperread-dev-debug-apk
+          path: app/build/outputs/apk/dev/debug/app-dev-debug.apk
           if-no-files-found: error
           retention-days: 14
 

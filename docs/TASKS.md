@@ -1,6 +1,6 @@
 # PaperRead 开发工单与项目状态
 
-> 每个工单 ≤ 4 小时。退出标准：可运行 APK + `./gradlew testDebugUnitTest lint assembleDebug` 全绿。
+> 每个工单 ≤ 4 小时。退出标准：可运行 APK + `./gradlew testClientDebugUnitTest testDevDebugUnitTest lint assembleDebug` 全绿。
 > 协作规则见 [AGENTS.md](AGENTS.md)；验收标准见 [SPEC.md](SPEC.md)；未来规划见 [ROADMAP.md](ROADMAP.md)。
 > 本文件只记录**当前状态**：已具备的能力 + 待办/未决项，历史逐条工单已折叠。
 
@@ -14,7 +14,7 @@
 
 ### 工程与交付
 - Compose + Material 3 + 类型安全导航脚手架；Gradle 版本目录
-- CI 门禁：`testDebugUnitTest` + `lint` + `assembleDebug` + `assembleRelease`（R8）+ JaCoCo 行覆盖率 ≥ 80%，强制全绿方可合并
+- CI 门禁：`testClientDebugUnitTest` + `testDevDebugUnitTest` + `lint` + `assembleDebug` + `assembleRelease`（R8）+ JaCoCo 行覆盖率 ≥ 80%，强制全绿方可合并
 - CI 提效（2026-10-18）：四门禁任务合并为单次 Gradle 调用（省 3 次配置阶段）；Robolectric android-all jar（API 34 运行 SDK + API 35 compileSdk，约 335MB/轮）经 actions/cache 跨运行复用；单测双 fork 并行；纯文档变更（md / docs）跳过 CI；产物保留期收敛为 14 天
 - 开源物料：README / LICENSE(Apache-2.0) / CONTRIBUTING / AGENTS / SECURITY / Issue 模板 / PR 模板 / CODEOWNERS / .editorconfig
 
@@ -38,11 +38,40 @@
 
 ### 设置与关于
 - 设置页：主题 / 字体 / 字号 / 行距 / 段距 / 页边距 / 亮度 / 屏幕常亮 / 沉浸模式 / 音量键翻章，与阅读器底部弹层共用同一套控件（`ReadingPreferencesPanel`）与数据源（`SettingsStore`），实时生效、自动持久化
-- 关于页：应用名与版本号、隐私承诺（完全离线 / 不申请网络权限）、Apache-2.0 许可全文、GitHub 主页与 Issue 反馈（系统浏览器打开，无内置 WebView）、无第三方依赖声明、维护者信息
+- 关于页：应用名与版本号、隐私承诺（最小权限：唯一 INTERNET，仅用于局域网传输，不连接互联网）、Apache-2.0 许可全文、GitHub 主页与 Issue 反馈（系统浏览器打开，无内置 WebView）、无第三方依赖声明、维护者信息
 
 ### 备份与测试
 - 备份策略（方案甲-B）：云备份排除书库目录（`books/`），换机（D2D）保留整库；双 XML 规则覆盖 Android 11–12+
 - 测试：JVM 单测 + Turbine ViewModel 测试 + Robolectric Compose UI 冒烟 + JaCoCo 覆盖率度量
+
+## 规划工单（T 系列，局域网传输）
+
+> 来源：用户 2026-10-18 拍板（ROADMAP C9 决策点 2）——项目允许申请权限、保持最小权限：INTERNET 进主包（Android 无「仅局域网」权限，任何 socket 均需声明），传输能力进主包；分发拆 client（客户端正式版）/ dev（调试版，可同机安装）两个 flavor。验收标准见 SPEC 第 7、9 节（US-9 / US-10 / US-11）。
+> 门禁：`./gradlew testClientDebugUnitTest testDevDebugUnitTest lint assembleDebug` 全绿；应用除 INTERNET 外不得持有任何权限。
+
+### T1 flavor 拆分与最小权限（约 1.5h）
+
+- 涉及：`app/build.gradle.kts`（flavorDimensions + client/dev，后者 applicationIdSuffix `.dev` / versionNameSuffix `-dev` / IS_DEBUG_BUILD 标记）、主 `AndroidManifest.xml`（唯一权限 INTERNET）、jacoco 任务改绑 clientDebug、CI 任务名与 APK 上传路径 flavor 化、关于页权限文案与 `AboutScreenTest` 权限断言改为最小权限口径
+- 约束：除 INTERNET 外零权限；client 为唯一对外交付版；dev 与 client 可同机安装
+- 验收：SPEC AC-7.1 – AC-7.4；CI 两 flavor 测试 + 覆盖率门禁 + lint + 双 APK 产物全绿
+
+### T2 传书核心（约 4h）
+
+- 涉及：`app/src/main/java/.../transfer/`——UDP 发现（广播/响应编解码，纯 JVM 可测）、极简 HTTP 服务（JDK ServerSocket，仅绑定 WiFi 网卡地址）、书架多选发送入口、接收端落盘 + FileProvider 复用现有导入流水线
+- 约束：零新增第三方依赖（JSON 用已引入的 kotlinx.serialization）；传输核心纯 JVM 单测覆盖（localhost 真实 socket）；UI 层不直连 socket
+- 验收：SPEC AC-9.1 – AC-9.7
+
+### T3 换机迁移（约 3h）
+
+- 涉及：整库迁移包（书籍 source + 进度/书签 JSON，zip）打包 / 解包 / 逐本导入 / 按 SHA-256 回写进度书签
+- 约束：单本失败不中断整体；回写按「最后阅读时间较新者胜」
+- 验收：SPEC AC-10.1 – AC-10.4
+
+### T4 进度同步（约 3h）
+
+- 涉及：双向阅读状态交换、设备标识（随机 UUID 持久化，禁硬件标识）、last-write-wins 冲突解决、单侧数据合并
+- 约束：冲突解决逻辑纯 JVM 单测覆盖；书签合并不得删除对侧独有数据
+- 验收：SPEC AC-11.1 – AC-11.4
 
 ## 待办 / 未决项
 
@@ -55,7 +84,7 @@
 
 - C1 全书搜索（关键词 + 定位到段）· C2 TTS 朗读（系统 TTS，离线）· C3 自定义字体（导入 ttf/otf）
 - C4 书签备注 + 按章分组 · C5 本地备份/恢复（zip 导出导入）· C6 平板双栏/横屏优化
-- C7 仿真翻页动效 · C8 国际化（英文）· C9 Wi-Fi 传书（**维持零网络，不做或独立 flavor**）
+- C7 仿真翻页动效 · C8 国际化（英文）· C9 Wi-Fi 传书（**已拍板：最小权限 + client/dev 双 flavor，见 T 系列工单**）
 
 ### v2.0 方向（待需求验证）
 - Markdown / HTML 单文件导入 · 阅读统计（全本地）· 无障碍（TalkBack / 动态字号）· 桌面端可行性
@@ -69,4 +98,3 @@
 
 ### 待用户拍板
 - v1.2 范围：C1/C2/C3/C5 是否照单全收
-- Wi-Fi 传书：确认放弃（保持零网络）还是接受独立 flavor

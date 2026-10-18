@@ -16,7 +16,7 @@
 2. 按 `docs/TASKS.md` 的工单执行，小步提交
 3. **本地全绿再推送**：
    ```bash
-   ./gradlew testDebugUnitTest lint assembleDebug
+   ./gradlew testClientDebugUnitTest testDevDebugUnitTest lint assembleDebug
    ```
 4. 提交 PR，说明改动动机与影响面
 

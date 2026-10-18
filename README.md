@@ -4,10 +4,10 @@
 [![Release](https://img.shields.io/github/v/release/lobster-xiaozhua/PaperRead?label=release)](https://github.com/lobster-xiaozhua/PaperRead/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-一个**完全离线、零网络权限**的开源本地小说阅读器（Android）。
+一个**本地优先、最小权限**的开源小说阅读器（Android）：编码识别、章节切分、正文提取全部在本机完成；支持同一局域网内与其他纸阅设备**传书 / 换机迁移 / 进度同步**。
 
-- **不申请 INTERNET 权限**：应用没有任何网络行为，隐私可审计
-- **不做书源、账号、云同步**：编码识别、章节切分、正文提取全部在本机完成
+- **最小权限**：唯一声明项为 INTERNET——Android 无「仅局域网」权限，任何 socket（含连接局域网 IP）都必须声明它；所有网络通信仅限同一局域网内的设备发现与书籍 / 状态传输，**不访问公网、不收集、不上传任何个人信息**
+- **不做书源、账号、云同步**：阅读数据仅存储在本机
 - **本地导入 TXT / EPUB**：智能章节解析，5 套预设阅读主题，段级进度记忆
 - **零二进制素材**：封面程序化生成，图标为矢量图，安装包干净可审查
 
@@ -33,8 +33,9 @@
 | 导入失败原因结构化（8 类错误、可区分话术、定位失败阶段） | ✅ |
 | 备份策略（云备份排除书库 / 换机保留整库） | ✅ |
 | 单元测试 + lint + release 构建 + CI 门禁 + 覆盖率门禁 | ✅ |
+| 局域网传输（UDP 发现 + 局域网 HTTP：传书 / 换机迁移 / 进度同步） | 🚧 开发中 |
 
-Roadmap：TTS 语音朗读、Wi-Fi 传书、备份恢复、仿真翻页、自定义字体、平板适配、国际化（见 [ROADMAP.md](docs/ROADMAP.md)）。
+Roadmap：TTS 语音朗读、备份恢复、仿真翻页、自定义字体、平板适配、国际化（见 [ROADMAP.md](docs/ROADMAP.md)）。
 
 ## 构建
 
@@ -48,21 +49,34 @@ cd PaperRead
 # 本地 SDK 路径（按实际修改）
 echo "sdk.dir=/path/to/Android/sdk" > local.properties
 
-# 构建 Debug APK
+# 构建两个 flavor 的 Debug APK（client 客户端正式版 + dev 调试版）
 ./gradlew assembleDebug
 
 # 产物
-# app/build/outputs/apk/debug/app-debug.apk
+# app/build/outputs/apk/client/debug/app-client-debug.apk   ← 客户端正式版
+# app/build/outputs/apk/dev/debug/app-dev-debug.apk         ← 调试版
 
-# 运行单元测试
-./gradlew testDebugUnitTest
+# 只构建单个 flavor
+./gradlew assembleClientDebug
+
+# 运行单元测试（两个 flavor 都跑）
+./gradlew testClientDebugUnitTest testDevDebugUnitTest
 
 # 静态检查
 ./gradlew lint
 
-# Release 构建（R8 + 资源压缩，未签名产物为 app-release-unsigned.apk）
+# Release 构建（R8 + 资源压缩，仅 client flavor 对外交付）
 ./gradlew assembleRelease
 ```
+
+### 分发 flavor
+
+| flavor | 用途 | applicationId | 备注 |
+|---|---|---|---|
+| `client` | 客户端正式版，唯一对外交付渠道 | `io.github.lunalight.paperread` | 覆盖率门禁绑定其测试变体 |
+| `dev` | 调试版 | `io.github.lunalight.paperread.dev` | 与 client 可同机安装，便于一台设备自测传书互发；`BuildConfig.IS_DEBUG_BUILD = true` |
+
+> 调试版 flavor 取名 `dev` 而非 `debug`：AGP 禁止 flavor 与 build type 同名。
 
 ### Release 签名（keystore 不入库）
 
@@ -104,7 +118,7 @@ Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlP
 - [CONTRIBUTING.md](CONTRIBUTING.md)：贡献指南
 - [SECURITY.md](SECURITY.md)：安全漏洞报告政策
 - [CHANGELOG.md](CHANGELOG.md)：版本变更记录
-- CI 门禁：`testDebugUnitTest` + 覆盖率门禁（行覆盖 ≥ 80%）+ `lint` + `assembleDebug` + `assembleRelease`（R8）全绿方可合并
+- CI 门禁：`testClientDebugUnitTest` + `testDevDebugUnitTest` + 覆盖率门禁（行覆盖 ≥ 80%）+ `lint` + `assembleDebug` + `assembleRelease`（R8）全绿方可合并
 
 ## 发布
 
