@@ -122,7 +122,10 @@ class SettingsScreenTest {
 
         // 端到端闭环：VM → 真实 DataStore 写 → settings Flow → UI 重组。
         // 等待旧值文本消失即证明回流到达（与 UiSmokeTest 弹层用例同口径）。
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        // 30s 上限：除慢 runner 外，@GraphicsMode(NATIVE) 每类首次创建 RenderNode 时
+        // Robolectric 需在主线程解压拷贝 native 字体（约 3-5s，着陆点随机），
+        // CI 慢机器上会计入等待窗口。
+        composeRule.waitUntil(timeoutMillis = 30_000) {
             composeRule.onAllNodesWithText("18 sp").fetchSemanticsNodes().isEmpty()
         }
     }
@@ -135,7 +138,8 @@ class SettingsScreenTest {
                 SettingsScreen(onBack = {}, onOpenAbout = { aboutOpened = true })
             }
         }
-        composeRule.waitUntilAtLeastOneExists(hasText("关于"), timeoutMillis = 5_000)
+        // 30s 上限同 UiSmokeTest：容纳 NATIVE 图形字体一次性拷贝成本，防止慢 runner 误超时
+        composeRule.waitUntilAtLeastOneExists(hasText("关于"), timeoutMillis = 30_000)
         // 「关于」在滚动列底部，先滚入视口再点击
         composeRule.onNodeWithText("关于").performScrollTo()
         composeRule.waitForIdle()

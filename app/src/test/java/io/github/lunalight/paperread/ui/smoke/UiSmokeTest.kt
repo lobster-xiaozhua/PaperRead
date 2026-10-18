@@ -131,14 +131,16 @@ class UiSmokeTest {
         // 首帧是加载态（CircularProgressIndicator），Room 空流到达后才切空态。
         // waitForIdle 只保证 Compose 空闲、不保证异步状态已到达，CI 高负载下
         // 曾偶发拿到加载帧即断言失败（attempt 1 红 / attempt 2 同代码绿）。
-        // 显式等待节点出现再断言，超时放到 5s 容忍慢 runner。
-        composeRule.waitUntilAtLeastOneExists(hasText("书架空空如也"), timeoutMillis = 5_000)
+        // 显式等待节点出现再断言，超时放到 30s：除容忍慢 runner 外，
+        // @GraphicsMode(NATIVE) 每类首次创建 RenderNode 时 Robolectric 需在主线程
+        // 解压拷贝 native 字体（约 3-5s，着陆点随机），CI 慢机器上会计入等待窗口。
+        composeRule.waitUntilAtLeastOneExists(hasText("书架空空如也"), timeoutMillis = 30_000)
         composeRule.onNodeWithText("书架空空如也").assertRendered()
-        composeRule.waitUntilAtLeastOneExists(hasText("选择文件"), timeoutMillis = 5_000)
+        composeRule.waitUntilAtLeastOneExists(hasText("选择文件"), timeoutMillis = 30_000)
         composeRule.onNodeWithText("选择文件").assertRendered()
         // FAB 文本未并入合并语义树，waitUntilAtLeastOneExists 只查合并树，
         // 改用 waitUntil + 未合并树查询等待其出现
-        composeRule.waitUntil(timeoutMillis = 5_000) {
+        composeRule.waitUntil(timeoutMillis = 30_000) {
             composeRule.onAllNodesWithText("导入书籍", useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }

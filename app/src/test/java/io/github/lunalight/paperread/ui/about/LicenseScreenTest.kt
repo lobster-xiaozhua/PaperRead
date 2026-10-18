@@ -47,10 +47,14 @@ class LicenseScreenTest {
         composeRule.setContent {
             PaperReadTheme { LicenseScreen(onBack = {}) }
         }
-        // 全文经 LaunchedEffect + IO 调度器异步读取，显式等待节点出现
+        // 全文经 LaunchedEffect + IO 调度器异步读取，显式等待节点出现。
+        // 超时放宽至 30s：@GraphicsMode(NATIVE) 下每个测试类首次创建 RenderNode 时，
+        // Robolectric 需在主线程解压拷贝 native 字体（DefaultNativeRuntimeLoader.maybeCopyFonts），
+        // 该一次性成本约 3-5s 且着陆点随机（规则 setup 或首个 measure/layout），
+        // CI 慢机器上会落入本等待窗口；5s 上限对其估计不足，并非断言条件本身有问题。
         composeRule.waitUntilAtLeastOneExists(
             hasText("Apache License", substring = true),
-            timeoutMillis = 5_000,
+            timeoutMillis = 30_000,
         )
     }
 }
