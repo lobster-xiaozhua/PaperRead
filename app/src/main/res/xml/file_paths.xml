@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 路径配置：仅暴露局域网传书接收的临时文件目录
+  （cacheDir/transfer/，见 LanTransferManager 接收 handler）。
+-->
+<paths>
+    <cache-path name="received" path="transfer/" />
+</paths>

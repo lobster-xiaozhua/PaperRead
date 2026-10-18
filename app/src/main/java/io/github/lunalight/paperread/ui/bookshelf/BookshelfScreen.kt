@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -72,20 +73,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lunalight.paperread.PaperReadApp
 import io.github.lunalight.paperread.R
-import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.domain.model.Book
-import io.github.lunalight.paperread.domain.model.BookFormat
-import io.github.lunalight.paperread.reader.txt.CharsetDetector
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 
 
 /**
- * 书架页：继续阅读、书籍网格、导入流水线（进度 / 结果确认 / 重新解析）、多选删除。
+ * 书架页：继续阅读、书籍网格、导入流水线（进度 / 结果确认 / 重新解析）、多选删除 / 传书。
  */
 @Composable
 fun BookshelfScreen(
     onOpenSettings: () -> Unit,
     onOpenBook: (Long) -> Unit,
+    onStartTransfer: (List<Long>) -> Unit,
 ) {
     val context = LocalContext.current
     val container = (context.applicationContext as PaperReadApp).container
@@ -120,6 +119,15 @@ fun BookshelfScreen(
                         }
                     },
                     actions = {
+                        IconButton(
+                            onClick = { onStartTransfer(selectedIds.toList()) },
+                            enabled = selectedIds.isNotEmpty(),
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "传书到其他设备",
+                            )
+                        }
                         IconButton(onClick = {
                             state.books.filter { it.id in selectedIds }
                                 .forEach { viewModel.deleteBook(it) }
@@ -152,6 +160,13 @@ fun BookshelfScreen(
                                         },
                                     )
                                 }
+                                DropdownMenuItem(
+                                    text = { Text("局域网传书") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onStartTransfer(selectedIds.toList())
+                                    },
+                                )
                             }
                         }
                         IconButton(onClick = onOpenSettings) {
@@ -474,77 +489,6 @@ private fun DuplicateDialog(
 }
 
 @Composable
-private fun ImportResultDialog(
-    pending: PendingImport,
-    onReparse: (String, SplitStrategy) -> Unit,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var charset by remember { mutableStateOf(pending.charsetName) }
-    var strategy by remember { mutableStateOf(pending.strategy) }
-    val isEpub = pending.format == BookFormat.EPUB
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("导入确认", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        text = {
-            Column {
-                Text(pending.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "${pending.format.name} · ${formatFileSize(pending.fileSize)} · " +
-                        "${pending.chapters.size} 章 · ${formatChars(pending.totalChars)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (!isEpub) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("编码", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(4.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CharsetDetector.SUPPORTED_ENCODINGS.forEach { name ->
-                            FilterChip(
-                                selected = charset == name,
-                                onClick = {
-                                    if (charset != name) {
-                                        charset = name
-                                        onReparse(name, strategy)
-                                    }
-                                },
-                                label = { Text(name, fontSize = 11.sp) },
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    Text("切分策略", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(4.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SplitStrategy.entries.forEach { option ->
-                            FilterChip(
-                                selected = strategy == option,
-                                onClick = {
-                                    if (strategy != option) {
-                                        strategy = option
-                                        onReparse(charset, option)
-                                    }
-                                },
-                                label = {
-                                    Text(
-                                        if (option == SplitStrategy.CONSERVATIVE) "保守" else "激进",
-                                        fontSize = 12.sp,
-                                    )
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("导入") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
-}
-
-@Composable
 private fun ReparseDialog(
     book: Book,
     onConfirm: (SplitStrategy) -> Unit,
@@ -587,14 +531,3 @@ private fun ReparseDialog(
 
 private fun formatPercent(percent: Float): String =
     if (percent >= 99.5f) "100%" else "${percent.toInt()}%"
-
-private fun formatFileSize(bytes: Long): String = when {
-    bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
-    bytes >= 1024 -> "%.0f KB".format(bytes / 1024.0)
-    else -> "$bytes B"
-}
-
-private fun formatChars(chars: Long): String = when {
-    chars >= 10_000 -> "%.1f 万字".format(chars / 10_000.0)
-    else -> "$chars 字"
-}

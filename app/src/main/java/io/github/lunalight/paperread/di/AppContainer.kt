@@ -13,6 +13,9 @@ import io.github.lunalight.paperread.data.settings.SettingsStore
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.FileBookTextStore
+import io.github.lunalight.paperread.transfer.DefaultLanTransferManager
+import io.github.lunalight.paperread.transfer.DeviceIdentityStore
+import io.github.lunalight.paperread.transfer.LanTransferManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +50,23 @@ class AppContainer(context: Context) {
 
     val bookImporter: BookImporter by lazy {
         DefaultBookImporter(applicationContext, bookRepository, bookTextStore)
+    }
+
+    /**
+     * 局域网传输管理器（传书 / 迁移 / 同步共用一套发现 + HTTP 基础设施）。
+     *
+     * 设备标识为随机 UUID（落盘 filesDir/transfer/device_id.txt），
+     * 不使用 MAC / IMEI / ANDROID_ID（SPEC AC-11.4）。
+     * HTTP 服务仅绑 WiFi 网卡地址、生命周期与传书页绑定（AC-9.7）。
+     */
+    val transferManager: LanTransferManager by lazy {
+        DefaultLanTransferManager(
+            context = applicationContext,
+            bookImporter = bookImporter,
+            bookTextStore = bookTextStore,
+            identityStore = DeviceIdentityStore(applicationContext),
+            scope = appScope,
+        )
     }
 
     /**
