@@ -39,6 +39,36 @@
 - 备份策略（方案甲-B）：云备份排除书库目录（`books/`），换机（D2D）保留整库；双 XML 规则覆盖 Android 11–12+
 - 测试：JVM 单测 + Turbine ViewModel 测试 + Robolectric Compose UI 冒烟 + JaCoCo 覆盖率度量
 
+## 规划工单（待建，S 系列）
+
+> 来源：代码实探发现——独立 `SettingsScreen` 仍是 M1 空壳（文案"关于信息将在 M4 交付"），且无 `About` 页；
+> 文档声称 M4 设置已完成，与代码冲突（以代码为准）。验收标准建议同步补 `SPEC.md` 的 US-8（设置与关于）。
+> 门禁：`./gradlew testDebugUnitTest lint assembleDebug` 全绿；CI 不引入 `INTERNET` 权限。
+
+### S1 关于 / 信息页（约 2.5h）
+
+- 涉及：新增 `AboutRoute` + `AboutScreen`（入口挂在设置页底部或独立项）；展示版本号、隐私承诺、开源许可、项目主页、反馈渠道、无第三方依赖声明、功能简介、维护者
+- 约束：不申请 `INTERNET`；GitHub / Issue 链接仅用系统浏览器 `ACTION_VIEW` 跳转（不内置 WebView）；许可全文从 raw 资源或字符串提供
+
+**验收（EARS）**
+- AC-S1.1 当用户打开关于页，系统应展示应用名、`BuildConfig.VERSION_NAME` 与 `versionCode`
+- AC-S1.2 关于页应展示"完全离线、不申请网络权限"的隐私承诺文案
+- AC-S1.3 关于页应提供开源许可（Apache-2.0）查看入口，点击进入许可全文
+- AC-S1.4 关于页应展示项目主页（GitHub）与反馈入口（Issue），点击以系统浏览器打开
+- AC-S1.5 关于页应展示"无第三方依赖"声明与维护者信息（`lobster-xiaozhua`）
+- AC-S1.6 关于页任何跳转不得触发网络权限申请（CI / lint 保证无 `INTERNET`）
+
+### S2 设置页接入阅读偏好（约 4h）
+
+- 涉及：将 `ReaderSettingsSheet` 内的设置控件抽取为可复用 Composable（主题 / 字号 / 行距 / 段距 / 边距 / 亮度 / 常亮 / 沉浸 / 音量键），在独立 `SettingsScreen` 也渲染并绑定 `SettingsStore`；阅读器底部弹层复用同一组件
+- 约束：UI 层经 Repository / `SettingsStore` 读写，不直接碰 DataStore；保持零 Android 依赖的 `reader/` 引擎不受影响
+
+**验收（EARS）**
+- AC-S2.1 当用户从书架进入"设置"，系统应展示全部阅读偏好控件（主题 / 字号 / 行距 / 段距 / 边距 / 亮度 / 常亮 / 沉浸 / 音量键）
+- AC-S2.2 在设置页修改任意偏好，应实时生效并自动持久化（与阅读器内行为一致）
+- AC-S2.3 设置页与阅读器底部弹层应共用同一套控件与数据源，不得出现两套实现
+- AC-S2.4 退出标准：`assembleDebug` + 现有 Compose UI 冒烟通过；`lint` 0 error / 0 warning
+
 ## 待办 / 未决项
 
 ### 真机验收（非阻塞，代码已合入）
