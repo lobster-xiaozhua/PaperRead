@@ -12,10 +12,12 @@ import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
 import io.github.lunalight.paperread.transfer.LanTransferManager
 import io.github.lunalight.paperread.transfer.MigrationReport
+import io.github.lunalight.paperread.transfer.SyncReport
 import io.github.lunalight.paperread.transfer.TransferMigrationState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
+import io.github.lunalight.paperread.transfer.TransferSyncState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,9 +36,10 @@ data class TransferUiState(
     val send: TransferSendState = TransferSendState(),
     val receive: TransferReceiveState = TransferReceiveState(),
     val migration: TransferMigrationState = TransferMigrationState(),
+    val sync: TransferSyncState = TransferSyncState(),
     val books: List<Book> = emptyList(),
     val booksResolved: Boolean = false,
-    /** 一次性提示（Snackbar）：发送 / 接收错误、导入成功、迁移结果。 */
+    /** 一次性提示（Snackbar）：发送 / 接收错误、导入成功、迁移 / 同步结果。 */
     val message: String? = null,
 )
 
@@ -109,6 +112,17 @@ class TransferViewModel(
             }
         }
         viewModelScope.launch {
+            transferManager.sync.collect { sync ->
+                _uiState.update { state ->
+                    // 错误一次性提示；同步完成（无错误、有报告）时给一次性汇总
+                    val notice = sync.error ?: sync.report?.let { report ->
+                        if (sync.active) null else syncSummary(report)
+                    }
+                    state.copy(sync = sync, message = notice ?: state.message)
+                }
+            }
+        }
+        viewModelScope.launch {
             bookRepository.observeBooks().collect { all ->
                 val byId = all.associateBy { it.id }
                 _uiState.update { state ->
@@ -169,6 +183,16 @@ class TransferViewModel(
         transferManager.dismissMigrationReport()
     }
 
+    /** 与对端交换阅读进度（AC-11.1）。 */
+    fun startSync(device: DiscoveredDevice) {
+        transferManager.startSync(device)
+    }
+
+    /** 关闭同步结果卡片。 */
+    fun dismissSyncReport() {
+        transferManager.dismissSyncReport()
+    }
+
     fun dismissMessage() {
         _uiState.update { it.copy(message = null) }
     }
@@ -180,6 +204,17 @@ class TransferViewModel(
             if (report.duplicates > 0) append("，已存在 ${report.duplicates} 本")
             if (report.progressWritten > 0) append("，回写进度 ${report.progressWritten} 本")
             if (report.failed.isNotEmpty()) append("，失败 ${report.failed.size} 本")
+        }
+
+        /**
+         * 同步结果一次性汇总（AC-11.2：告知被覆盖条目数；AC-11.3：只增不删）。
+         */
+        fun syncSummary(report: SyncReport): String = buildString {
+            append("同步完成：")
+            append("覆盖本地进度 ${report.localOverwritten} 本")
+            append("，新增书签 ${report.localBookmarksAdded} 条")
+            if (report.pushBack.isNotEmpty()) append("，回推 ${report.pushBack.size} 本")
+            if (report.remoteOnlyBooks > 0) append("，对端另有 ${report.remoteOnlyBooks} 本本地没有")
         }
 
         fun factory(bookIds: List<Long>, container: AppContainer): ViewModelProvider.Factory =

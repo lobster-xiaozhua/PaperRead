@@ -8,6 +8,7 @@ import io.github.lunalight.paperread.transfer.TransferMigrationState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
+import io.github.lunalight.paperread.transfer.TransferSyncState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,6 +35,9 @@ class FakeLanTransferManager : LanTransferManager {
     private val _migration = MutableStateFlow(TransferMigrationState())
     override val migration: StateFlow<TransferMigrationState> = _migration.asStateFlow()
 
+    private val _sync = MutableStateFlow(TransferSyncState())
+    override val sync: StateFlow<TransferSyncState> = _sync.asStateFlow()
+
     // ---- 调用记录 ----
 
     var startServiceCount = 0
@@ -52,8 +56,11 @@ class FakeLanTransferManager : LanTransferManager {
         private set
     var dismissMigrationReportCount = 0
         private set
+    var dismissSyncReportCount = 0
+        private set
 
     val migrationTargets = mutableListOf<DiscoveredDevice>()
+    val syncTargets = mutableListOf<DiscoveredDevice>()
     val sentTargets = mutableListOf<SentBooks>()
     val reparses = mutableListOf<Reparse>()
 
@@ -80,6 +87,10 @@ class FakeLanTransferManager : LanTransferManager {
 
     fun emitMigration(state: TransferMigrationState) {
         _migration.value = state
+    }
+
+    fun emitSync(state: TransferSyncState) {
+        _sync.value = state
     }
 
     // ---- 接口实现 ----
@@ -126,5 +137,13 @@ class FakeLanTransferManager : LanTransferManager {
 
     override fun dismissMigrationReport() {
         dismissMigrationReportCount++
+    }
+
+    override fun startSync(target: DiscoveredDevice) {
+        syncTargets += target
+    }
+
+    override fun dismissSyncReport() {
+        dismissSyncReportCount++
     }
 }

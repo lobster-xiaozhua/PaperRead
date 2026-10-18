@@ -11,6 +11,8 @@ import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -34,6 +36,7 @@ class TransferHttpServerTest {
 
     private val uploads = mutableListOf<Upload>()
     private val bundles = mutableListOf<Upload>()
+    private var appliedSync: String? = null
     private var failNextUpload = false
 
     private val handler = object : TransferHttpHandler {
@@ -51,6 +54,14 @@ class TransferHttpServerTest {
 
         override fun onBundle(fileName: String, contentLength: Long, body: InputStream): String? {
             bundles += Upload(fileName, body.readNBytes(contentLength.toInt()))
+            return null
+        }
+
+        override fun syncState(): String = """{"version":1,"deviceId":"me","books":[]}"""
+
+        override fun onSyncApply(payload: String): String? {
+            if (payload.isBlank()) return "empty"
+            appliedSync = payload
             return null
         }
     }
@@ -182,5 +193,31 @@ class TransferHttpServerTest {
         } finally {
             zip.delete()
         }
+    }
+
+    @Test
+    fun `GET sync_state 返回本机状态`() {
+        val text = TransferClient().fetchSyncState("127.0.0.1", port())
+
+        assertEquals("""{"version":1,"deviceId":"me","books":[]}""", text)
+    }
+
+    @Test
+    fun `POST sync_apply 送达对端状态`() {
+        val ok = TransferClient().pushSyncState(
+            "127.0.0.1",
+            port(),
+            """{"version":1,"deviceId":"me","books":[]}""",
+        )
+
+        assertTrue(ok)
+        assertEquals("""{"version":1,"deviceId":"me","books":[]}""", appliedSync)
+    }
+
+    @Test
+    fun `对端不可达时拉取状态返回null`() {
+        // 端口 1 上不会有服务：连接被拒应返回 null 而不是抛异常
+        assertNull(TransferClient().fetchSyncState("127.0.0.1", 1))
+        assertFalse(TransferClient().pushSyncState("127.0.0.1", 1, "{}"))
     }
 }
