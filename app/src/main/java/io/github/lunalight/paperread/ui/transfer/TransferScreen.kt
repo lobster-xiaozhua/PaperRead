@@ -53,6 +53,7 @@ import io.github.lunalight.paperread.transfer.TransferMigrationState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
+import io.github.lunalight.paperread.transfer.TransferSyncState
 import io.github.lunalight.paperread.ui.bookshelf.ImportResultDialog
 
 /**
@@ -132,13 +133,21 @@ fun TransferScreen(
                 onDismissReport = viewModel::dismissMigrationReport,
             )
 
+            // ---- 进度同步（AC-11.1 ~ AC-11.3） ----
+            SyncCard(
+                sync = state.sync,
+                onDismissReport = viewModel::dismissSyncReport,
+            )
+
             // ---- 在线设备（AC-9.2 / AC-9.3） ----
             DeviceListCard(
                 devices = state.devices,
                 sendEnabled = state.send.active.not() && state.books.isNotEmpty(),
                 migrationEnabled = state.migration.active.not() && state.devices.isNotEmpty(),
+                syncEnabled = state.sync.active.not() && state.devices.isNotEmpty(),
                 onDeviceClick = viewModel::sendTo,
                 onMigrateClick = viewModel::startMigration,
+                onSyncClick = viewModel::startSync,
             )
 
             Spacer(Modifier.height(24.dp))
@@ -458,12 +467,88 @@ private fun MigrationCard(
 }
 
 @Composable
+private fun SyncCard(
+    sync: TransferSyncState,
+    onDismissReport: () -> Unit,
+) {
+    val visible = sync.active || sync.error != null || sync.report != null
+    if (!visible) return
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_transfer_receive),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text("阅读进度同步", style = MaterialTheme.typography.titleSmall)
+            }
+            Spacer(Modifier.height(8.dp))
+            when {
+                sync.error != null -> Text(
+                    sync.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+
+                sync.active -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        sync.phaseLabel.ifBlank { "正在同步…" },
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+
+                else -> {
+                    val report = sync.report
+                    if (report != null) {
+                        Text(
+                            "覆盖本地进度 ${report.localOverwritten} 本 · " +
+                                "新增书签 ${report.localBookmarksAdded} 条 · " +
+                                "回推 ${report.pushBack.size} 本",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        if (report.remoteOnlyBooks > 0 || report.localOnlyBooks > 0) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "两侧书目不完全一致：对端另有 ${report.remoteOnlyBooks} 本，" +
+                                    "本地另有 ${report.localOnlyBooks} 本（均保留，不做删除）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                    } else {
+                        Text("同步已完成", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        TextButton(onClick = onDismissReport) { Text("知道了") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DeviceListCard(
     devices: List<DiscoveredDevice>,
     sendEnabled: Boolean,
     migrationEnabled: Boolean,
+    syncEnabled: Boolean,
     onDeviceClick: (DiscoveredDevice) -> Unit,
     onMigrateClick: (DiscoveredDevice) -> Unit,
+    onSyncClick: (DiscoveredDevice) -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -524,6 +609,12 @@ private fun DeviceListCard(
                             )
                         }
                         TextButton(
+                            onClick = { onSyncClick(device) },
+                            enabled = syncEnabled,
+                        ) {
+                            Text("同步进度", fontSize = 12.sp)
+                        }
+                        TextButton(
                             onClick = { onMigrateClick(device) },
                             enabled = migrationEnabled,
                         ) {
@@ -533,7 +624,8 @@ private fun DeviceListCard(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "点设备名 = 发送上方所选书籍；「迁移整库」= 把全部书籍与进度 / 书签打包发给该设备",
+                    "点设备名 = 发送上方所选书籍；「同步进度」= 双向交换阅读位置与书签；" +
+                        "「迁移整库」= 把全部书籍与进度 / 书签打包发给该设备",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

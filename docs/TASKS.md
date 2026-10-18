@@ -93,11 +93,19 @@
 - 验收：SPEC AC-10.1 – AC-10.4 全部达成
 - 已知边界：回写走 `saveReaderPosition`，会将 `lastReadAt` 置为当前时间（语义上「本地态即最新」，符合 AC-10.4 单向迁移场景）
 
-### T4 进度同步（约 3h）
+### T4 进度同步（约 3h）✅ 已完成（feat/progress-sync，295 单测全绿）
 
 - 涉及：双向阅读状态交换、设备标识（随机 UUID 持久化，禁硬件标识）、last-write-wins 冲突解决、单侧数据合并
-- 约束：冲突解决逻辑纯 JVM 单测覆盖；书签合并不得删除对侧独有数据
-- 验收：SPEC AC-11.1 – AC-11.4
+- 交付物：
+  - `transfer/ProgressSync.kt`：`SyncBookmark` / `BookSyncState` / `SyncEnvelope` 数据契约；`SyncMerger.mergeBook/merge` 纯函数合并决策——进度按「最后阅读时间较新者胜」且覆盖与回推**互斥**（避免两台设备互相踩），书签按 `章节:段落:字符偏移` 去重后**只增不删**，单侧独有书只计数不导入
+  - `transfer/ProgressSyncCoordinator.kt`：`LocalSyncGateway` / `RemoteSyncGateway` 双端口抽象 + 协调器「读本地快照 → 拉对端状态 → 合并 → 应用本地 → 回推差异」一次收敛
+  - `TransferHttpServer`：新增 `GET /sync/state`（返回 JSON 快照）与 `POST /sync/apply`（接收差异并落库），请求体上限 8 MB；`TransferClient.fetchSyncState` / `pushSyncState`
+  - `LanTransferManager`：同步状态流 `sync`（进行中 / 阶段文案 / 错误 / 报告）、`startSync` / `dismissSyncReport`；接收端 `onSyncApply` 对书签去重后只补缺
+  - UI：传书页新增「阅读进度同步」卡片（进行中 / 错误 / 结果计数）与设备行「同步进度」按钮；VM 汇总一次性提示（覆盖 N 本 / 新增 N 条 / 回推 N 本 / 对端另有 N 本）
+  - 测试：`SyncMergerTest` 18 项（进度 5 / 书签 4 / 整库 4 / 协调器 5）、`/sync/state` 与 `/sync/apply` 端到端 3 项、VM 同步 5 项
+- 约束达成：合并决策纯 JVM 覆盖；书签合并不删除对侧独有数据（接口无删除能力，从设计上排除）
+- 验收：SPEC AC-11.1 – AC-11.4 全部达成
+- 实现备注：`readBody` 未用 `InputStream.readNBytes`（API 33+），改为手写循环读取以守住 minSdk 26
 
 ## 待办 / 未决项
 

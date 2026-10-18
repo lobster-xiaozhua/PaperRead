@@ -28,7 +28,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-
 /** 传书服务状态（AC-9.1：本机标识 = 设备名 + IP:端口）。 */
 data class TransferServiceState(
     val starting: Boolean = false,
@@ -62,6 +61,15 @@ data class TransferReceiveState(
 
 /** 迁移方向（发送端打包上行 / 接收端解包导入）。 */
 enum class MigrationDirection { NONE, SEND, RECEIVE }
+
+/** 进度同步状态（AC-11.1 ~ AC-11.3）。 */
+data class TransferSyncState(
+    val active: Boolean = false,
+    val phaseLabel: String = "",
+    val error: String? = null,
+    /** 完成后的一次性结果（被覆盖 / 新增书签等计数）。 */
+    val report: SyncReport? = null,
+)
 
 /**
  * 换机迁移状态（AC-10.1 ~ AC-10.4）。
@@ -100,6 +108,7 @@ interface LanTransferManager {
     val sendState: StateFlow<TransferSendState>
     val receiveState: StateFlow<TransferReceiveState>
     val migration: StateFlow<TransferMigrationState>
+    val sync: StateFlow<TransferSyncState>
 
     /** 启动局域网服务（发现 + HTTP 服务）。已在运行时幂等返回。 */
     fun startService()
@@ -136,6 +145,15 @@ interface LanTransferManager {
 
     /** 关闭迁移结果报告（AC-10.3 清单展示后）。 */
     fun dismissMigrationReport()
+
+    /**
+     * 与指定设备双向同步阅读进度与书签（AC-11.1 ~ AC-11.3）。
+     * 已在同步中时幂等忽略。
+     */
+    fun startSync(device: DiscoveredDevice)
+
+    /** 关闭同步结果提示。 */
+    fun dismissSyncReport()
 }
 
 /**
@@ -173,6 +191,16 @@ class DefaultLanTransferManager(
 
     private val _migration = MutableStateFlow(TransferMigrationState())
     override val migration: StateFlow<TransferMigrationState> = _migration.asStateFlow()
+
+    private val _sync = MutableStateFlow(TransferSyncState())
+    override val sync: StateFlow<TransferSyncState> = _sync.asStateFlow()
+
+    private var syncJob: Job? = null
+
+    private val syncJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
 
     private var server: TransferHttpServer? = null
     private var discovery: LanDiscovery? = null
@@ -246,6 +274,82 @@ class DefaultLanTransferManager(
     }
 
     private val migrationProcessor = MigrationProcessor(migrationGateway)
+
+    /**
+     * 本机阅读状态网关：快照走仓储，写回只做「进度 / 书签」两类，
+     * 不动书籍与章节（同步不导书，只同步阅读状态）。
+     */
+    private val localSyncGateway = object : LocalSyncGateway {
+
+        override suspend fun snapshot(deviceId: String): SyncEnvelope {
+            val books = bookRepository.observeBooks().first()
+            val states = books.map { book ->
+                val bookmarks = bookRepository.observeBookmarks(book.id).first()
+                BookSyncState(
+                    sha256 = book.sha256,
+                    title = book.title,
+                    lastChapterIndex = book.lastChapterIndex,
+                    lastParagraphIndex = book.lastParagraphIndex,
+                    lastScrollOffset = book.lastScrollOffset,
+                    lastCharOffset = book.lastCharOffset,
+                    progressPercent = book.progressPercent,
+                    lastReadAt = book.lastReadAt,
+                    bookmarks = bookmarks.map(SyncBookmark::from),
+                )
+            }
+            return SyncEnvelope(version = SYNC_PROTOCOL_VERSION, deviceId = deviceId, books = states)
+        }
+
+        override suspend fun applyProgress(state: BookSyncState) {
+            val book = bookRepository.findBySha256(state.sha256) ?: return
+            bookRepository.saveReaderPosition(
+                bookId = book.id,
+                position = ReaderPosition(
+                    chapterIndex = state.lastChapterIndex,
+                    paragraphIndex = state.lastParagraphIndex,
+                    scrollOffset = state.lastScrollOffset,
+                    charOffset = state.lastCharOffset,
+                ),
+                progressPercent = state.progressPercent,
+            )
+        }
+
+        override suspend fun addBookmarks(state: BookSyncState, bookmarks: List<SyncBookmark>) {
+            val book = bookRepository.findBySha256(state.sha256) ?: return
+            bookmarks.forEach { mark ->
+                bookRepository.addBookmark(
+                    Bookmark(
+                        bookId = book.id,
+                        chapterIndex = mark.chapterIndex,
+                        paragraphIndex = mark.paragraphIndex,
+                        charOffset = mark.charOffset,
+                        excerpt = mark.excerpt,
+                        createdAt = mark.createdAt,
+                    ),
+                )
+            }
+        }
+    }
+
+    /** 对端状态交换（HTTP；0.0.0.0 事件循环外，直接走阻塞客户端）。 */
+    private val remoteSyncGateway = object : RemoteSyncGateway {
+
+        override fun fetchState(device: DiscoveredDevice): SyncEnvelope? {
+            val text = TransferClient().fetchSyncState(device.host, device.httpPort) ?: return null
+            return runCatching {
+                syncJson.decodeFromString(SyncEnvelope.serializer(), text)
+            }.getOrNull()?.takeIf { it.version <= SYNC_PROTOCOL_VERSION }
+        }
+
+        override fun pushState(device: DiscoveredDevice, envelope: SyncEnvelope): Boolean =
+            TransferClient().pushSyncState(
+                device.host,
+                device.httpPort,
+                syncJson.encodeToString(SyncEnvelope.serializer(), envelope),
+            )
+    }
+
+    private val syncCoordinator = ProgressSyncCoordinator(localSyncGateway, remoteSyncGateway)
 
     /** 收到的临时文件（确认 / 取消后删除）。 */
     @Volatile
@@ -370,6 +474,36 @@ class DefaultLanTransferManager(
             // 字节已完整落盘：解包与逐本导入转为后台，HTTP 尽早应答（避免对端超时）
             migrationJob = scope.launch {
                 processIncomingBundle(target)
+            }
+            return null
+        }
+
+        override fun syncState(): String = runBlocking {
+            val envelope = localSyncGateway.snapshot(identityStore.deviceId())
+            syncJson.encodeToString(SyncEnvelope.serializer(), envelope)
+        }
+
+        override fun onSyncApply(payload: String): String? {
+            val envelope = runCatching {
+                syncJson.decodeFromString(SyncEnvelope.serializer(), payload)
+            }.getOrNull() ?: return "bad payload"
+            if (envelope.version > SYNC_PROTOCOL_VERSION) return "version too new"
+            // 对端已按合并规则挑出「它更新的一方」，这里只需落地（对端不推更旧的数据）
+            runBlocking {
+                envelope.books.forEach { state ->
+                    localSyncGateway.applyProgress(state)
+                    if (state.bookmarks.isNotEmpty()) {
+                        // 只补本地缺的书签（去重，避免重复条目）
+                        val book = bookRepository.findBySha256(state.sha256) ?: return@forEach
+                        val existing = bookRepository.observeBookmarks(book.id).first()
+                            .map { SyncBookmark.from(it).positionKey }
+                            .toSet()
+                        val missing = state.bookmarks.filter { it.positionKey !in existing }
+                        if (missing.isNotEmpty()) {
+                            localSyncGateway.addBookmarks(state, missing)
+                        }
+                    }
+                }
             }
             return null
         }
@@ -611,6 +745,30 @@ class DefaultLanTransferManager(
 
     override fun dismissMigrationReport() {
         _migration.value = TransferMigrationState()
+    }
+
+    // ---- 进度同步 ----
+
+    override fun startSync(device: DiscoveredDevice) {
+        if (_sync.value.active) return
+        _sync.value = TransferSyncState(active = true, phaseLabel = "交换阅读状态")
+        syncJob = scope.launch {
+            val result = syncCoordinator.sync(device, identityStore.deviceId())
+            _sync.value = result.fold(
+                onSuccess = { outcome ->
+                    TransferSyncState(active = false, phaseLabel = "同步完成", report = outcome.report)
+                },
+                onFailure = { error ->
+                    TransferSyncState(active = false, error = error.message ?: "同步失败")
+                },
+            )
+        }
+    }
+
+    override fun dismissSyncReport() {
+        syncJob?.cancel()
+        syncJob = null
+        _sync.value = TransferSyncState()
     }
 
     /** 解包 → 逐本导入 → 按 AC-10.4 回写（在 [scope] 的后台上下文中执行）。 */

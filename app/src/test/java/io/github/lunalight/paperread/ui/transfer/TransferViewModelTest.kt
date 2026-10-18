@@ -8,10 +8,12 @@ import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
 import io.github.lunalight.paperread.transfer.MigrationDirection
 import io.github.lunalight.paperread.transfer.MigrationReport
+import io.github.lunalight.paperread.transfer.SyncReport
 import io.github.lunalight.paperread.transfer.TransferMigrationState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
+import io.github.lunalight.paperread.transfer.TransferSyncState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestCoroutineScheduler
@@ -336,5 +338,76 @@ class TransferViewModelTest {
 
         assertEquals(1, manager.cancelMigrationCount)
         assertEquals(1, manager.dismissMigrationReportCount)
+    }
+    // ---- 进度同步（AC-11.1 ~ AC-11.4） ----
+
+    @Test
+    fun `发起同步委托管理器并透传状态`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.startSync(device)
+        manager.emitSync(TransferSyncState(active = true, phaseLabel = "读取对端进度"))
+        advanceUntilIdle()
+
+        assertEquals(device, manager.syncTargets.single())
+        assertTrue(viewModel.uiState.value.sync.active)
+        assertEquals("读取对端进度", viewModel.uiState.value.sync.phaseLabel)
+    }
+
+    @Test
+    fun `同步失败转为一次性消息`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        manager.emitSync(TransferSyncState(error = "对端未响应同步请求"))
+        advanceUntilIdle()
+
+        assertEquals("对端未响应同步请求", viewModel.uiState.value.message)
+    }
+
+    @Test
+    fun `同步完成汇总覆盖数与新增书签`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        val report = SyncReport(
+            localOverwritten = 2,
+            localBookmarksAdded = 3,
+            localOnlyBooks = 1,
+            remoteOnlyBooks = 4,
+            pushBack = listOf(),
+        )
+
+        manager.emitSync(TransferSyncState(active = false, report = report))
+        advanceUntilIdle()
+
+        val summary = viewModel.uiState.value.message!!
+        assertTrue(summary, summary.contains("覆盖本地进度 2 本"))
+        assertTrue(summary, summary.contains("新增书签 3 条"))
+        assertTrue(summary, summary.contains("对端另有 4 本"))
+        assertEquals(report, viewModel.uiState.value.sync.report)
+    }
+
+    @Test
+    fun `同步进行中不提前给完成提示`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        manager.emitSync(
+            TransferSyncState(active = true, phaseLabel = "合并中", report = SyncReport(localOverwritten = 1)),
+        )
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.message)
+    }
+
+    @Test
+    fun `关闭同步报告委托管理器`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.dismissSyncReport()
+
+        assertEquals(1, manager.dismissSyncReportCount)
     }
 }

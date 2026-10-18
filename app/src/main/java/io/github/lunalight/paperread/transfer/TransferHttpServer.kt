@@ -41,6 +41,20 @@ interface TransferHttpHandler {
      * 本服务只保证字节完整送达。
      */
     fun onBundle(fileName: String, contentLength: Long, body: InputStream): String?
+
+    /**
+     * `GET /sync/state` 的响应体（本机阅读状态 JSON，AC-11.1）。
+     *
+     * @return 状态快照；返回空串表示同步能力不可用（对端据此提示）
+     */
+    fun syncState(): String
+
+    /**
+     * 处理 `POST /sync/apply`（对端回推的较新状态，AC-11.1）。
+     *
+     * @return null = 应用成功；非 null = 失败原因（对端收到 500）
+     */
+    fun onSyncApply(payload: String): String?
 }
 
 /** 计数输入流：服务端据此兜底排空未读尽的请求体。 */
@@ -150,8 +164,48 @@ class TransferHttpServer(
                     handler.onBundle(name, length, body)
                 }
 
+            method == "GET" && path == "/sync/state" -> respond(socket, 200, handler.syncState())
+
+            method == "POST" && path == "/sync/apply" -> handleSyncApply(socket, headers, input)
+
             else -> respond(socket, 404, """{"error":"not found"}""")
         }
+    }
+
+    /** `POST /sync/apply`：JSON 请求体，无自定义头。 */
+    private fun handleSyncApply(socket: Socket, headers: Map<String, String>, input: InputStream) {
+        val body = readBody(headers, input)
+            ?: return respond(socket, 411, """{"error":"missing content-length"}""")
+        val error = try {
+            handler.onSyncApply(String(body, Charsets.UTF_8))
+        } catch (e: Exception) {
+            e.message ?: "apply failed"
+        }
+        if (error == null) {
+            respond(socket, 200, """{"ok":true}""")
+        } else {
+            respond(socket, 500, """{"error":"apply failed"}""")
+        }
+    }
+
+    /**
+     * 按 Content-Length 读满请求体；长度缺失 / 非法 / 提前 EOF 返回 null。
+     *
+     * 不用 [InputStream.readNBytes]：那是 API 33 才有的方法，
+     * 本项目 minSdk 26，需自行循环读取。
+     */
+    private fun readBody(headers: Map<String, String>, input: InputStream): ByteArray? {
+        val length = headers["content-length"]?.toLongOrNull() ?: return null
+        if (length < 0 || length > MAX_JSON_BYTES) return null
+        val size = length.toInt()
+        val buffer = ByteArray(size)
+        var offset = 0
+        while (offset < size) {
+            val read = input.read(buffer, offset, size - offset)
+            if (read < 0) return null
+            offset += read
+        }
+        return buffer
     }
 
     /** 上传类端点的共用前导：校验名称 / 长度头 → 调用实现 → 兜底排空 → 应答。 */
@@ -230,6 +284,12 @@ class TransferHttpServer(
         private const val SERVER_BACKLOG = 16
         private const val SOCKET_TIMEOUT_MS = 60_000
 
+        /**
+         * 同步 JSON 请求体上限（8 MB）：一个数千本书、每本几十条书签的书库
+         * 约数百 KB，8 MB 足够且挡住恶意的「声明超大长度」请求。
+         */
+        private const val MAX_JSON_BYTES = 8L * 1024 * 1024
+
         /** 从流中读一行 HTTP 头（CRLF 结束；不用 BufferedReader，避免缓冲吞掉请求体）。 */
         internal fun InputStream.readHeaderLine(): String? {
             val sb = StringBuilder()
@@ -304,6 +364,53 @@ class TransferClient {
         nameHeader = "X-Bundle-Name",
         onProgress = onProgress,
     )
+
+    /**
+     * 拉取对端阅读状态（AC-11.1）。失败 / 响应不可解析返回 null。
+     */
+    fun fetchSyncState(host: String, port: Int): String? {
+        var connection: java.net.HttpURLConnection? = null
+        return try {
+            connection = (java.net.URL("http://$host:$port/sync/state").openConnection()
+                as java.net.HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = CONNECT_TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
+            }
+            if (connection.responseCode != 200) {
+                null
+            } else {
+                connection.inputStream.bufferedReader().use { it.readText() }.ifBlank { null }
+            }
+        } catch (e: Exception) {
+            null
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    /** 把本地较新的状态回推对端（AC-11.1）。返回是否成功。 */
+    fun pushSyncState(host: String, port: Int, json: String): Boolean {
+        val bytes = json.toByteArray(Charsets.UTF_8)
+        var connection: java.net.HttpURLConnection? = null
+        return try {
+            connection = (java.net.URL("http://$host:$port/sync/apply").openConnection()
+                as java.net.HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = CONNECT_TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
+                setFixedLengthStreamingMode(bytes.size)
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            }
+            connection.outputStream.use { it.write(bytes) }
+            connection.responseCode == 200
+        } catch (e: Exception) {
+            false
+        } finally {
+            connection?.disconnect()
+        }
+    }
 
     private fun uploadTo(
         host: String,
