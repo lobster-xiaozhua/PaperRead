@@ -15,6 +15,7 @@
 ### 工程与交付
 - Compose + Material 3 + 类型安全导航脚手架；Gradle 版本目录
 - CI 门禁：`testDebugUnitTest` + `lint` + `assembleDebug` + `assembleRelease`（R8）+ JaCoCo 行覆盖率 ≥ 80%，强制全绿方可合并
+- CI 提效（2026-10-18）：四门禁任务合并为单次 Gradle 调用（省 3 次配置阶段）；Robolectric android-all jar（API 34 运行 SDK + API 35 compileSdk，约 335MB/轮）经 actions/cache 跨运行复用；单测双 fork 并行；纯文档变更（md / docs）跳过 CI；产物保留期收敛为 14 天
 - 开源物料：README / LICENSE(Apache-2.0) / CONTRIBUTING / AGENTS / SECURITY / Issue 模板 / PR 模板 / CODEOWNERS / .editorconfig
 
 ### 导入

@@ -71,6 +71,11 @@ android {
             // 大文件导入测试（5MB/20MB 冒烟）自身需持有输入/输出全文做全量比对，
             // 512MB 默认堆处于临界；2GB 与 CI  runner（7GB）匹配
             all { test -> test.maxHeapSize = "2g" }
+            // 双 fork 并行执行测试类：Gradle 默认单 fork，CI runner（4 核）上
+            // Robolectric 类顺序执行会闲置 3 个核。不设更高值：每个 fork 是独立
+            // JVM，峰值堆 2g × fork 数，2 是吞吐与内存的平衡点（本地 init 脚本
+            // 亦为 2）。Robolectric 的 NATIVE 字体拷贝按测试类计费，与 fork 数无关。
+            all { test -> test.maxParallelForks = 2 }
             all { test ->
                 // Robolectric 下载 android-all 的仓库地址，可用
                 // -Probolectric.dependency.repo.url=https://maven.aliyun.com/repository/public
