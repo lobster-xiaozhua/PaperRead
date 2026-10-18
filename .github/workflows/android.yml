@@ -3,8 +3,15 @@ name: Android CI
 on:
   push:
     branches: [main]
+    # 纯文档变更（md / docs/）不影响构建与测试，跳过 CI 节省 runner 分钟
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
 
 # 最小权限：CI 只需读代码，不写仓库
 permissions:
@@ -26,10 +33,25 @@ jobs:
         uses: gradle/actions/wrapper-validation@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
+      # Robolectric 在测试运行时才从 Maven Central 拉 android-all jar 到
+      # ~/.m2/repository（setup-gradle 只覆盖 ~/.gradle，该目录不在其缓存范围）。
+      # 全量约 335MB：API 34（测试运行 SDK，@Config(sdk=[34])）+
+      # API 35（compileSdk，AndroidTestEnvironment.loadAppPackage 必需）。
+      # 不缓存则每轮 CI 重复下载；key 带 libs.versions.toml 哈希，
+      # Robolectric 版本变更时自动换 key 重新下载，restore-keys 兜底复用旧条目
+      # （jar 路径内嵌 Robolectric 版本号，旧条目不会被误用）。
+      - name: Cache Robolectric android-all jars
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            robolectric-${{ runner.os }}-
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -40,7 +62,6 @@ jobs:
       - name: Set up Android SDK
         run: |
           set -e
-          echo "ANDROID_HOME=$ANDROID_HOME"
           sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           if [ ! -x "$sdkmanager" ]; then
             sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
@@ -48,27 +69,31 @@ jobs:
           yes | "$sdkmanager" --licenses > /dev/null
           "$sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      # 单测 + 覆盖率报告 + 覆盖率门禁（行覆盖率不低于 0.80，防止覆盖率回归）
-      - name: Unit tests + coverage gate
-        run: ./gradlew testDebugUnitTest jacocoTestReport jacocoTestCoverageVerification --console=plain
-
-      - name: Lint
-        run: ./gradlew lint --console=plain
-
-      - name: Assemble Debug APK
-        run: ./gradlew assembleDebug --console=plain
+      # 全部门禁合并为单次 Gradle 调用：省去 3 次重复的配置阶段
+      # （AGP + KSP + Room + Compose 编译器，每次约 10s），
+      # 且 lint / assemble 直接复用 testDebugUnitTest 的编译产物。
+      # 默认 fail-fast：测试失败即停，不会浪费时间去跑后续任务。
+      # Release 门禁保留：R8 混淆 + 资源压缩只在发布路径生效，
+      # 混淆规则缺失/keep 漏写要等到发版前才暴露；不配置签名
+      # （keystore 不入库），产出未签名 APK，仅验证能正常打包。
+      - name: Build and verify (tests + coverage + lint + debug + release)
+        run: >
+          ./gradlew
+          testDebugUnitTest
+          jacocoTestReport
+          jacocoTestCoverageVerification
+          lint
+          assembleDebug
+          assembleRelease
+          --console=plain
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: paperread-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
-
-      # Release 门禁：R8 混淆 + 资源压缩只在发布路径生效，
-      # 之前的 CI 只跑 debug，混淆规则缺失/keep 漏写要等到发版前才暴露。
-      # 不配置签名（keystore 不入库），产出未签名 APK，仅验证能正常打包。
-      - name: Assemble Release (R8 gate)
-        run: ./gradlew assembleRelease --console=plain
+          if-no-files-found: error
+          retention-days: 14
 
       # 覆盖率报告（HTML/XML），可下载查看
       - name: Upload coverage report
@@ -78,6 +103,7 @@ jobs:
           name: paperread-coverage-report
           path: app/build/reports/jacoco/
           if-no-files-found: ignore
+          retention-days: 14
 
       # 失败时上传测试报告，便于下载排查（含失败断言与堆栈）
       - name: Upload test reports (on failure)
@@ -89,3 +115,4 @@ jobs:
             app/build/reports/tests/
             app/build/test-results/
           if-no-files-found: ignore
+          retention-days: 14

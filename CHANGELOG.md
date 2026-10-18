@@ -11,6 +11,7 @@
 ### 基础设施
 - 覆盖率门禁落地（JaCoCo 行覆盖率 ≥ 0.80，CI 强制执行）
 - CI 增强：wrapper 校验、concurrency 取消、测试报告与覆盖率报告上传
+- CI 提效：门禁任务合并为单次 Gradle 调用（省 3 次配置阶段）；Robolectric android-all jar（约 335MB/轮）经 actions/cache 跨运行复用；单测双 fork 并行；纯文档变更跳过 CI；产物保留期收敛为 14 天
 - Dependabot 策略：gradle 生态仅 patch、actions 生态忽略大版本（Kotlin 锁定期收敛 churn）
 
 ## [1.1.0] - 2026-10-17
