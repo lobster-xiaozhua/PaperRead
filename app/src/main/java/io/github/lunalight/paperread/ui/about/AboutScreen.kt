@@ -48,8 +48,9 @@ import io.github.lunalight.paperread.R
  * 无第三方依赖声明、维护者。
  *
  * 对应 SPEC US-8（AC-8.4 ~ AC-8.9）：外链一律以系统浏览器 ACTION_VIEW 打开，
- * 不内置 WebView。权限口径（2026-10-18 用户拍板）：允许申请最小权限，
- * 唯一声明项为 INTERNET——局域网传书 / 迁移 / 同步使用，不访问公网；
+ * 不内置 WebView。权限口径（2026-10-18 / 2026-10-19 用户拍板）：允许申请最小权限，
+ * 声明项为 INTERNET + 朗读前台服务三件套——INTERNET 供局域网传书 / 迁移 / 同步
+ * （不访问公网），前台服务三件套供朗读后台保活与通知控制（系统 TTS 离线合成）；
  * 涉及权限的文案经字符串资源集中管理，保证页面陈述与实际合并 Manifest 一致。
  */
 internal object AboutLinks {

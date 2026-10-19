@@ -38,6 +38,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -51,9 +52,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,6 +86,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -109,10 +113,13 @@ import kotlin.math.absoluteValue
 import kotlin.math.max
 import kotlinx.coroutines.launch
 import io.github.lunalight.paperread.PaperReadApp
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.reader.PageBound
 import io.github.lunalight.paperread.reader.pageIndexForStartParagraph
 import io.github.lunalight.paperread.reader.paginate
+import io.github.lunalight.paperread.speech.SpeechService
+import io.github.lunalight.paperread.speech.SpeechState
 import io.github.lunalight.paperread.ui.theme.ReaderTheme
 import io.github.lunalight.paperread.ui.theme.ReaderThemes
 
@@ -136,6 +143,8 @@ fun ReaderScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val readerTheme = ReaderThemes.byId(state.settings.themeId)
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
     BrightnessEffect(state.settings.brightness)
     KeepScreenOnEffect(state.settings.keepScreenOn)
     ImmersiveEffect(enabled = state.settings.immersive, chromeVisible = state.chromeVisible)
@@ -151,8 +160,33 @@ fun ReaderScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // 朗读通知元数据（前台服务通知内容：书名 / 章名 / 段落预览）
+    LaunchedEffect(state.book, state.chapterTitle, state.paragraphs, state.chapterIndex) {
+        SpeechService.updateMetadata(
+            book = state.book,
+            chapterTitle = state.chapterTitle,
+            paragraphs = state.paragraphs,
+        )
+    }
+
+    // 前台服务生命周期跟随朗读状态（后台常驻播放，用户 2026-10-19 拍板）：
+    // 开始朗读即保活，停止 / 退出阅读器即收尾。
+    LaunchedEffect(state.speech.isActive) {
+        if (state.speech.isActive) {
+            SpeechService.start(context)
+        } else {
+            SpeechService.stop(context)
+        }
+    }
+
+    // 系统 TTS 不可用（无引擎 / 缺中文语音数据）一次性提示
+    LaunchedEffect(state.speech.unavailableReason) {
+        val reason = state.speech.unavailableReason ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(reason)
+        viewModel.stopSpeech()
+    }
+
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val snackbarHostState = remember { SnackbarHostState() }
 
     // 一次性提示（书签添加等）
     LaunchedEffect(state.message) {
@@ -220,22 +254,43 @@ fun ReaderScreen(
                 onOpenToc = viewModel::showToc,
                 onAddBookmark = viewModel::addBookmark,
                 onOpenSettings = viewModel::showSettings,
+                onToggleSpeech = {
+                    if (state.speech.isActive) viewModel.stopSpeech() else viewModel.startSpeech()
+                },
             )
         }
 
-        // 底栏
-        AnimatedVisibility(
-            visible = state.chromeVisible && state.error == null,
-            enter = slideInVertically { it },
-            exit = slideOutVertically { it },
-            modifier = Modifier.align(Alignment.BottomCenter),
-        ) {
-            ReaderBottomBar(
-                state = state,
-                theme = readerTheme,
-                onPrevious = viewModel::previousChapter,
-                onNext = viewModel::nextChapter,
-            )
+        // 底部区域：底栏（切章）+ 朗读控制条（播放中悬在其上方）
+        Column(modifier = Modifier.align(Alignment.BottomCenter)) {
+            AnimatedVisibility(
+                visible = state.speech.isActive && state.error == null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+            ) {
+                SpeechControlBar(
+                    speech = state.speech,
+                    theme = readerTheme,
+                    autoNextChapter = state.settings.ttsAutoNextChapter,
+                    onTogglePlayPause = viewModel::toggleSpeechPlayPause,
+                    onSkip = viewModel::speechSkipUnit,
+                    onStop = viewModel::stopSpeech,
+                    onRateChange = viewModel::updateTtsRate,
+                    onPitchChange = viewModel::updateTtsPitch,
+                    onAutoNextChange = viewModel::updateTtsAutoNextChapter,
+                )
+            }
+            AnimatedVisibility(
+                visible = state.chromeVisible && state.error == null,
+                enter = slideInVertically { it },
+                exit = slideOutVertically { it },
+            ) {
+                ReaderBottomBar(
+                    state = state,
+                    theme = readerTheme,
+                    onPrevious = viewModel::previousChapter,
+                    onNext = viewModel::nextChapter,
+                )
+            }
         }
 
         // 一次性提示（避开导航栏/手势条）
@@ -306,6 +361,15 @@ private fun ReaderContent(
         }
     }
 
+    // 朗读高亮跟随：正在朗读的段变化时把正文滚到它（听书时无需手动翻页）。
+    // 只在 speakingParagraph 变化时触发，用户手动滚动不会被打断。
+    LaunchedEffect(state.speech.speakingParagraph) {
+        val speaking = state.speech.speakingParagraph
+        if (state.speech.isActive && speaking >= 0 && speaking <= listState.layoutInfo.totalItemsCount - 1) {
+            listState.animateScrollToItem(index = speaking + 1, scrollOffset = 0)
+        }
+    }
+
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
@@ -369,12 +433,27 @@ private fun ReaderContent(
         itemsIndexed(
             items = state.paragraphs,
             key = { index, _ -> "p$index" },
-        ) { _, paragraph ->
+        ) { index, paragraph ->
+            val speaking = state.speech.isActive && index == state.speech.speakingParagraph
             Text(
                 text = paragraph,
                 style = textStyle,
                 textAlign = TextAlign.Justify,
-                modifier = Modifier.padding(bottom = state.settings.paragraphSpacingDp.dp),
+                modifier = Modifier
+                    .padding(bottom = state.settings.paragraphSpacingDp.dp)
+                    .then(
+                        if (speaking) {
+                            Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    color = theme.accent.copy(alpha = 0.18f),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                                )
+                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                        } else {
+                            Modifier
+                        },
+                    ),
             )
         }
         item(key = "chapter-footer") {
@@ -520,6 +599,19 @@ private fun ReaderPagerScaffold(
         }
     }
 
+    // 朗读跟随（AC-12.4，翻页模式口径）：朗读段变化时把 pager 滚到含该段的页。
+    // 与滚动模式的 animateScrollToItem 同口径——只在 speakingParagraph 变化时
+    // 触发，用户手动翻页不会被打断；朗读停止（段下标归 -1）时不动作。
+    LaunchedEffect(state.speech.speakingParagraph) {
+        if (!state.speech.isActive) return@LaunchedEffect
+        val speaking = state.speech.speakingParagraph
+        if (speaking < 0 || pages.isEmpty()) return@LaunchedEffect
+        val target = pageIndexForStartParagraph(pages, speaking).coerceIn(0, pages.lastIndex)
+        if (target != pagerState.currentPage) {
+            pagerState.animateScrollToPage(target)
+        }
+    }
+
     val currentPage by remember { derivedStateOf { pagerState.currentPage } }
 
     Box(
@@ -616,6 +708,7 @@ private fun ReaderPagerScaffold(
                     horizontalPaddingPx = horizontalPaddingPx,
                     showHeader = page == 0,
                     chapterTitle = state.chapterTitle,
+                    speakingParagraph = state.speech.speakingParagraph,
                 )
             }
 
@@ -653,6 +746,8 @@ private fun PageContent(
     horizontalPaddingPx: Int,
     showHeader: Boolean,
     chapterTitle: String,
+    /** 正在朗读的正文段下标（-1 = 未朗读；暂停态保留，与滚动模式高亮口径一致）。 */
+    speakingParagraph: Int = -1,
 ) {
     val start = pages[page].startParagraph
     val end = if (page + 1 < pages.size) pages[page + 1].startParagraph else paragraphs.size
@@ -685,12 +780,28 @@ private fun PageContent(
                         .padding(vertical = 16.dp),
                 )
             }
-            pageParagraphs.forEach { para ->
+            pageParagraphs.forEachIndexed { i, para ->
+                // 高亮与滚动模式同一视觉（theme.accent 18% 圆角底），绝对段下标对齐
+                val speaking = start + i == speakingParagraph
                 Text(
                     text = para,
                     style = textStyle,
                     textAlign = TextAlign.Justify,
-                    modifier = Modifier.padding(bottom = with(density) { spacingPx.toDp() }),
+                    modifier = Modifier
+                        .padding(bottom = with(density) { spacingPx.toDp() })
+                        .then(
+                            if (speaking) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        color = theme.accent.copy(alpha = 0.18f),
+                                        shape = RoundedCornerShape(4.dp),
+                                    )
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            } else {
+                                Modifier
+                            },
+                        ),
                 )
             }
         }
@@ -743,6 +854,7 @@ private fun ReaderTopBar(
     onOpenToc: () -> Unit,
     onAddBookmark: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleSpeech: () -> Unit,
 ) {
     // 背景铺到屏幕边缘（沉浸观感），交互内容让进安全区（不被状态栏吃掉点击/图标）。
     // padding 加在内层 Row 而不是 Surface：Surface 仍全宽绘制，系统栏区域不会露出底层正文。
@@ -776,6 +888,13 @@ private fun ReaderTopBar(
             }
             IconButton(onClick = onAddBookmark) {
                 Icon(Icons.Filled.Star, contentDescription = "添加书签", tint = theme.accent)
+            }
+            IconButton(onClick = onToggleSpeech) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_speech),
+                    contentDescription = if (state.speech.isActive) "停止朗读" else "开始朗读",
+                    tint = if (state.speech.isActive) theme.accent else theme.onBackground,
+                )
             }
             IconButton(onClick = onOpenToc) {
                 Icon(Icons.AutoMirrored.Filled.List, contentDescription = "目录")
@@ -964,8 +1083,7 @@ private fun SystemBarIconEffect(darkBackground: Boolean) {
 
 /** 沉浸模式：隐藏系统栏，工具栏显示时临时唤出。 */
 @Composable
-private fun ImmersiveEffect(enabled: Boolean, chromeVisible: Boolean) {
-    val view = LocalView.current
+private fun ImmersiveEffect(enabled: Boolean, chromeVisible: Boolean) {    val view = LocalView.current
     DisposableEffect(enabled, chromeVisible) {
         val window = (view.context as? Activity)?.window
         if (window != null) {
@@ -982,6 +1100,144 @@ private fun ImmersiveEffect(enabled: Boolean, chromeVisible: Boolean) {
             val w = (view.context as? Activity)?.window
             if (w != null) {
                 WindowInsetsControllerCompat(w, view).show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+}
+
+/**
+ * 朗读控制条：播放/暂停、段步进、停止，以及语速 / 音调 / 章尾自动续读。
+ *
+ * 与通知按钮（[io.github.lunalight.paperread.speech.SpeechActionReceiver]）
+ * 操作同一控制器单例，两端状态天然一致；语速/音调改动经 VM 持久化到
+ * DataStore 并即时同步引擎（AC-12.4）。
+ */
+@Composable
+private fun SpeechControlBar(
+    speech: SpeechState,
+    theme: ReaderTheme,
+    autoNextChapter: Boolean,
+    onTogglePlayPause: () -> Unit,
+    onSkip: (Int) -> Unit,
+    onStop: () -> Unit,
+    onRateChange: (Float) -> Unit,
+    onPitchChange: (Float) -> Unit,
+    onAutoNextChange: (Boolean) -> Unit,
+) {
+    Surface(color = theme.background, contentColor = theme.onBackground) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(
+                        WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
+                    ),
+                )
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { onSkip(-1) }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_speech_prev),
+                        contentDescription = "上一段",
+                        tint = theme.onBackground,
+                    )
+                }
+                IconButton(onClick = onTogglePlayPause) {
+                    Icon(
+                        painter = painterResource(
+                            if (speech.isSpeaking) R.drawable.ic_speech_pause else R.drawable.ic_speech_play,
+                        ),
+                        contentDescription = if (speech.isSpeaking) "暂停朗读" else "继续朗读",
+                        tint = theme.accent,
+                    )
+                }
+                IconButton(onClick = { onSkip(1) }) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_speech_next),
+                        contentDescription = "下一段",
+                        tint = theme.onBackground,
+                    )
+                }
+                IconButton(onClick = onStop) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_speech_stop),
+                        contentDescription = "停止朗读",
+                        tint = theme.onBackground,
+                    )
+                }
+                Text(
+                    text = if (speech.isSpeaking) "正在朗读" else "已暂停",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = theme.secondary,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "语速",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = theme.secondary,
+                )
+                Slider(
+                    value = speech.rate,
+                    onValueChange = onRateChange,
+                    valueRange = 0.5f..2.0f,
+                    steps = 5,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp),
+                )
+                Text(
+                    text = "%.2fx".format(speech.rate),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = theme.secondary,
+                    modifier = Modifier.width(44.dp),
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "音调",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = theme.secondary,
+                )
+                Slider(
+                    value = speech.pitch,
+                    onValueChange = onPitchChange,
+                    valueRange = 0.5f..2.0f,
+                    steps = 5,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp),
+                )
+                Text(
+                    text = "%.2fx".format(speech.pitch),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = theme.secondary,
+                    modifier = Modifier.width(44.dp),
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onAutoNextChange(!autoNextChapter) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "读完一章后自动继续下一章",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = theme.secondary,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = autoNextChapter,
+                    onCheckedChange = onAutoNextChange,
+                )
             }
         }
     }

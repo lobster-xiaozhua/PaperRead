@@ -15,6 +15,10 @@ import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.ReaderProgress
+import io.github.lunalight.paperread.speech.SpeechController
+import io.github.lunalight.paperread.speech.SpeechPhase
+import io.github.lunalight.paperread.speech.SpeechState
+import io.github.lunalight.paperread.speech.SpeechText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,6 +72,8 @@ data class ReaderUiState(
      * 为 true 时错误页额外提供「删除该条目」动作，因为重试解析也无济于事。
      */
     val textMissing: Boolean = false,
+    /** 朗读（TTS）状态快照；phase 非 IDLE 时正文按 [SpeechState.speakingParagraph] 高亮。 */
+    val speech: SpeechState = SpeechState(),
 ) {
     val chapterTitle: String get() = chapters.getOrNull(chapterIndex)?.title ?: ""
     val chapterPosition: String
@@ -76,7 +82,12 @@ data class ReaderUiState(
 
 /**
  * 阅读器 ViewModel：加载书籍/章节、ReaderPosition 恢复、防抖进度保存、
- * 切章、目录与设置面板状态、设置读写。
+ * 切章、目录与设置面板状态、设置读写、TTS 朗读编排。
+ *
+ * 朗读职责边界：本类只做「内容准备 + 状态编排」——把渲染段落切成朗读单元
+ * （[SpeechText]）、把系统 TTS 不可用/章尾事件翻译成 UI 状态；
+ * 引擎细节、线程安全、前台保活分别在 [io.github.lunalight.paperread.speech.AndroidSpeechController]
+ * 与 [io.github.lunalight.paperread.speech.SpeechService]，本类不直接接触 android.speech.tts。
  *
  * @param appScope 应用级作用域，仅用于 onCleared 后仍需落地的写入
  *   （[flushPendingSave] 的收尾补存、[deleteBrokenBook]）。测试可用默认值。
@@ -86,6 +97,7 @@ class ReaderViewModel(
     private val bookRepository: BookRepository,
     private val bookTextStore: BookTextStore,
     private val settingsStore: SettingsStore,
+    private val speechController: SpeechController,
     private val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) : ViewModel() {
 
@@ -107,11 +119,41 @@ class ReaderViewModel(
         viewModelScope.launch {
             settingsStore.settings.collect { settings ->
                 _uiState.update { it.copy(settings = settings) }
+                // 语速/音调即时同步到控制器（控制条滑杆改动即时生效）；
+                // 控制器内部会夹取到 0.5~2.0 并在朗读中重读当前单元。
+                if (settings.ttsRate != speechController.state.value.rate) {
+                    speechController.setRate(settings.ttsRate)
+                }
+                if (settings.ttsPitch != speechController.state.value.pitch) {
+                    speechController.setPitch(settings.ttsPitch)
+                }
             }
         }
         viewModelScope.launch {
             bookRepository.observeBookmarks(bookId).collect { bookmarks ->
                 _uiState.update { it.copy(bookmarks = bookmarks) }
+            }
+        }
+        viewModelScope.launch {
+            speechController.state.collect { speech ->
+                _uiState.update { it.copy(speech = speech) }
+            }
+        }
+        // 章尾续读决策：控制器单元表读完 → 按设置决定自动下一章或收尾。
+        speechController.onFinished = {
+            viewModelScope.launch {
+                val state = _uiState.value
+                val hasNext = state.chapterIndex < state.chapters.lastIndex
+                if (state.settings.ttsAutoNextChapter && hasNext) {
+                    // 走 goToChapter 的 restartSpeech 而非「切完再 startSpeech」：
+                    // 此刻单元表已耗尽、控制器已回 IDLE，靠 wasSpeaking 判断会漏掉
+                    // 重启；且重启发生在状态更新之后，不会读到旧章的段落表。
+                    goToChapter(state.chapterIndex + 1, restartSpeech = true)
+                } else {
+                    // 续读关闭，或已是全书末章：收尾并告知（本章已读完）。
+                    speechController.stop()
+                    _uiState.update { it.copy(message = "已朗读完本章") }
+                }
             }
         }
         viewModelScope.launch { load() }
@@ -268,6 +310,69 @@ class ReaderViewModel(
         val pending = pendingSave ?: return
         pendingSave = null
         appScope.launch { persist(pending) }
+        // 离开阅读器即停止朗读：控制器是进程单例，不显式停止会在
+        // 返回书架/退出应用后继续发声。前台服务由 UI 层状态驱动收尾。
+        speechController.onFinished = null
+        speechController.stop()
+    }
+
+    // ---- 朗读（TTS） ----
+
+    /**
+     * 从 [fromParagraph]（默认当前可见段）开始朗读当前章。
+     *
+     * 单元表由当前渲染段落构建（长段已按句软切分，见 [SpeechText]）；
+     * 引擎未初始化完成时控制器内部排队，初始化后自动开播。
+     */
+    fun startSpeech(fromParagraph: Int = _uiState.value.currentParagraph) {
+        val state = _uiState.value
+        if (state.loading || state.book == null || state.paragraphs.isEmpty()) {
+            _uiState.update { it.copy(message = "本章暂无可朗读的内容") }
+            return
+        }
+        val units = SpeechText.buildUnits(state.paragraphs)
+        if (units.isEmpty()) {
+            _uiState.update { it.copy(message = "本章暂无可朗读的内容") }
+            return
+        }
+        val start = SpeechText.firstUnitAtOrAfter(units, fromParagraph)
+        speechController.speak(units, start)
+    }
+
+    /** 播放/暂停切换（朗读条主按钮）。 */
+    fun toggleSpeechPlayPause() {
+        when (_uiState.value.speech.phase) {
+            SpeechPhase.IDLE -> startSpeech()
+            SpeechPhase.SPEAKING -> speechController.pause()
+            SpeechPhase.PAUSED -> speechController.resume()
+        }
+    }
+
+    /** 停止朗读并回到空闲态。 */
+    fun stopSpeech() {
+        speechController.stop()
+    }
+
+    /** 朗读条「上一段 / 下一段」：按单元步进（长段分 part 时先在一段内移动）。 */
+    fun speechSkipUnit(delta: Int) {
+        val current = _uiState.value.speech.currentUnitIndex
+        if (current < 0) return
+        speechController.speakFromUnit(current + delta)
+    }
+
+    /** 朗读语速（0.5 ~ 2.0）：持久化 + 即时同步控制器。 */
+    fun updateTtsRate(rate: Float) {
+        viewModelScope.launch { settingsStore.update { it.copy(ttsRate = rate.coerceIn(0.5f, 2f)) } }
+    }
+
+    /** 朗读音调（0.5 ~ 2.0）：持久化 + 即时同步控制器。 */
+    fun updateTtsPitch(pitch: Float) {
+        viewModelScope.launch { settingsStore.update { it.copy(ttsPitch = pitch.coerceIn(0.5f, 2f)) } }
+    }
+
+    /** 章尾自动续读开关（持久化）。 */
+    fun updateTtsAutoNextChapter(enabled: Boolean) {
+        viewModelScope.launch { settingsStore.update { it.copy(ttsAutoNextChapter = enabled) } }
     }
 
     private suspend fun persist(pending: PendingSave) {
@@ -321,8 +426,13 @@ class ReaderViewModel(
      * 不再对「目标 == 当前章」早退：书签常落在章首，
      * 而单段落章（无换行 TXT）里段下标恒为 0，早退会让跳转彻底失效。
      * 每次跳转都自增 [ReaderUiState.restoreSeq]，由 UI 消费成一次滚动指令。
+     *
+     * 朗读中切章：目标章的朗读单元表整体重建并从章首续读（AC-12.6
+     * 「朗读中跳转不断播」的章级口径——目录跳转不中断听书）。
+     * [restartSpeech] 供章尾自动续读使用：此时控制器已回 IDLE
+     * （单元表耗尽），`wasSpeaking` 判断不到，需显式要求重启。
      */
-    fun goToChapter(index: Int, paragraph: Int = 0) {
+    fun goToChapter(index: Int, paragraph: Int = 0, restartSpeech: Boolean = false) {
         val state = _uiState.value
         if (state.loading || state.chapters.isEmpty()) return
         val target = index.coerceIn(0, state.chapters.lastIndex)
@@ -341,6 +451,7 @@ class ReaderViewModel(
             return
         }
         val targetParagraph = paragraph.coerceIn(0, maxOf(0, scan.texts.lastIndex))
+        val wasSpeaking = state.speech.isActive || restartSpeech
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -371,6 +482,9 @@ class ReaderViewModel(
                     state = current,
                 ),
             )
+            if (wasSpeaking) {
+                startSpeech(fromParagraph = targetParagraph)
+            }
         }
     }
 
@@ -463,6 +577,7 @@ class ReaderViewModel(
                         bookRepository = container.bookRepository,
                         bookTextStore = container.bookTextStore,
                         settingsStore = container.settingsStore,
+                        speechController = container.speechController,
                         appScope = container.appScope,
                     )
                 }
