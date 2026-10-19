@@ -46,6 +46,7 @@ class PreferencesSettingsStore(context: Context) : SettingsStore {
             keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: defaults.keepScreenOn,
             immersive = prefs[KEY_IMMERSIVE] ?: defaults.immersive,
             volumeKeyTurnPage = prefs[KEY_VOLUME_TURN] ?: defaults.volumeKeyTurnPage,
+            pageTurnMode = prefs[KEY_PAGE_TURN] ?: defaults.pageTurnMode,
         )
     }
 
@@ -62,6 +63,7 @@ class PreferencesSettingsStore(context: Context) : SettingsStore {
                 keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: ReaderSettings().keepScreenOn,
                 immersive = prefs[KEY_IMMERSIVE] ?: ReaderSettings().immersive,
                 volumeKeyTurnPage = prefs[KEY_VOLUME_TURN] ?: ReaderSettings().volumeKeyTurnPage,
+                pageTurnMode = prefs[KEY_PAGE_TURN] ?: ReaderSettings().pageTurnMode,
             )
             val next = transform(current)
             prefs[KEY_THEME] = next.themeId
@@ -74,6 +76,7 @@ class PreferencesSettingsStore(context: Context) : SettingsStore {
             prefs[KEY_KEEP_SCREEN_ON] = next.keepScreenOn
             prefs[KEY_IMMERSIVE] = next.immersive
             prefs[KEY_VOLUME_TURN] = next.volumeKeyTurnPage
+            prefs[KEY_PAGE_TURN] = next.pageTurnMode
         }
     }
 
@@ -88,5 +91,6 @@ class PreferencesSettingsStore(context: Context) : SettingsStore {
         val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
         val KEY_IMMERSIVE = booleanPreferencesKey("immersive")
         val KEY_VOLUME_TURN = booleanPreferencesKey("volume_key_turn_page")
+        val KEY_PAGE_TURN = booleanPreferencesKey("page_turn_mode")
     }
 }

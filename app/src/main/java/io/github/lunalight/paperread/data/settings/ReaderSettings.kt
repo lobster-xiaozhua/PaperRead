@@ -4,7 +4,7 @@ package io.github.lunalight.paperread.data.settings
  * 阅读设置（与 [io.github.lunalight.paperread.ui.theme.ReaderTheme] 的 themeId 对应）。
  *
  * 默认值即「开箱可读」：纸白主题、衬线 18sp、行距 1.7、段距 12dp、边距 20dp、
- * 亮度跟随系统、不常亮、非沉浸、音量键翻章关闭（防误触）。
+ * 亮度跟随系统、不常亮、非沉浸、音量键翻章关闭（防误触）、连续滚动（翻页模式关闭）。
  */
 data class ReaderSettings(
     val themeId: String = "paper",
@@ -18,6 +18,11 @@ data class ReaderSettings(
     val keepScreenOn: Boolean = false,
     val immersive: Boolean = false,
     val volumeKeyTurnPage: Boolean = false,
+    /**
+     * 翻页模式：true 用横向滑动翻页（[io.github.lunalight.paperread.ui.reader] 的
+     * HorizontalPager 分页），false 用连续滚动（LazyColumn）。默认关闭，滚动为开箱体验。
+     */
+    val pageTurnMode: Boolean = false,
 ) {
     val brightnessFollowsSystem: Boolean get() = brightness < 0f
 }

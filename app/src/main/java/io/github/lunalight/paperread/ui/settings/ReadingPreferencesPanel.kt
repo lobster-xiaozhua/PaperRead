@@ -158,6 +158,12 @@ fun ReadingPreferencesPanel(
             checked = settings.volumeKeyTurnPage,
             onCheckedChange = { onUpdate { s -> s.copy(volumeKeyTurnPage = it) } },
         )
+        SettingsSwitch(
+            title = "翻页模式",
+            subtitle = "关闭为连续滚动，开启为左右滑动翻页（仿真书页，可点按左/右/中区）",
+            checked = settings.pageTurnMode,
+            onCheckedChange = { onUpdate { s -> s.copy(pageTurnMode = it) } },
+        )
     }
 }
 

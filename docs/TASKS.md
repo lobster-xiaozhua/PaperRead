@@ -107,6 +107,15 @@
 - 验收：SPEC AC-11.1 – AC-11.4 全部达成
 - 实现备注：`readBody` 未用 `InputStream.readNBytes`（API 33+），改为手写循环读取以守住 minSdk 26
 
+### T5 仿真翻页（约 3h）✅ 已完成（feat/page-turn，305 单测 / lint / assembleDebug 全绿）
+- 涉及：阅读器新增「翻页模式」开关（`ReaderSettings.pageTurnMode`、`SettingsStore` 持久化、`ReadingPreferencesPanel` 行为区开关，与设置页 / 阅读器弹层共用）；`reader/Pagination.kt` 纯分页算法（段边界切页，零 Android 依赖）；`ui/reader/ReaderScreen.kt` 新增 `ReaderPagerContent` / `ReaderPagerScaffold` / `PageContent` / `PageEdgeShadows`（官方 `HorizontalPager` + `TextMeasurer` 段落测高 + 边缘阴影 + 观察者式点按三区 + 音量键翻页 + 越章衔接）；`ReaderViewModel.onPagePosition` 按页起始段折算字符偏移落库（复用 `ReaderPosition`，不新增进度字段）
+- 交付物：
+  - 翻页模式与连续滚动互斥共存（默认滚动），开启后正文左右滑动翻页、书页边缘阴影随拖动增强；点按左 / 中 / 右区翻页 / 唤出工具栏；音量键翻页（需开启音量键开关）；页码指示；恢复 / 切章定位到含初始段的页
+  - 分页核心 `paginate` / `pageIndexForStartParagraph` 纯 JVM 单测 8 项；`ReaderViewModelTest` 翻页进度 2 项；新增 `compose-foundation`（官方 AndroidX，已在 Material3 传递依赖，显式声明）
+- 约束达成：零新增第三方依赖（卷曲效果未做，按此前确认的「先滑动、卷曲后续增强」）；进度数据模型不变；`reader/` 引擎零 Android 依赖（分页算法纯函数）
+- 验收：SPEC 无专门 AC（C7 为体验增强候选）；回归：滚动模式路径未改动
+- 已知边界：分页按「段边界」对齐，不做段内字符级拆分；单段高于整屏的极端段落独占一页并允许纵向滚动，不裁切丢字；超大单章书（无章节切分）翻页模式需对全章段落测高，建议仍用滚动模式
+
 ## 待办 / 未决项
 
 ### 真机验收（非阻塞，代码已合入）

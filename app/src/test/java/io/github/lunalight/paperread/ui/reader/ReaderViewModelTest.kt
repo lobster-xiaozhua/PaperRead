@@ -414,4 +414,30 @@ class ReaderViewModelTest {
             1e-4f,
         )
     }
+
+    @Test
+    fun `翻页模式按页起始段落库并折算字符偏移`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        // 章内段落偏移表 = [0, 3, 6, 9]（四段，每段 2 字符），翻到第 4 段（下标 3）所在页
+        assertEquals(listOf(0, 3, 6, 9), viewModel.uiState.value.paragraphStarts)
+        viewModel.onPagePosition(3)
+        advanceTimeBy(600)
+        advanceUntilIdle()
+
+        val saved = repository.savedPositions.last()
+        assertEquals(3, saved.position.paragraphIndex)
+        assertEquals(9, saved.position.charOffset) // paragraphStarts[3]，charOffset 为 Int
+        assertEquals(1, saved.position.chapterIndex)
+        assertEquals(3, viewModel.uiState.value.currentParagraph)
+    }
+
+    @Test
+    fun `翻页模式越界起始段被夹取到末段`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        // 段落下标越界（99）→ 夹到末段 3，不抛错、不乱写
+        viewModel.onPagePosition(99)
+        advanceTimeBy(600)
+        advanceUntilIdle()
+        assertEquals(3, repository.savedPositions.last().position.paragraphIndex)
+    }
 }

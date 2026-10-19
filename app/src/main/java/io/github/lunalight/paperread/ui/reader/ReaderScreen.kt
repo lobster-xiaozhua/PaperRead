@@ -32,6 +32,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -56,8 +63,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,13 +79,25 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
@@ -84,8 +105,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlin.math.absoluteValue
+import kotlin.math.max
+import kotlinx.coroutines.launch
 import io.github.lunalight.paperread.PaperReadApp
 import io.github.lunalight.paperread.data.settings.ReaderSettings
+import io.github.lunalight.paperread.reader.PageBound
+import io.github.lunalight.paperread.reader.pageIndexForStartParagraph
+import io.github.lunalight.paperread.reader.paginate
 import io.github.lunalight.paperread.ui.theme.ReaderTheme
 import io.github.lunalight.paperread.ui.theme.ReaderThemes
 
@@ -161,12 +188,21 @@ fun ReaderScreen(
             }
 
             else -> {
-                ReaderContent(
-                    state = state,
-                    viewModel = viewModel,
-                    theme = readerTheme,
-                    isLandscape = isLandscape,
-                )
+                if (state.settings.pageTurnMode) {
+                    ReaderPagerContent(
+                        state = state,
+                        viewModel = viewModel,
+                        theme = readerTheme,
+                        isLandscape = isLandscape,
+                    )
+                } else {
+                    ReaderContent(
+                        state = state,
+                        viewModel = viewModel,
+                        theme = readerTheme,
+                        isLandscape = isLandscape,
+                    )
+                }
             }
         }
 
@@ -348,6 +384,351 @@ private fun ReaderContent(
                 theme = theme,
                 hasNext = state.chapterIndex < state.chapters.lastIndex,
                 onNext = viewModel::nextChapter,
+            )
+        }
+    }
+}
+
+/**
+ * 翻页模式正文：官方 HorizontalPager 把章内段落按「段边界」切成一页页，左右滑动翻页。
+ *
+ * 与 [ReaderContent]（连续滚动）互斥、按 [io.github.lunalight.paperread.data.settings.ReaderSettings.pageTurnMode]
+ * 切换共存——翻页模式默认关闭，滚动为开箱体验。
+ *
+ * 设计要点：
+ * - 段落像素高度用 `TextMeasurer` 在 UI 层测出，喂给引擎纯函数 [paginate] 切页（零 Android 依赖）；
+ * - 页码是 UI 层概念，**进度仍走既有 `ReaderPosition`**（落库按页起始段折算字符偏移），不动数据模型；
+ * - 仿真质感：翻页时右缘抬起阴影 + 左缘书脊阴影随拖动增强；
+ * - 点按左/中/右三区：上一页 / 唤出工具栏 / 下一页（观察者式 pointerInput，绝不 consume，避免吞掉 pager 的横向拖动）；
+ * - 越章边界：末页继续翻 → 下一章；首页往回翻 → 上一章。
+ */
+@Composable
+private fun ReaderPagerContent(
+    state: ReaderUiState,
+    viewModel: ReaderViewModel,
+    theme: ReaderTheme,
+    isLandscape: Boolean,
+) {
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
+
+    val textStyle = TextStyle(
+        fontFamily = if (state.settings.fontFamily == "serif") FontFamily.Serif else FontFamily.SansSerif,
+        fontSize = state.settings.fontSizeSp.sp,
+        lineHeight = (state.settings.fontSizeSp * state.settings.lineHeightRatio).sp,
+        color = theme.onBackground,
+    )
+
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(theme.background),
+    ) {
+        val maxWidthPx = with(density) { maxWidth.roundToPx() }
+        val maxHeightPx = with(density) { maxHeight.roundToPx() }
+        val horizontalPaddingPx = with(density) {
+            (state.settings.horizontalMarginDp.dp + safeInsets.calculateLeftPadding(layoutDirection)
+                + safeInsets.calculateRightPadding(layoutDirection)).roundToPx()
+        }
+        val topPaddingPx = with(density) {
+            ((if (isLandscape) 8.dp else 56.dp) + safeInsets.calculateTopPadding()).roundToPx()
+        }
+        val bottomPaddingPx = with(density) {
+            ((if (isLandscape) 8.dp else 96.dp) + safeInsets.calculateBottomPadding()).roundToPx()
+        }
+        val contentWidthPx = max(maxWidthPx - horizontalPaddingPx, 1)
+        val availableHeightPx = max(maxHeightPx - topPaddingPx - bottomPaddingPx, 1)
+        val spacingPx = with(density) { state.settings.paragraphSpacingDp.dp.roundToPx() }
+
+        val measurer = rememberTextMeasurer()
+        // 段落高度只依赖「章 + 字号/行距/边距/宽度」，与页码无关，缓存避免每次翻页重测
+        val paragraphHeights = remember(state.chapterIndex, state.paragraphs, textStyle, contentWidthPx) {
+            state.paragraphs.map { para ->
+                measurer.measure(
+                    text = AnnotatedString(para),
+                    style = textStyle,
+                    constraints = Constraints(maxWidth = contentWidthPx, maxHeight = Constraints.Infinity),
+                ).size.height
+            }
+        }
+        val pages = remember(paragraphHeights, availableHeightPx, spacingPx) {
+            paginate(paragraphHeights, availableHeightPx, spacingPx)
+        }
+
+        ReaderPagerScaffold(
+            state = state,
+            viewModel = viewModel,
+            theme = theme,
+            textStyle = textStyle,
+            pages = pages,
+            density = density,
+            contentWidthPx = contentWidthPx,
+            availableHeightPx = availableHeightPx,
+            spacingPx = spacingPx,
+            topPaddingPx = topPaddingPx,
+            bottomPaddingPx = bottomPaddingPx,
+            horizontalPaddingPx = horizontalPaddingPx,
+            isLandscape = isLandscape,
+            focusRequester = focusRequester,
+        )
+    }
+}
+
+@Composable
+private fun ReaderPagerScaffold(
+    state: ReaderUiState,
+    viewModel: ReaderViewModel,
+    theme: ReaderTheme,
+    textStyle: TextStyle,
+    pages: List<PageBound>,
+    density: Density,
+    contentWidthPx: Int,
+    availableHeightPx: Int,
+    spacingPx: Int,
+    topPaddingPx: Int,
+    bottomPaddingPx: Int,
+    horizontalPaddingPx: Int,
+    isLandscape: Boolean,
+    focusRequester: FocusRequester,
+) {
+    val pagerState = rememberPagerState(initialPage = 0) { pages.size.coerceAtLeast(1) }
+    val scope = rememberCoroutineScope()
+
+    // 恢复 / 切章定位：restoreSeq 自增时把 pager 滚到「含初始段的页」；
+    // 字号/边距等设置变更导致重排时，尽量停留在当前页号、越界则夹取，避免 pager 越界
+    var consumedSeq by rememberSaveable(state.chapterIndex) { mutableStateOf(-1L) }
+    LaunchedEffect(pages, state.restoreSeq) {
+        if (pages.isEmpty()) return@LaunchedEffect
+        val target = if (state.restoreSeq > consumedSeq) {
+            consumedSeq = state.restoreSeq
+            pageIndexForStartParagraph(pages, state.initialParagraph).coerceAtMost(pages.lastIndex)
+        } else {
+            pagerState.currentPage.coerceIn(0, pages.lastIndex)
+        }
+        pagerState.scrollToPage(target)
+    }
+
+    // 翻页落库：页面稳定后上报该页起始段（折算字符偏移，复用既有进度模型）
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }.collect { page ->
+            if (pages.isEmpty()) return@collect
+            viewModel.onPagePosition(pages[page.coerceIn(0, pages.lastIndex)].startParagraph)
+        }
+    }
+
+    val currentPage by remember { derivedStateOf { pagerState.currentPage } }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (!state.settings.volumeKeyTurnPage) return@onPreviewKeyEvent false
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.VolumeDown -> {
+                        if (pagerState.currentPage < pages.lastIndex) {
+                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                        } else {
+                            viewModel.nextChapter()
+                        }
+                        true
+                    }
+
+                    Key.VolumeUp -> {
+                        if (pagerState.currentPage > 0) {
+                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                        } else {
+                            viewModel.previousChapter()
+                        }
+                        true
+                    }
+
+                    else -> false
+                }
+            }
+            // 观察者式点按：只读指针、绝不 consume，避免吞掉 pager 的横向滑动
+            .pointerInput(pages) {
+                awaitPointerEventScope {
+                    var downX = 0f
+                    var downY = 0f
+                    var downTime = 0L
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull() ?: continue
+                        if (change.changedToDown()) {
+                            downX = change.position.x
+                            downY = change.position.y
+                            downTime = change.uptimeMillis
+                        } else if (change.changedToUp()) {
+                            val moved = (change.position - Offset(downX, downY)).getDistance()
+                            val elapsed = change.uptimeMillis - downTime
+                            if (moved < 24f && elapsed < 300L) {
+                                val w = size.width.toFloat()
+                                when {
+                                    change.position.x < w / 3f -> {
+                                        if (pagerState.currentPage > 0) {
+                                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                                        } else {
+                                            viewModel.previousChapter()
+                                        }
+                                    }
+
+                                    change.position.x > w * 2f / 3f -> {
+                                        if (pagerState.currentPage < pages.lastIndex) {
+                                            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                                        } else {
+                                            viewModel.nextChapter()
+                                        }
+                                    }
+
+                                    else -> viewModel.toggleChrome()
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+    ) {
+        if (pages.isNotEmpty()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                key = { "page-$it" },
+            ) { page ->
+                PageContent(
+                    page = page,
+                    pages = pages,
+                    paragraphs = state.paragraphs,
+                    textStyle = textStyle,
+                    theme = theme,
+                    density = density,
+                    contentWidthPx = contentWidthPx,
+                    availableHeightPx = availableHeightPx,
+                    spacingPx = spacingPx,
+                    topPaddingPx = topPaddingPx,
+                    bottomPaddingPx = bottomPaddingPx,
+                    horizontalPaddingPx = horizontalPaddingPx,
+                    showHeader = page == 0,
+                    chapterTitle = state.chapterTitle,
+                )
+            }
+
+            // 仿真翻页边缘阴影（随拖动进度增强）
+            PageEdgeShadows(pagerState = pagerState, theme = theme)
+
+            // 页码指示（翻页模式）
+            if (pages.size > 1) {
+                Text(
+                    text = "${currentPage + 1} / ${pages.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = theme.secondary,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = with(density) { bottomPaddingPx.toDp() } - 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PageContent(
+    page: Int,
+    pages: List<PageBound>,
+    paragraphs: List<String>,
+    textStyle: TextStyle,
+    theme: ReaderTheme,
+    density: Density,
+    contentWidthPx: Int,
+    availableHeightPx: Int,
+    spacingPx: Int,
+    topPaddingPx: Int,
+    bottomPaddingPx: Int,
+    horizontalPaddingPx: Int,
+    showHeader: Boolean,
+    chapterTitle: String,
+) {
+    val start = pages[page].startParagraph
+    val end = if (page + 1 < pages.size) pages[page + 1].startParagraph else paragraphs.size
+    val pageParagraphs = paragraphs.subList(start, end)
+
+    val topPad = with(density) { topPaddingPx.toDp() }
+    val bottomPad = with(density) { bottomPaddingPx.toDp() }
+    val hPad = with(density) { horizontalPaddingPx.toDp() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(start = hPad, end = hPad, top = topPad, bottom = bottomPad),
+    ) {
+        // 正常页内容恰好铺满可用高度；单段高于整屏的极端情况允许纵向滚动，避免裁切丢字
+        val scrollState = rememberScrollState()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState),
+        ) {
+            if (showHeader) {
+                Text(
+                    text = chapterTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = theme.accent,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 16.dp),
+                )
+            }
+            pageParagraphs.forEach { para ->
+                Text(
+                    text = para,
+                    style = textStyle,
+                    textAlign = TextAlign.Justify,
+                    modifier = Modifier.padding(bottom = with(density) { spacingPx.toDp() }),
+                )
+            }
+        }
+    }
+}
+
+/** 翻页时右缘抬起阴影 + 左缘书脊阴影，随拖动进度增强，营造仿真书页厚度。 */
+@Composable
+private fun PageEdgeShadows(pagerState: PagerState, theme: ReaderTheme) {
+    val offset by remember { derivedStateOf { pagerState.currentPageOffsetFraction } }
+    val maxAlpha = 0.28f
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val w = size.width
+        // 静态书脊底阴影（轻微，营造厚度）
+        drawRect(
+            brush = Brush.horizontalGradient(
+                colors = listOf(Color.Black.copy(alpha = 0.05f), Color.Transparent),
+                startX = 0f,
+                endX = w * 0.04f,
+            ),
+        )
+        val drag = offset.absoluteValue.coerceIn(0f, 1f)
+        if (drag > 0.001f) {
+            // 右缘翻起阴影（前向翻页：右侧页缘抬起）
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = maxAlpha * drag)),
+                    startX = w * 0.82f,
+                    endX = w,
+                ),
+            )
+            // 左缘书脊阴影（往回翻：左侧压暗）
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(Color.Black.copy(alpha = (maxAlpha - 0.1f) * drag), Color.Transparent),
+                    startX = 0f,
+                    endX = w * 0.06f,
+                ),
             )
         }
     }

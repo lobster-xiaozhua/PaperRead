@@ -231,6 +231,37 @@ class ReaderViewModel(
         saveJob = viewModelScope.launch { persist(pending) }
     }
 
+    /**
+     * 翻页模式专用：用户翻到某页（该页起始段 [startParagraph]）时上报进度。
+     *
+     * 与 [onScrollPosition] 走同一条进度落库路径——按 `paragraphStarts` 折算字符偏移，
+     * 复用既有 `ReaderPosition(chapterIndex, paragraphIndex, scrollOffset, charOffset)` 模型，
+     * **不新增任何进度字段 / 不破坏段落级进度恢复**。翻页模式滚动偏移恒为 0
+     * （页从段首起），段内像素偏移在翻页语义下无意义。
+     */
+    fun onPagePosition(startParagraph: Int) {
+        val state = _uiState.value
+        if (state.loading || state.book == null || state.paragraphs.isEmpty()) return
+        val clamped = startParagraph.coerceIn(0, state.paragraphs.lastIndex)
+        if (clamped != state.currentParagraph) {
+            _uiState.update { it.copy(currentParagraph = clamped) }
+        }
+        val pending = PendingSave(
+            chapterIndex = state.chapterIndex,
+            paragraphIndex = clamped,
+            scrollOffset = 0,
+            state = state,
+        )
+        pendingSave = pending
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch {
+            delay(SAVE_DEBOUNCE_MS)
+            if (pendingSave !== pending) return@launch // 已被更新的翻页位置取代
+            pendingSave = null
+            persist(pending)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         // viewModelScope 此刻已取消，必须换作用域，否则最后一次位置静默丢失
