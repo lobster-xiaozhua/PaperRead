@@ -16,7 +16,7 @@
    - `reader/` 引擎保持零 Android 依赖（XML 解析只依赖 `XmlParser` 接口，由外层装配）；
    - UI 层禁止直接访问 Room / 文件系统；
    - `data/` 实现类型不得向上泄漏。
-6. **最小权限**：`AndroidManifest.xml` 只声明 `INTERNET` 一项权限（2026-10-18 用户拍板，ROADMAP C9 决策点 2：允许申请权限、保持最小权限）。INTERNET 仅可用于同一局域网内的设备发现与书籍 / 状态传输（传书 / 迁移 / 同步），**不得访问公网**；新增任何其他权限都需单独说明理由并经人类审查。
+6. **最小权限**：`AndroidManifest.xml` 只声明两组权限（2026-10-18 / 2026-10-19 用户拍板）：① `INTERNET`——仅可用于同一局域网内的设备发现与书籍 / 状态传输（传书 / 迁移 / 同步），**不得访问公网**；② 朗读前台服务三件套（`FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK` / `POST_NOTIFICATIONS`）——仅用于 TTS 朗读后台常驻播放与通知控制（语音本机离线合成，不联网）。除此之外新增任何其他权限都需单独说明理由并经人类审查。
 7. **测试先行**：`reader/` 引擎的每个新逻辑先写 JVM 单测（fixture 放 `app/src/test/resources/`）。
 
 ## 人工把关重点
