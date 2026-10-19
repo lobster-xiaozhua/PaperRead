@@ -7,6 +7,9 @@ import io.github.lunalight.paperread.domain.model.Chapter
 import io.github.lunalight.paperread.fakes.FakeBookRepository
 import io.github.lunalight.paperread.fakes.FakeBookTextStore
 import io.github.lunalight.paperread.fakes.FakeSettingsStore
+import io.github.lunalight.paperread.fakes.FakeSpeechController
+import io.github.lunalight.paperread.speech.SpeechPhase
+import io.github.lunalight.paperread.speech.SpeechText
 import io.github.lunalight.paperread.reader.ReaderProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,11 +34,15 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class ReaderViewModelTest {
 
+    /** 单章单元表的安全上界（测试数据远小于它，仅防死循环）。 */
+    private val maxUnitsPerChapter = 64
+
     private val dispatcher = StandardTestDispatcher()
 
     private lateinit var repository: FakeBookRepository
     private lateinit var textStore: FakeBookTextStore
     private lateinit var settingsStore: FakeSettingsStore
+    private lateinit var speechController: FakeSpeechController
     private lateinit var viewModel: ReaderViewModel
 
     private val book = Book(
@@ -89,17 +96,34 @@ class ReaderViewModelTest {
             chapterText = { _, _ -> "一段\n二段\n三段\n四段" }
         }
         settingsStore = FakeSettingsStore()
+        speechController = FakeSpeechController()
         viewModel = ReaderViewModel(
             bookId = 1L,
             bookRepository = repository,
             bookTextStore = textStore,
             settingsStore = settingsStore,
+            speechController = speechController,
         )
     }
 
     @After
     fun tearDown() {
         Dispatchers.resetMain()
+    }
+
+    /**
+     * 模拟引擎把当前单元表逐个读完，直到触发章尾收尾。
+     *
+     * 从阅读位置起播时单元表未必只剩一个单元（恢复段落在章中），
+     * 单次 [FakeSpeechController.finishCurrentUnit] 只会向前推进一格；
+     * 收尾后控制器回 IDLE，循环即停（onFinished 里排的协程尚未执行，
+     * 不会顺势把下一章也读完）。
+     */
+    private fun finishAllUnits() {
+        repeat(maxUnitsPerChapter) {
+            if (!speechController.current().isActive) return
+            speechController.finishCurrentUnit()
+        }
     }
 
     @Test
@@ -125,7 +149,7 @@ class ReaderViewModelTest {
     @Test
     fun `越界的恢复位置被夹取到有效范围`() = runTest(dispatcher) {
         repository.book = book.copy(lastChapterIndex = 99, lastParagraphIndex = 99)
-        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -136,7 +160,7 @@ class ReaderViewModelTest {
     @Test
     fun `书籍不存在时进入错误态`() = runTest(dispatcher) {
         repository.book = null
-        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -147,7 +171,7 @@ class ReaderViewModelTest {
     @Test
     fun `章节为空时进入错误态`() = runTest(dispatcher) {
         repository.chapters = emptyList()
-        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -223,7 +247,7 @@ class ReaderViewModelTest {
         // 章节索引还在，但 book.txt 不存在（云备份恢复后的典型状态）
         textStore.textAvailable = false
         textStore.chapterText = { _, _ -> "" }
-        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -238,7 +262,7 @@ class ReaderViewModelTest {
         // 文件存在、章节也声称有内容，却按偏移读不出字：属索引损坏，可重新解析
         textStore.textAvailable = true
         textStore.chapterText = { _, _ -> "" }
-        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -251,7 +275,7 @@ class ReaderViewModelTest {
         // charCount = 0 的章本来就该是空：不能被误判成文件丢失
         repository.chapters = chapters.map { it.copy(charCount = 0L, charEnd = it.charStart) }
         textStore.chapterText = { _, _ -> "" }
-        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -388,7 +412,7 @@ class ReaderViewModelTest {
     @Test
     fun `错误可被消除`() = runTest(dispatcher) {
         repository.book = null
-        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
         assertEquals("书籍不存在或已删除", viewModel.uiState.value.error)
 
@@ -401,7 +425,7 @@ class ReaderViewModelTest {
         // 章原文：2 空行 + "  一段"(前导空白) + 空行 + "二段"
         // 原始起点：空行累计 2 → "一段" 段首 4；+4+1+1 → "二段" 起点 8
         textStore.chapterText = { _, _ -> "\n\n  一段\n\n二段" }
-        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore)
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -439,5 +463,169 @@ class ReaderViewModelTest {
         advanceTimeBy(600)
         advanceUntilIdle()
         assertEquals(3, repository.savedPositions.last().position.paragraphIndex)
+    }
+
+    // ---- 朗读（TTS）编排 ----
+
+    @Test
+    fun `开始朗读从当前可见段构建单元表并开播`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        viewModel.onScrollPosition(2)
+        advanceUntilIdle()
+
+        viewModel.startSpeech()
+        advanceUntilIdle()
+
+        val call = speechController.speakCalls.single()
+        assertEquals("四段各成一个单元", 4, call.units.size)
+        assertEquals("从当前段（第 3 段）起读", 2, call.startUnitIndex)
+        assertEquals("p2-0", call.units[2].utteranceId)
+        val speech = viewModel.uiState.value.speech
+        assertTrue(speech.isSpeaking)
+        assertEquals("高亮跟随到朗读段", 2, speech.speakingParagraph)
+    }
+
+    @Test
+    fun `播放暂停切换与停止`() = runTest(dispatcher) {
+        advanceUntilIdle()
+
+        viewModel.toggleSpeechPlayPause()
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.speech.isSpeaking)
+
+        viewModel.toggleSpeechPlayPause()
+        advanceUntilIdle()
+        assertTrue("再切一次应暂停", viewModel.uiState.value.speech.isPaused)
+        assertEquals(1, speechController.pauseCalls)
+
+        viewModel.toggleSpeechPlayPause()
+        advanceUntilIdle()
+        assertTrue("第三次恢复播放", viewModel.uiState.value.speech.isSpeaking)
+        assertEquals(1, speechController.resumeCalls)
+
+        viewModel.stopSpeech()
+        advanceUntilIdle()
+        assertFalse(viewModel.uiState.value.speech.isActive)
+    }
+
+    @Test
+    fun `空白段被跳过时从其后可读段开始`() = runTest(dispatcher) {
+        textStore.chapterText = { _, _ -> "一段\n\n \n三段" }
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
+        advanceUntilIdle()
+        viewModel.startSpeech(fromParagraph = 1)
+        advanceUntilIdle()
+
+        val call = speechController.speakCalls.single()
+        assertEquals("空白段不成单元", listOf("一段", "三段"), call.units.map { it.text })
+        assertEquals("第 1 段是空白，落到第 2 个可读单元", 1, call.startUnitIndex)
+    }
+
+    @Test
+    fun `章尾自动续读进入下一章并立即开播`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+
+        // 模拟引擎读完本章最后一个单元（恢复段落在章中，需逐个读完）
+        finishAllUnits()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals("自动进入下一章", 2, state.chapterIndex)
+        assertEquals("新章有新的 speak 调用", 2, speechController.speakCalls.size)
+        assertTrue(state.speech.isSpeaking)
+        assertEquals("新章从章首开播", 0, state.speech.currentUnitIndex)
+    }
+
+    @Test
+    fun `关闭自动续读时章尾停止并提示`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        viewModel.updateTtsAutoNextChapter(false)
+        advanceUntilIdle()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+
+        finishAllUnits()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertFalse(state.speech.isActive)
+        assertEquals("已朗读完本章", state.message)
+    }
+
+    @Test
+    fun `朗读中切章不断播`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+
+        viewModel.nextChapter()
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals(2, state.chapterIndex)
+        assertTrue("新章继续朗读", state.speech.isSpeaking)
+        assertEquals("新章重新开播", 2, speechController.speakCalls.size)
+    }
+
+    @Test
+    fun `段步进按单元前后移动`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+        val start = viewModel.uiState.value.speech.currentUnitIndex
+
+        viewModel.speechSkipUnit(1)
+        advanceUntilIdle()
+        assertEquals(start + 1, viewModel.uiState.value.speech.currentUnitIndex)
+
+        viewModel.speechSkipUnit(-1)
+        advanceUntilIdle()
+        assertEquals(start, viewModel.uiState.value.speech.currentUnitIndex)
+    }
+
+    @Test
+    fun `语速音调改动持久化并同步控制器`() = runTest(dispatcher) {
+        advanceUntilIdle()
+
+        viewModel.updateTtsRate(1.5f)
+        viewModel.updateTtsPitch(0.8f)
+        advanceUntilIdle()
+
+        assertEquals(1.5f, settingsStore.current().ttsRate, 1e-4f)
+        assertEquals(0.8f, settingsStore.current().ttsPitch, 1e-4f)
+        assertEquals("设置流回流后同步到控制器", 1.5f, speechController.current().rate, 1e-4f)
+        assertEquals(0.8f, speechController.current().pitch, 1e-4f)
+    }
+
+    @Test
+    fun `系统 TTS 不可用时状态透出原因`() = runTest(dispatcher) {
+        advanceUntilIdle()
+        // 模拟引擎初始化失败：控制器发布 unavailableReason
+        speechController.simulateUnavailable("系统缺少中文语音数据")
+        advanceUntilIdle()
+
+        val state = viewModel.uiState.value
+        assertEquals("系统缺少中文语音数据", state.speech.unavailableReason)
+    }
+
+    @Test
+    fun `长章按渲染段落逐段成单元且不超上限`() = runTest(dispatcher) {
+        // 无标点超长章：ReaderProgress 先按 400 字符软切为多段（渲染层口径），
+        // 每段再各自成朗读单元；段内二次切分（>3500 单段）由 SpeechTextTest
+        // 纯单测覆盖——VM 层段落永远短于上限，这里只验集成口径。
+        val long = "啊".repeat(SpeechText.MAX_UNIT_CHARS + 500)
+        textStore.chapterText = { _, _ -> long }
+        viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
+        advanceUntilIdle()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+
+        val paragraphs = viewModel.uiState.value.paragraphs
+        val call = speechController.speakCalls.single()
+        assertEquals("每个渲染段落一个单元", paragraphs.size, call.units.size)
+        assertTrue("每个单元不超过上限", call.units.all { it.text.length <= SpeechText.MAX_UNIT_CHARS })
+        assertEquals("从恢复段落（第 3 段）起读", 2, call.startUnitIndex)
     }
 }

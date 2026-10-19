@@ -299,6 +299,26 @@ class UiSmokeTest {
     }
 
     /**
+     * 朗读入口冒烟（AC-12.1）：顶栏出现「开始朗读」按钮且可点击
+     * （点击仅触发 VM 的 speak 指令；Robolectric 无真实 TTS 引擎，
+     * 不引擎行为做断言——引擎侧由 SpeechController 测试覆盖）。
+     */
+    @Test
+    fun `阅读器顶栏提供朗读入口`() {
+        val id = seedBook()
+        composeRule.setContent {
+            PaperReadTheme { ReaderScreen(bookId = id, onBack = {}) }
+        }
+        composeRule.waitUntilAtLeastOneExists(hasText("这是第一段正文。"))
+
+        composeRule.onNodeWithContentDescription("开始朗读").assertRendered()
+        composeRule.onNodeWithContentDescription("开始朗读").performClick()
+        composeRule.waitForIdle()
+        // 点击后不崩溃、阅读器仍可交互（按钮可能变为停止态或保持，取决于引擎回调）
+        composeRule.onNodeWithContentDescription("目录").assertIsDisplayed()
+    }
+
+    /**
      * 书架 → 传书的两个入口（AC-9.3 入口侧）：
      * 1. overflow「局域网传书」：未多选时传空列表，进页面仅待命发现；
      * 2. 长按进入多选后顶栏出现发送按钮，回调携带所选书籍 id。
