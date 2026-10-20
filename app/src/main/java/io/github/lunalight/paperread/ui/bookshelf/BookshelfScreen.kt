@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -206,7 +207,7 @@ fun BookshelfScreen(
 
                 else -> {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
+                        columns = GridCells.Adaptive(minSize = 160.dp),
                         contentPadding = PaddingValues(16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -447,6 +448,7 @@ private fun BookCard(
 @Composable
 private fun ImportProgressDialog(stageLabel: String, fraction: Float, onCancel: () -> Unit) {
     AlertDialog(
+        modifier = Modifier.widthIn(max = 560.dp),
         onDismissRequest = onCancel,
         title = { Text("正在导入") },
         text = {
@@ -474,6 +476,7 @@ private fun DuplicateDialog(
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
+        modifier = Modifier.widthIn(max = 560.dp),
         onDismissRequest = onDismiss,
         title = { Text("书籍已存在") },
         text = {
@@ -496,6 +499,7 @@ private fun ReparseDialog(
 ) {
     var strategy by remember { mutableStateOf(SplitStrategy.CONSERVATIVE) }
     AlertDialog(
+        modifier = Modifier.widthIn(max = 560.dp),
         onDismissRequest = onDismiss,
         title = { Text("重新解析《${book.title}》") },
         text = {

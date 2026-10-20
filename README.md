@@ -136,7 +136,7 @@ Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlP
 
 ## 依赖清单
 
-Compose BOM、Material 3、Navigation Compose、Lifecycle、Room、DataStore、kotlinx-coroutines、kotlinx-serialization（以上均为 AndroidX / JetBrains 官方库，无第三方杂项依赖）。
+Compose BOM、Material 3、Navigation Compose、Lifecycle、Room、DataStore、kotlinx-coroutines、kotlinx-serialization、**androidx.window（WindowSizeClass，平板适配）**（以上均为 AndroidX / JetBrains 官方库，无第三方杂项依赖）。
 
 ## 许可证
 

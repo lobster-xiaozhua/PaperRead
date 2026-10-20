@@ -97,4 +97,12 @@ class SettingsStoreTest {
         assertEquals(1.0f, settings.ttsPitch, 0.001f)
         assertTrue(settings.ttsAutoNextChapter)
     }
+
+    @Test
+    fun `双页跨页开关读写`() = runTest {
+        val store = store()
+        assertTrue(store.settings.first().twoPageSpread)
+        store.update { it.copy(twoPageSpread = false) }
+        assertFalse(store.settings.first().twoPageSpread)
+    }
 }

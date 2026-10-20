@@ -164,6 +164,12 @@ fun ReadingPreferencesPanel(
             checked = settings.pageTurnMode,
             onCheckedChange = { onUpdate { s -> s.copy(pageTurnMode = it) } },
         )
+        SettingsSwitch(
+            title = "双页跨页",
+            subtitle = "平板/横屏大屏自动左右两页；手机竖屏不受影响",
+            checked = settings.twoPageSpread,
+            onCheckedChange = { onUpdate { s -> s.copy(twoPageSpread = it) } },
+        )
     }
 }
 

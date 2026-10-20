@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -102,6 +104,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
+import io.github.lunalight.paperread.ui.adaptive.WindowWidthClass
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
@@ -120,6 +123,7 @@ import io.github.lunalight.paperread.reader.pageIndexForStartParagraph
 import io.github.lunalight.paperread.reader.paginate
 import io.github.lunalight.paperread.speech.SpeechService
 import io.github.lunalight.paperread.speech.SpeechState
+import io.github.lunalight.paperread.ui.adaptive.LocalWindowWidthClass
 import io.github.lunalight.paperread.ui.theme.ReaderTheme
 import io.github.lunalight.paperread.ui.theme.ReaderThemes
 
@@ -370,15 +374,34 @@ private fun ReaderContent(
         }
     }
 
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-
     val textStyle = TextStyle(
         fontFamily = if (state.settings.fontFamily == "serif") FontFamily.Serif else FontFamily.SansSerif,
         fontSize = state.settings.fontSizeSp.sp,
         lineHeight = (state.settings.fontSizeSp * state.settings.lineHeightRatio).sp,
         color = theme.onBackground,
     )
+
+    // 双页跨页：仅 Expanded 大屏（平板/横屏）且开关开启时启用；
+    // 否则走下方单栏连续滚动（与 Compact/Medium 行为完全一致）。
+    // 焦点请求在单栏路径内发起：focusRequester 只挂在 LazyColumn 上，
+    // 双页路径由 PaginatedSpread 自管焦点（提前 requestFocus 会因
+    // FocusRequester 未附加到任何节点而抛 IllegalStateException）。
+    val widthClass = LocalWindowWidthClass.current
+    val twoPage = state.settings.twoPageSpread && widthClass == WindowWidthClass.EXPANDED
+    if (twoPage) {
+        PaginatedSpread(
+            state = state,
+            viewModel = viewModel,
+            theme = theme,
+            textStyle = textStyle,
+            paragraphSpacingDp = state.settings.paragraphSpacingDp,
+        )
+        return
+    }
+
+    // 单栏路径：焦点请求与 LazyColumn 的 focusRequester 配套（音量键翻章需要焦点）。
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     // 正文也要避开安全区：系统栏可见时让位，隐藏时归零；
     // 横屏刘海/挖孔即使系统栏隐藏也不会消失，靠 safeDrawing 的 displayCutout 部分保住文字。
@@ -389,6 +412,8 @@ private fun ReaderContent(
         state = listState,
         modifier = Modifier
             .fillMaxSize()
+            .widthIn(max = 840.dp)
+            .wrapContentWidth(Alignment.CenterHorizontally)
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
@@ -951,7 +976,7 @@ private fun ReaderBottomBar(
 }
 
 @Composable
-private fun ChapterFooter(
+internal fun ChapterFooter(
     chapterPosition: String,
     progressPercent: Float,
     theme: ReaderTheme,

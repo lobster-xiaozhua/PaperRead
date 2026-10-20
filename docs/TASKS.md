@@ -148,6 +148,34 @@
 ### v2.0 方向（待需求验证）
 - Markdown / HTML 单文件导入 · 阅读统计（全本地）· 无障碍（TalkBack / 动态字号）· 桌面端可行性
 
+## C6 平板适配（已拆工单，分支 feat/c6-tablet）
+
+> 来源 ROADMAP C6「平板双栏/横屏优化」。决策：真·分页双页（Expanded 自动双页、Compact/Medium 单栏回退）+ 依赖 androidx.window:window。进度模型 ReaderPosition 不变。
+> 门禁：`./gradlew testDebugUnitTest lint assembleDebug` 全绿；CI 不引入 INTERNET 权限。
+
+### C6-1 适配基础设施与分页纯函数（约 3h）
+- 新增依赖 `androidx.window:window`（libs.versions.toml + app/build.gradle.kts）；README 依赖清单登记
+- 新增 `ui/adaptive/WindowSizeClass.kt`：`rememberWindowWidthClass` + `LocalWindowWidthClass`（WindowMetricsCalculator + WindowSizeClass.compute）
+- 新增 `ui/reader/Paginator.kt` 纯函数（`PageBreak` / `packPages` / `pageIndexForPosition`）+ `ui/reader/PaginatorTest.kt`（JVM 单测）
+- `ui/nav/PaperReadNavHost.kt` 根挂 `CompositionLocalProvider(LocalWindowWidthClass)`
+
+### C6-2 阅读器双页跨页（约 4h）
+- 新增 `ui/reader/rememberChapterPages.kt`（Paragraph 度量段高 → packPages）+ `ui/reader/PaginatedSpread.kt`（左右双页 + 章节标题 + 三区点按翻页）
+- `ui/reader/ReaderScreen.kt` 双模式分支（`twoPage = twoPageSpread && widthClass==EXPANDED`），复用 ReaderPosition 进度上报/恢复；Compact/Medium 路径零改动；`ChapterFooter` 提为 internal 复用
+- 新增 Expanded 下双页 Robolectric 冒烟（可选）
+
+### C6-3 响应式书架/弹层/对话框（约 2.5h）
+- `ui/bookshelf/BookshelfScreen.kt`：`GridCells.Fixed(2)` → `GridCells.Adaptive(minSize=160.dp)`
+- 导入确认/重解析/判重 `AlertDialog` 增加 `widthIn(max=560.dp)` 居中
+- 阅读单栏宽屏 `widthIn(max=840.dp)` 居中 + 横屏 padding（已部分具备）
+
+### C6-4 双页开关与文档收尾（约 2h）
+- `data/settings/ReaderSettings.kt` 新增 `twoPageSpread: Boolean = true`
+- `data/settings/SettingsStore.kt` 新增 `KEY_TWO_PAGE` 映射与写入；`SettingsStoreTest` 同步断言
+- `ui/reader/ReaderSettingsSheet.kt`「行为」区加「双页跨页」开关
+- 更新 README 依赖清单、docs/SPEC.md（US-9/AC-9.x）、CHANGELOG.md
+- 最终门禁 `testDebugUnitTest + lint + assembleDebug + assembleRelease` 全绿
+
 ### 架构暂缓
 - B6 拆分 `:reader` 为独立 Gradle 模块（待 reader 包代码量增长再评估）
 

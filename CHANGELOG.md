@@ -47,6 +47,11 @@
 - CI 提效：门禁任务合并为单次 Gradle 调用（省 3 次配置阶段）；Robolectric android-all jar（约 335MB/轮）经 actions/cache 跨运行复用；单测双 fork 并行；纯文档变更跳过 CI；产物保留期收敛为 14 天
 - Dependabot 策略：gradle 生态仅 patch、actions 生态忽略大版本（Kotlin 锁定期收敛 churn）
 
+### 新增
+- **平板适配（C6）**：`androidx.window` 提供 WindowSizeClass；阅读器在 Expanded 大屏（平板/横屏）自动启用真·分页双页跨页（左右两页、点按翻页），共用 `ReaderPosition` 进度口径，旋屏保位置；Compact/Medium 仍单栏连续滚动
+- **双页开关**：阅读设置新增「双页跨页」开关（`twoPageSpread`，默认开启，手机竖屏自动忽略）
+- **响应式布局**：书架网格列数随屏宽自适应（`GridCells.Adaptive`）；宽屏单栏限最佳行宽并居中；导入/重解析/判重弹层限宽居中（详见 [SPEC](docs/SPEC.md) US-9）
+
 ## [1.1.0] - 2026-10-17
 
 质量收敛版：流式导入、结构化失败原因、备份策略定案。
