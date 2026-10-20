@@ -13,6 +13,8 @@ import io.github.lunalight.paperread.data.settings.SettingsStore
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.FileBookTextStore
+import io.github.lunalight.paperread.speech.AndroidSpeechController
+import io.github.lunalight.paperread.speech.SpeechController
 import io.github.lunalight.paperread.transfer.DefaultLanTransferManager
 import io.github.lunalight.paperread.transfer.DeviceIdentityStore
 import io.github.lunalight.paperread.transfer.LanTransferManager
@@ -47,6 +49,18 @@ class AppContainer(context: Context) {
     val bookTextStore: BookTextStore by lazy { FileBookTextStore(applicationContext) }
 
     val settingsStore: SettingsStore by lazy { PreferencesSettingsStore(applicationContext) }
+
+    /**
+     * 语音朗读控制器（进程单例）。
+     *
+     * 系统 TextToSpeech 封装（零新增依赖、零网络）；初始化在主线程 Handler 中
+     * 异步完成，构造本身轻量。Service / Activity / 通知按钮共享同一实例，
+     * 后台常驻播放（用户 2026-10-19 拍板）由 SpeechService 保活。
+     *
+     * setter 仅供测试注入 fake（生产代码只读）；避免为可测性引入 DI 框架。
+     */
+    var speechController: SpeechController = AndroidSpeechController(applicationContext)
+        internal set
 
     val bookImporter: BookImporter by lazy {
         DefaultBookImporter(applicationContext, bookRepository, bookTextStore)

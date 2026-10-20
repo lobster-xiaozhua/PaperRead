@@ -59,7 +59,8 @@
 ## 规划工单（T 系列，局域网传输）
 
 > 来源：用户 2026-10-18 拍板（ROADMAP C9 决策点 2）——项目允许申请权限、保持最小权限：INTERNET 进主包（Android 无「仅局域网」权限，任何 socket 均需声明），传输能力进主包；分发拆 client（客户端正式版）/ dev（调试版，可同机安装）两个 flavor。验收标准见 SPEC 第 7、9 节（US-9 / US-10 / US-11）。
-> 门禁：`./gradlew testClientDebugUnitTest testDevDebugUnitTest lint assembleDebug` 全绿；应用除 INTERNET 外不得持有任何权限。
+> 权限口径后续修订（2026-10-19，ROADMAP C2 拍板）：TTS 朗读为后台常驻播放，追加前台服务三件套（`FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK` / `POST_NOTIFICATIONS`），详见 T6 与 SPEC 第 7、10 节。
+> 门禁：`./gradlew testClientDebugUnitTest testDevDebugUnitTest lint assembleDebug` 全绿；应用除 INTERNET 与朗读前台服务三件套外不得持有任何权限。
 
 ### T1 flavor 拆分与最小权限（约 1.5h）
 
@@ -116,6 +117,20 @@
 - 验收：SPEC 无专门 AC（C7 为体验增强候选）；回归：滚动模式路径未改动
 - 已知边界：分页按「段边界」对齐，不做段内字符级拆分；单段高于整屏的极端段落独占一页并允许纵向滚动，不裁切丢字；超大单章书（无章节切分）翻页模式需对全章段落测高，建议仍用滚动模式
 
+### T6 TTS 语音朗读（约 6h）✅ 已完成（feat/tts-core，单 flavor 331 单测全绿）
+
+- 涉及：系统 TextToSpeech 离线朗读 + 前台服务保活 + 阅读器朗读编排 + 朗读设置持久化
+- 交付物：
+  - `speech/`：`SpeechText`（纯 Kotlin：渲染段落 → 朗读单元表，空白段跳过、超长段按句末标点软切分至 ≤3500 字符，utteranceId `p{段}-{part}` 与段下标双向映射）、`SpeechController` 接口（SPEAKING/PAUSED/IDLE 状态流 + speak/pause/resume/stop/setRate/setPitch/onFinished）、`AndroidSpeechController`（`android.speech.tts` 实现：构造切主线程、单一锁保护播放位置、逐单元推进、pause = stop + 记住位置、调速重读当前单元、引擎失败/缺中文语音显式置不可用原因）、`SpeechService`（前台服务 mediaPlayback：只保活 + 常驻通知，不持播放逻辑）、`SpeechActionReceiver`（通知四按钮广播 → 控制器）、`SpeechNotifications`（通知渠道 + 媒体风格通知，contentIntent 直达当前书阅读器）
+  - `ui/reader/`：`ReaderViewModel` 朗读编排（从当前可见段起播、暂停切换、段步进、章尾续读走 `goToChapter(restartSpeech=true)` 避免双 speak、切章不断播、离开阅读器即停）、`ReaderScreen` 顶栏朗读入口 + 底部朗读控制条（播放暂停 / 段步进 / 停止 / 语速音调滑杆 / 自动续读开关）+ 朗读段高亮与滚动跟随 + TTS 不可用 Snackbar
+  - `data/settings/`：`ReaderSettings` 新增 `ttsRate = 1.0f` / `ttsPitch = 1.0f` / `ttsAutoNextChapter = true`，`SettingsStore` 三 key 读写（缺 key 回退默认，升级兼容）
+  - `di/AppContainer`：`speechController` 进程单例（internal setter 为测试注入接缝）；`MainActivity` 通知权限申请（API 33+）；`AndroidManifest` 前台服务三件套权限 + Service/Receiver 声明
+  - 测试：`SpeechTextTest` 10 项（纯 JVM）、`ReaderViewModelTest` +11 项（起播定位 / 暂停切换 / 空白段跳过 / 章尾续读 / 关闭续读 / 切章不断播 / 段步进 / 语速音调持久化 / 不可用透出 / 长章单元口径）、`SpeechServiceTest` 2 项（Robolectric 前台通知 + 广播动作翻译）、`AboutScreenTest` 权限白名单更新、`UiSmokeTest` 朗读入口冒烟
+- 约束达成：零新增第三方依赖（仅 `android.speech.tts`）；朗读不发起任何网络请求（AC-7.5）；reader/ 分层纪律保持（SpeechText 零 Android 依赖）
+- 人工把关项备案（已向用户说明并获批准）：① 权限变更——前台服务三件套，理由：用户拍板「后台常驻播放」，系统要求前台服务必须声明，POST_NOTIFICATIONS 为用户拒绝时仍可播放仅通知不可见；② 并发——合成线程 UtteranceProgressListener 回调与主线程变更共用单一锁，对外状态只经 StateFlow 原子发布，onFinished 锁外回调；③ 数据模型——朗读设置三字段新增（默认值即开箱可听，缺 key 回退保证升级兼容）
+- 验收：SPEC AC-12.1 – AC-12.8 全部达成；门禁三件套全绿（lint 0 error、新增代码 0 warning）
+- 已知边界：暂停后恢复从当前段开头重读（系统 TTS 无 pause API，AC-12.2 明示）；系统无中文语音数据时置不可用原因并提示安装；通知按钮在暂停态以「暂停位」为锚点步进（发布态保留暂停位置）；翻页模式下朗读高亮与自动翻页跟随已一并适配（变基合入 T5 翻页模式时补齐）
+
 ## 待办 / 未决项
 
 ### 真机验收（非阻塞，代码已合入）
@@ -125,9 +140,10 @@
 ### v1.2 体验增强（范围待定）
 > 见 ROADMAP C 段，下列为候选，隐私红线（零网络权限）不变更
 
-- C1 全书搜索（关键词 + 定位到段）· C2 TTS 朗读（系统 TTS，离线）· C3 自定义字体（导入 ttf/otf）
+- C1 全书搜索（关键词 + 定位到段）· C3 自定义字体（导入 ttf/otf）
 - C4 书签备注 + 按章分组 · C5 本地备份/恢复（zip 导出导入）· C6 平板双栏/横屏优化
 - C7 仿真翻页动效 · C8 国际化（英文）· C9 Wi-Fi 传书（**已拍板：最小权限 + client/dev 双 flavor，见 T 系列工单**）
+- ~~C2 TTS 朗读~~（**已交付：系统 TTS 离线朗读 + 后台常驻播放，见 T6**）
 
 ### v2.0 方向（待需求验证）
 - Markdown / HTML 单文件导入 · 阅读统计（全本地）· 无障碍（TalkBack / 动态字号）· 桌面端可行性
@@ -140,4 +156,4 @@
 - 已知限制：TXT 作者恒为「未知」；目录页与正文首章无空行分隔的极端边界；亮度手动调节仅阅读器内生效
 
 ### 待用户拍板
-- v1.2 范围：C1/C2/C3/C5 是否照单全收
+- v1.2 范围：C1/C3/C5 是否照单全收（C2 TTS 已交付，见 T6）

@@ -4,15 +4,15 @@
 [![Release](https://img.shields.io/github/v/release/lobster-xiaozhua/PaperRead?label=release)](https://github.com/lobster-xiaozhua/PaperRead/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-一个**本地优先、最小权限**的开源小说阅读器（Android）：编码识别、章节切分、正文提取全部在本机完成；支持同一局域网内与其他纸阅设备**传书**、**换机迁移**与**阅读进度同步**。
+一个**本地优先、最小权限**的开源小说阅读器（Android）：编码识别、章节切分、正文提取、语音朗读全部在本机完成；支持同一局域网内与其他纸阅设备**传书**、**换机迁移**与**阅读进度同步**。
 
-- **最小权限**：唯一声明项为 INTERNET——Android 无「仅局域网」权限，任何 socket（含连接局域网 IP）都必须声明它；所有网络通信仅限同一局域网内的设备发现与书籍 / 状态传输，**不访问公网、不收集、不上传任何个人信息**
+- **最小权限**：声明项仅 INTERNET 与朗读前台服务三件套（`FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK` / `POST_NOTIFICATIONS`）——Android 无「仅局域网」权限，任何 socket（含连接局域网 IP）都必须声明 INTERNET，所有网络通信仅限同一局域网内的设备发现与书籍 / 状态传输；前台服务三件套仅用于朗读退到后台后继续播放并在通知栏控制（语音由系统 TTS 引擎在本机离线合成）。**不访问公网、不收集、不上传任何个人信息**
 - **不做书源、账号、云同步**：阅读数据仅存储在本机
 - **本地导入 TXT / EPUB**：智能章节解析，5 套预设阅读主题，段级进度记忆
 - **零二进制素材**：封面程序化生成，图标为矢量图，安装包干净可审查
 
 > 状态：**v1.1.0**（质量收敛版：流式导入、结构化失败原因、备份策略定案，185 单测全绿 / lint 0·0 / 行覆盖约 87%）。
-> `main` 含未发布变更：Kotlin 工具链升级至 2.2.20。未来规划见 [ROADMAP.md](docs/ROADMAP.md)。
+> `main` 含未发布变更：Kotlin 工具链升级至 2.2.20、TTS 语音朗读（系统 TTS 离线朗读 + 后台常驻播放）。未来规划见 [ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能
 
@@ -36,9 +36,9 @@
 | 局域网传书（UDP 发现 + 局域网 HTTP：多选发送 / 进度可取消 / 复用导入流水线） | ✅ |
 | 换机迁移（整库打包为单一 zip、逐本导入、进度书签 last-write-wins 回写） | ✅ |
 | 进度同步（双向交换阅读位置与书签、last-write-wins 冲突、书签只增不删） | ✅ |
-| 局域网进度同步（双向状态交换 last-write-wins） | 🚧 开发中 |
+| TTS 语音朗读（系统 TTS 离线合成 / 段级高亮跟随 / 语速音调 / 章尾自动续读 / 后台常驻播放） | ✅ |
 
-Roadmap：TTS 语音朗读、备份恢复、仿真翻页、自定义字体、平板适配、国际化（见 [ROADMAP.md](docs/ROADMAP.md)）。
+Roadmap：备份恢复、仿真翻页、自定义字体、平板适配、国际化（见 [ROADMAP.md](docs/ROADMAP.md)）。
 
 ## 构建
 

@@ -47,6 +47,9 @@ class PreferencesSettingsStore(context: Context) : SettingsStore {
             immersive = prefs[KEY_IMMERSIVE] ?: defaults.immersive,
             volumeKeyTurnPage = prefs[KEY_VOLUME_TURN] ?: defaults.volumeKeyTurnPage,
             pageTurnMode = prefs[KEY_PAGE_TURN] ?: defaults.pageTurnMode,
+            ttsRate = prefs[KEY_TTS_RATE] ?: defaults.ttsRate,
+            ttsPitch = prefs[KEY_TTS_PITCH] ?: defaults.ttsPitch,
+            ttsAutoNextChapter = prefs[KEY_TTS_AUTO_NEXT] ?: defaults.ttsAutoNextChapter,
         )
     }
 
@@ -64,6 +67,9 @@ class PreferencesSettingsStore(context: Context) : SettingsStore {
                 immersive = prefs[KEY_IMMERSIVE] ?: ReaderSettings().immersive,
                 volumeKeyTurnPage = prefs[KEY_VOLUME_TURN] ?: ReaderSettings().volumeKeyTurnPage,
                 pageTurnMode = prefs[KEY_PAGE_TURN] ?: ReaderSettings().pageTurnMode,
+                ttsRate = prefs[KEY_TTS_RATE] ?: ReaderSettings().ttsRate,
+                ttsPitch = prefs[KEY_TTS_PITCH] ?: ReaderSettings().ttsPitch,
+                ttsAutoNextChapter = prefs[KEY_TTS_AUTO_NEXT] ?: ReaderSettings().ttsAutoNextChapter,
             )
             val next = transform(current)
             prefs[KEY_THEME] = next.themeId
@@ -77,6 +83,9 @@ class PreferencesSettingsStore(context: Context) : SettingsStore {
             prefs[KEY_IMMERSIVE] = next.immersive
             prefs[KEY_VOLUME_TURN] = next.volumeKeyTurnPage
             prefs[KEY_PAGE_TURN] = next.pageTurnMode
+            prefs[KEY_TTS_RATE] = next.ttsRate
+            prefs[KEY_TTS_PITCH] = next.ttsPitch
+            prefs[KEY_TTS_AUTO_NEXT] = next.ttsAutoNextChapter
         }
     }
 
@@ -92,5 +101,8 @@ class PreferencesSettingsStore(context: Context) : SettingsStore {
         val KEY_IMMERSIVE = booleanPreferencesKey("immersive")
         val KEY_VOLUME_TURN = booleanPreferencesKey("volume_key_turn_page")
         val KEY_PAGE_TURN = booleanPreferencesKey("page_turn_mode")
+        val KEY_TTS_RATE = floatPreferencesKey("tts_rate")
+        val KEY_TTS_PITCH = floatPreferencesKey("tts_pitch")
+        val KEY_TTS_AUTO_NEXT = booleanPreferencesKey("tts_auto_next_chapter")
     }
 }
