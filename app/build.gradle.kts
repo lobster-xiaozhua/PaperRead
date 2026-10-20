@@ -15,8 +15,8 @@ android {
         applicationId = "io.github.lunalight.paperread"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.1.0"
+        versionCode = 4
+        versionName = "1.2.0"
     }
 
     // 分发渠道（单一维度 distribution），2026-10-18 用户拍板（ROADMAP C9 决策点 2）：

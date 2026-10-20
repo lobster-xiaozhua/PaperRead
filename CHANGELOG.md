@@ -3,7 +3,7 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
 每个正式版本的完整说明见 [GitHub Releases](https://github.com/lobster-xiaozhua/PaperRead/releases)。
 
-## [未发布]
+## [1.2.0] - 2026-10-20
 
 ### 新增
 - **TTS 语音朗读（US-12）**：系统 TextToSpeech 离线朗读当前章节，做饭 / 通勤「听书」
@@ -50,7 +50,7 @@
 ### 新增
 - **平板适配（C6）**：`androidx.window` 提供 WindowSizeClass；阅读器在 Expanded 大屏（平板/横屏）自动启用真·分页双页跨页（左右两页、点按翻页），共用 `ReaderPosition` 进度口径，旋屏保位置；Compact/Medium 仍单栏连续滚动
 - **双页开关**：阅读设置新增「双页跨页」开关（`twoPageSpread`，默认开启，手机竖屏自动忽略）
-- **响应式布局**：书架网格列数随屏宽自适应（`GridCells.Adaptive`）；宽屏单栏限最佳行宽并居中；导入/重解析/判重弹层限宽居中（详见 [SPEC](docs/SPEC.md) US-9）
+- **响应式布局**：书架网格列数随屏宽自适应（`GridCells.Adaptive`）；宽屏单栏限最佳行宽并居中；导入/重解析/判重弹层限宽居中（详见 [SPEC](docs/SPEC.md) US-13）
 
 ## [1.1.0] - 2026-10-17
 
