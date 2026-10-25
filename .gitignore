@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build/
+
+# 签名材料（绝不入库）
+*.jks
+*.keystore
+keystore.properties

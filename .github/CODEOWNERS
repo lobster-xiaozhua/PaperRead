@@ -1,0 +1,9 @@
+# 代码归属：默认由仓库 owner 审查
+* @lobster-xiaozhua
+
+# 关键路径（数据 / IO / 权限 / 构建）需重点把关（见 AGENTS.md「人工把关重点」）
+/app/src/main/java/io/github/lunalight/paperread/data/ @lobster-xiaozhua
+/app/src/main/AndroidManifest.xml @lobster-xiaozhua
+/app/build.gradle.kts @lobster-xiaozhua
+/app/proguard-rules.pro @lobster-xiaozhua
+/.github/workflows/ @lobster-xiaozhua

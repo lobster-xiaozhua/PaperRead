@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      权限策略（2026-10-18 用户拍板，ROADMAP C9 决策点 2）：允许申请权限，
+      保持最小权限。本应用声明项：INTERNET + TTS 朗读前台服务三件套。
+
+      技术事实：Android 上任何 socket（包括连接局域网 IP）都必须声明 INTERNET，
+      系统没有「仅局域网」权限。传书 / 换机迁移 / 进度同步均只在同一局域网内
+      进行（HTTP 服务仅绑定 WiFi 网卡地址，不监听其他接口），不访问公网、
+      不收集、不上传任何个人信息。
+
+      TTS 朗读前台服务（2026-10-19 用户拍板，SPEC 第 10 节）：
+      - FOREGROUND_SERVICE：系统要求前台服务必须声明；
+      - FOREGROUND_SERVICE_MEDIA_PLAYBACK：Android 14+ 对 mediaPlayback
+        类型前台服务的强制权限（minSdk 26 设备上不存在该权限，声明无害）；
+      - POST_NOTIFICATIONS：Android 13+ 运行时权限，用于显示朗读控制通知；
+        用户拒绝时前台服务仍可运行，仅通知不可见。
+      朗读语音由系统 TextToSpeech 引擎本地合成，不访问网络。
+    -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".PaperReadApp"
+        android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.PaperRead">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          朗读前台服务（SPEC 第 10 节）：锁屏 / 切后台时朗读不中断。
+          不持有播放逻辑——SpeechController 是 AppContainer 进程单例，
+          服务只做「前台保活 + 控制通知」。
+        -->
+        <service
+            android:name=".speech.SpeechService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="false" />
+
+        <!-- 朗读通知按钮（播放/暂停/段步进/停止），仅本进程接收。 -->
+        <receiver
+            android:name=".speech.SpeechActionReceiver"
+            android:exported="false" />
+
+        <!--
+          局域网传书接收端：把落盘的临时文件包成 content Uri，直接复用
+          BookImporter.prepare() 既有导入流水线（AC-9.5：不出现第二条导入逻辑）。
+          仅本进程使用（exported=false），接收文件位于 cacheDir/transfer/。
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+</manifest>

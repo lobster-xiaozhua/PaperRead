@@ -1,0 +1,78 @@
+package io.github.lunalight.paperread.reader
+
+import android.content.Context
+import io.github.lunalight.paperread.domain.model.Book
+import io.github.lunalight.paperread.domain.model.Chapter
+import java.io.File
+import java.io.RandomAccessFile
+import java.nio.charset.Charset
+
+/**
+ * 书籍文本存取：按字节偏移懒加载章节。
+ *
+ * 目录约定：filesDir/books/<dirName>/ 下
+ * - book.txt：标准化 UTF-8 正文（章节按 byteStart/byteEnd 定位）
+ * - source.<ext>：导入时的原始文件（保留用于重新解析 / 切换编码）
+ *
+ * UI 层只依赖本接口（单测以内存 fake 替代）；文件系统实见 [FileBookTextStore]。
+ */
+interface BookTextStore {
+
+    fun bookDir(dirName: String): File
+
+    fun textFile(dirName: String): File
+
+    fun sourceFile(book: Book): File
+
+    /** 读取单章文本（字节偏移定位 + UTF-8 解码）。 */
+    fun readChapter(dirName: String, chapter: Chapter): String
+
+    /**
+     * 正文文件是否存在且非空。
+     *
+     * [readChapter] 在「文件丢失」与「该章本身为空」两种情况下都返回空串，
+     * 调用方据此区分错误性质：前者只能删条目重导，后者可重新解析章节。
+     */
+    fun hasText(dirName: String): Boolean
+
+    /** 读取原始文件全文（重新解析场景）。 */
+    fun readSourceText(book: Book, charset: Charset): String
+
+    fun deleteBookDir(dirName: String)
+}
+
+/** [BookTextStore] 的文件系统实现（filesDir/books/<dirName>/）。 */
+class FileBookTextStore(context: Context) : BookTextStore {
+
+    private val booksRoot: File = File(context.filesDir, "books")
+
+    override fun bookDir(dirName: String): File = File(booksRoot, dirName)
+
+    override fun textFile(dirName: String): File = File(bookDir(dirName), "book.txt")
+
+    override fun sourceFile(book: Book): File =
+        File(bookDir(book.dirName), "source.${book.format.extension}")
+
+    override fun readChapter(dirName: String, chapter: Chapter): String {
+        val file = textFile(dirName)
+        if (!file.exists()) return ""
+        val length = (chapter.byteEnd - chapter.byteStart).toInt()
+        if (length <= 0) return ""
+        return RandomAccessFile(file, "r").use { raf ->
+            val buffer = ByteArray(length)
+            raf.seek(chapter.byteStart)
+            raf.readFully(buffer)
+            String(buffer, Charsets.UTF_8)
+        }
+    }
+
+    override fun hasText(dirName: String): Boolean =
+        textFile(dirName).let { it.isFile && it.length() > 0L }
+
+    override fun readSourceText(book: Book, charset: Charset): String =
+        sourceFile(book).readText(charset)
+
+    override fun deleteBookDir(dirName: String) {
+        bookDir(dirName).deleteRecursively()
+    }
+}

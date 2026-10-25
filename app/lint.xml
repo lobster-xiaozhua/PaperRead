@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!--
+      ObsoleteSdkInt 对本项目为误报：mipmap-anydpi-v26 中的 adaptive-icon
+      只有 API 26+ 可解析。虽然 minSdk 已为 26，但实测将资源移到
+      mipmap-anydpi（无版本限定符）会导致 AAPT2 链接失败
+      （resource mipmap/ic_launcher not found，合并阶段资源被丢弃）。
+      Android Studio 模板对 minSdk 26+ 工程同样保留 -v26 目录，故按此豁免。
+    -->
+    <issue id="ObsoleteSdkInt">
+        <ignore path="src/main/res/mipmap-anydpi-v26" />
+    </issue>
+</lint>
