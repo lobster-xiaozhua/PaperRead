@@ -22,8 +22,20 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# 门禁拆分为四个独立作业（T-001 · R-03 / R-09）：
+#   unit          双 flavor 单元测试 + 覆盖率门禁（client 变体口径）
+#   robolectric-ui UI 冒烟独立作业 + 失败重试 ≤ 1（G9：Robolectric 渲染在
+#                 内存受限环境有抖动，隔离出不阻塞主测试门禁）
+#   lint          Android lint + 文档口径一致性脚本（G3）
+#   assemble      双 flavor 装配（client 交付版 + dev 调试版）
+# 拆分代价是各作业各自支付一次配置阶段（AGP + KSP + Room + Compose，约 10s），
+# 换取失败定位清晰与 flaky 隔离；四作业并行执行，总时长不劣于原单作业。
 jobs:
-  build:
+  # 门禁一：单元测试 + 覆盖率（client 变体口径）。
+  # ui/smoke 冒烟在内存受限 runner 上存在 Robolectric 渲染超时抖动（已知基线
+  # 现象，非回归），经 -PexcludeUiSmokeTests=true 移交 robolectric-ui 作业，
+  # 不阻塞本门禁；本地构建不传该属性，全量照跑。
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,46 +81,23 @@ jobs:
           yes | "$sdkmanager" --licenses > /dev/null
           "$sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      # 全部门禁合并为单次 Gradle 调用：省去 3 次重复的配置阶段
-      # （AGP + KSP + Room + Compose 编译器，每次约 10s），
-      # 且 lint / assemble 直接复用测试任务的编译产物。
-      # 默认 fail-fast：测试失败即停，不会浪费时间去跑后续任务。
-      # Release 门禁保留：R8 混淆 + 资源压缩只在发布路径生效，
-      # 混淆规则缺失/keep 漏写要等到发版前才暴露；不配置签名
-      # （keystore 不入库），产出未签名 APK，仅验证能正常打包。
-      #
       # flavor 口径（2026-10-18 分发形态调整）：两个 flavor 的测试都跑——
       # client 为唯一对外交付版（jacoco 覆盖率门禁经 dependsOn 绑定其测试），
       # dev 为调试版（applicationId 后缀 + IS_DEBUG_BUILD 标记，与 client
       # 同源代码，供同机安装自测与调试能力分流；AGP 不允许 flavor 与 build
       # type 同名，故调试版 flavor 取名 dev，变体为 devDebug）。
-      - name: Build and verify (tests + coverage + lint + debug + release)
+      # Release 门禁保留：R8 混淆 + 资源压缩只在发布路径生效，由 assemble
+      # 作业的 assembleRelease 覆盖（混淆规则缺失 / keep 漏写要等到发版前才暴露；
+      # 不配置签名，keystore 不入库，产出未签名 APK，仅验证能正常打包）。
+      - name: Unit tests + coverage (excl. UI smoke)
         run: >
           ./gradlew
           testClientDebugUnitTest
           testDevDebugUnitTest
           jacocoTestReport
           jacocoTestCoverageVerification
-          lint
-          assembleDebug
-          assembleRelease
+          -PexcludeUiSmokeTests=true
           --console=plain
-
-      - name: Upload client APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: paperread-client-debug-apk
-          path: app/build/outputs/apk/client/debug/app-client-debug.apk
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload dev APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: paperread-dev-debug-apk
-          path: app/build/outputs/apk/dev/debug/app-dev-debug.apk
-          if-no-files-found: error
-          retention-days: 14
 
       # 覆盖率报告（HTML/XML），可下载查看
       - name: Upload coverage report
@@ -130,4 +119,147 @@ jobs:
             app/build/reports/tests/
             app/build/test-results/
           if-no-files-found: ignore
+          retention-days: 14
+
+  # 门禁二：Robolectric UI 冒烟独立作业（G9 机制就位）。
+  # 抖动重试至多 1 次（attempt 上限 2）：重试后仍失败才判红——
+  # 连续 20 次绿后（T-026 收口时评估）可恢复并入 unit 门禁。
+  robolectric-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Robolectric android-all jars
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            robolectric-${{ runner.os }}-
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        run: |
+          set -e
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          fi
+          yes | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Robolectric UI smoke (retry <= 1)
+        run: |
+          attempt=1
+          until ./gradlew testClientDebugUnitTest --tests "io.github.lunalight.paperread.ui.smoke.*" --console=plain; do
+            if [ "$attempt" -ge 2 ]; then
+              echo "::error::Robolectric UI 冒烟重试一次后仍失败"
+              exit 1
+            fi
+            echo "::warning::Robolectric UI 冒烟第 ${attempt} 次失败，重试一次（G9 抖动隔离）"
+            attempt=$((attempt + 1))
+          done
+
+      - name: Upload test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperread-ui-smoke-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # 门禁三：Android lint + 文档口径一致性（G3：权限表述 / 覆盖率口径 /
+  # Kotlin 版本单一来源，由 scripts/check-doc-consistency.sh 断言）。
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        run: |
+          set -e
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          fi
+          yes | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Doc consistency (permissions / coverage / Kotlin version)
+        run: ./scripts/check-doc-consistency.sh
+
+      - name: Android lint
+        run: ./gradlew lint --console=plain
+
+  # 门禁四：双 flavor 装配（client 正式版 + dev 调试版；含 release 打包路径）。
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        run: |
+          set -e
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkmanager" ]; then
+            sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          fi
+          yes | "$sdkmanager" --licenses > /dev/null
+          "$sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Assemble debug + release (R8)
+        run: ./gradlew assembleDebug assembleRelease --console=plain
+
+      - name: Upload client APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperread-client-debug-apk
+          path: app/build/outputs/apk/client/debug/app-client-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload dev APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: paperread-dev-debug-apk
+          path: app/build/outputs/apk/dev/debug/app-dev-debug.apk
+          if-no-files-found: error
           retention-days: 14

@@ -11,8 +11,8 @@
 - **本地导入 TXT / EPUB**：智能章节解析，5 套预设阅读主题，段级进度记忆
 - **零二进制素材**：封面程序化生成，图标为矢量图，安装包干净可审查
 
-> 状态：**v1.2.0**（体验增强版：TTS 语音朗读 / 局域网传书·迁移·进度同步 / 设置页与关于页 / 仿真翻页 / 平板双页跨页，382 单测全绿 / lint 0·0 / 行覆盖约 82%）。
-> `main` 含未发布变更：Kotlin 工具链升级至 2.2.20、TTS 语音朗读（系统 TTS 离线朗读 + 后台常驻播放）。未来规划见 [ROADMAP.md](docs/ROADMAP.md)。
+> 状态：**v1.2.0**（体验增强版：TTS 语音朗读 / 局域网传书·迁移·进度同步 / 设置页与关于页 / 仿真翻页 / 平板双页跨页，382 单测全绿 / lint 0·0 / 行覆盖率以 `jacocoTestReport` 报告为准（门禁 ≥ 80%））。
+> `main` 含未发布变更：Kotlin 工具链升级（版本以 `gradle/libs.versions.toml` 为单一来源）、TTS 语音朗读（系统 TTS 离线朗读 + 后台常驻播放）。未来规划见 [ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能
 
@@ -121,7 +121,7 @@ Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlP
 - [CONTRIBUTING.md](CONTRIBUTING.md)：贡献指南
 - [SECURITY.md](SECURITY.md)：安全漏洞报告政策
 - [CHANGELOG.md](CHANGELOG.md)：版本变更记录
-- CI 门禁：`testClientDebugUnitTest` + `testDevDebugUnitTest` + 覆盖率门禁（行覆盖 ≥ 80%）+ `lint` + `assembleDebug` + `assembleRelease`（R8）全绿方可合并
+- CI 门禁：`unit`（双 flavor 单测 + 覆盖率门禁）+ `robolectric-ui`（UI 冒烟独立作业，失败重试 ≤ 1）+ `lint`（Android lint + 文档口径一致性）+ `assemble`（双 flavor 装配，含 R8 release）全绿方可合并
 
 ## 发布
 

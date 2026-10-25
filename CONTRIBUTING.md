@@ -17,6 +17,7 @@
 3. **本地全绿再推送**：
    ```bash
    ./gradlew testClientDebugUnitTest testDevDebugUnitTest lint assembleDebug
+   ./scripts/check-doc-consistency.sh
    ```
 4. 提交 PR，说明改动动机与影响面
 
@@ -36,7 +37,19 @@ test(epub): 补充无 NCX 目录的解析用例
 - `reader/` 引擎保持零 Android 依赖（纯 Kotlin，可 JVM 单测）
 - UI 层不直接访问 Room / 文件系统，一律经 Repository
 - 新增第三方依赖需在 PR 中说明理由并在 README 依赖清单登记
-- Manifest 永不添加 INTERNET 权限（v1 隐私承诺）
+- **最小权限**：`AndroidManifest.xml` 仅声明以下权限（新增任何权限需单独评审，
+  并同步本清单与 README 表述；CI 脚本 `scripts/check-doc-consistency.sh`
+  会逐一比对一致性）：
+  - `android.permission.INTERNET`：仅用于同一局域网内的设备发现与书籍 / 状态传输，不访问公网；
+  - `android.permission.FOREGROUND_SERVICE` / `android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK` / `android.permission.POST_NOTIFICATIONS`：朗读退到后台后继续播放并在通知栏控制。
+
+## 文档口径（CI 强制）
+
+`scripts/check-doc-consistency.sh`（CI `lint` 作业执行）三项断言：
+
+1. 权限清单：`CONTRIBUTING.md` 声明的权限与 `AndroidManifest.xml` 实际声明逐一一致；
+2. 覆盖率：文档不写死行覆盖率实测数字，统一以 `jacocoTestReport` 实际 XML 报告为准（门禁阈值除外）；
+3. Kotlin 版本：文档不硬编码版本号，单一来源为 `gradle/libs.versions.toml`。
 
 ## 人工审查重点
 

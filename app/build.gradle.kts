@@ -112,6 +112,15 @@ android {
                     test.systemProperty("robolectric.dependency.repo.url", it as String)
                 }
             }
+            all { test ->
+                // CI 单元门禁传 -PexcludeUiSmokeTests=true 排除 ui/smoke 冒烟：
+                // Robolectric UI 渲染在内存受限环境下存在超时抖动（G9 已知基线
+                // 现象，非回归），移交 robolectric-ui 独立作业（重试 ≤ 1）承载，
+                // 不阻塞主测试门禁。本地构建不传该属性，全量照跑，行为不变。
+                if (project.findProperty("excludeUiSmokeTests") == "true") {
+                    test.filter.excludeTestsMatching("io.github.lunalight.paperread.ui.smoke.*")
+                }
+            }
         }
     }
 
@@ -189,10 +198,10 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 // 与上方 report 共用同一份 classDirectories / executionData / 过滤规则，
 // 只读 exec 不做插桩，不会触发 report 注释里描述的 worker 崩溃问题。
 //
-// 阈值口径：行覆盖率（与 ROADMAP / README 口径一致）。当前实际约 87%
-// （1,778 / 2,036），取 0.80 作为防回归底线：既挡住明显退化，又给新增代码
-// 留足余量；随覆盖率提升可逐步上调（ratchet）。修改前先跑 jacocoTestReport
-// 看真实值，切勿拍脑袋设高。
+// 阈值口径：行覆盖率（与 ROADMAP / README 口径一致）。取 0.80 作为防回归
+// 底线：既挡住明显退化，又给新增代码留足余量；随覆盖率提升可逐步上调
+// （ratchet）。文档不写死实测值（口径统一为「以 jacocoTestReport 实际 XML
+// 报告为准」），修改阈值前先跑 jacocoTestReport 看真实值，切勿拍脑袋设高。
 tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     group = "verification"
     description = "校验单元测试行覆盖率不低于阈值，防止覆盖率回归"

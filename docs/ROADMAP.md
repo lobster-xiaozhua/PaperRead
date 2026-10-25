@@ -1,6 +1,6 @@
 # PaperRead 路线图（v1.1 → v2.0）
 
-> 当前 v1.2.0 已发布：382 单测全绿 / lint 0·0 / 行覆盖约 82%。隐私策略（2026-10-19 更新）：允许申请最小权限（INTERNET + 朗读前台服务三件套），仅用于局域网传输与朗读后台保活，不访问公网。
+> 当前 v1.2.0 已发布：382 单测全绿 / lint 0·0 / 行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%）。隐私策略（2026-10-19 更新）：允许申请最小权限（INTERNET + 朗读前台服务三件套），仅用于局域网传输与朗读后台保活，不访问公网。
 > 原则：先发布收尾，再质量收敛，最后做体验增量。
 
 ---
@@ -24,12 +24,12 @@
 
 - **发布收尾**：仓库公开 `lobster-xiaozhua/PaperRead`、CI 首次全绿、v1.0.1 / v1.1.0 两次 Release、仓库元信息（topics / badge / Issue 模板）
 - **B1 导入流式解码**：200 MB 级 TXT 常驻内存与文件大小无关（待真机验收）
-- **B2 ViewModel 自动化测试**：Turbine + 手工 fake，ReaderViewModel / BookshelfViewModel 行覆盖 100%
+- **B2 ViewModel 自动化测试**：Turbine + 手工 fake，ReaderViewModel / BookshelfViewModel 单测全覆盖
 - **B3 Compose UI 冒烟测试**：Robolectric + compose-ui-test，5 条冒烟进 CI
 - **B4 进度口径统一**：以原文偏移为准，长书进度误差 < 0.05%
 - **B5 备份策略定案**：方案甲-B（云备份排除书库、换机保留整库），双 XML 规则接线（待设备侧验收）
 - **B7 失败原因结构化**：`ImportError` 密封类 8 子类，结果页话术可区分
-- **基础设施**：覆盖率门禁（≥80%）、CI 增强、Dependabot 收敛为仅 patch、Kotlin 2.2.20 工具链升级
+- **基础设施**：覆盖率门禁（≥80%）、CI 增强、Dependabot 收敛为仅 patch、Kotlin 工具链升级（版本见 libs.versions.toml）
 
 ---
 

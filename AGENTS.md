@@ -31,4 +31,4 @@
 
 ## 版本组合（勿随意升级）
 
-AGP 8.7.3 · Gradle 8.9 · Kotlin 2.2.20 · KSP 2.2.20-2.0.4 · Room 2.8.5 · JDK 17 · compileSdk 35 / minSdk 26。
+工具链版本以 `gradle/libs.versions.toml` 为单一来源（AGP / Kotlin / KSP / Room / Gradle / JDK / compileSdk / minSdk）；文档不得硬编码版本号，CI 脚本 `scripts/check-doc-consistency.sh` 断言。
