@@ -203,38 +203,62 @@ tasks.withType<Test>().configureEach {
 // 判据：**Compose 渲染树的行覆盖率只有 instrumented（androidTest）口径才有意义**。
 // 单测能覆盖的是状态逻辑（ViewModel / Controller / Manager / Repository / 纯函数）；
 // 渲染函数体是 `@Composable` 的布局指令——在 Robolectric 冒烟里「跑过」不等于
-// 「被测过」，把它计入单测分母，等于用 UI 作业的成绩给单测门禁充值（而且充的是
-// flaky 的分，见 G9）。故：渲染类不进分母；逻辑类一个不落仍被度量
-// （剔除后逻辑层实测 90.36%），UI 行为由 `robolectric-ui` 作业的行为冒烟承载。
+// 「被测过」。故：少数**经登记确认 CI 口径 0% 且无测试逻辑引用**的纯渲染类不进分母；
+// 其余一律度量，UI 行为由 `robolectric-ui` 作业的行为冒烟承载。
 //
-// 剔除范围（文件级：整个文件只由 `@Composable` 渲染树 + 其私有格式化助手构成）：
-//   `*ScreenKt` / `*SheetKt` / `*DialogKt` / `*PanelKt` / `*SpreadKt` /
-//   `*NavHostKt` / `ThemeKt` —— 页面 / 弹层 / 对话框 / 面板 / 翻页渲染 / 导航图 / 主题壳。
-// 刻意**不**剔除（避免「越算越少」）：
+// 为什么由「模式通配」改为「显式白名单」（2026-10 批次 4 覆盖率口径整改）：
+// 旧实现用 `*ScreenKt` / `*DialogKt` 等通配剔除整类文件，制造了两条后门：
+//   1) 被剔除的文件里一旦有**被测试直接调用的逻辑函数**（如 ImportResultDialogKt
+//      的 formatFileSize、LicenseScreenKt 的 readLicenseText），那些行的覆盖数据
+//      会随文件一起从分母消失——被测行凭空蒸发，比率虚高；
+//   2) 通配让**新增**的 `FooScreen.kt` 自动脱离度量：往 Screen.kt 里加逻辑，
+//      分母不涨、比率不降、门禁看不出来。
+// 现改为逐类登记的白名单：新增文件默认进分母，要划出去必须在此显式加一行。
+//
+// 登记条件（两条同时满足，缺一不可）：
+//   1) CI 口径（`-PexcludeUiSmokeTests=true`）下该类 LINE 覆盖率为 0%（完全未执行）；
+//   2) 无任何 CI 测试代码 import / 调用其（逻辑）成员。**仅被 ui.smoke 渲染用例
+//      引用不算「被测」**——那批用例正是被排除在 CI 门禁之外的 Robolectric 渲染冒烟，
+//      它们「跑过」某 Composable 不等于该文件的行被外部逻辑验证。
+// 登记前请用 `jacocoTestReport` 的 XML 逐类核对 missed / covered 行数，并用
+// `grep app/src/test` 确认无直接调用。当前登记 4 个（合计 1414 行 0%）：
+//   ReaderScreenKt / TransferScreenKt / PaginatedSpreadKt / ReaderSettingsSheetKt。
+//
+// 刻意**不**剔除（它们覆盖率 > 0 或含被测试引用的逻辑）：
+// - `ImportResultDialogKt`（formatFileSize / formatChars 被测）、`LicenseScreenKt`
+//   （readLicenseText 被测）、`SettingsScreenKt`、`AboutScreenKt`、`PrivacyScreenKt`、
+//   `ReadingPreferencesPanelKt`、`ThemeKt`、`BookshelfScreenKt`、`PaperReadNavHostKt`
+//   ——CI 口径下覆盖率均 > 0%（被非 smoke 的 UI 用例渲染，含 MainActivity 启动链路）；
 // - `theme/ColorKt`、`theme/ReaderThemes`：调色板与主题**数据**，非渲染树，有单测覆盖；
 // - `reader/PaginatorKt`、`reader/PaginationKt`：纯函数分页计算，属逻辑；
 // - `ui/reader/RememberChapterPagesKt`（composable + 章节加载状态）、
-//   `ui/bookshelf/CoverGenerator`（Canvas 封面绘制）：CI 口径下实测覆盖率确实为 0%，
-//   如实留在分母里，不靠剔除掩盖——它们才是下一步该补测的地方。
+//   `ui/bookshelf/CoverGenerator`（Canvas 封面绘制）：CI 口径实测 0%，但属逻辑/绘制
+//   且下一步应补测，如实留在分母里、不靠剔除掩盖。
 //
-// 维护约定：新逻辑放独立文件（`XxxViewModel` / `XxxManager` / 纯函数文件），
-// 不要塞进 `*Screen.kt`：塞进去会被本条规则连带移出分母，等于放弃度量。
+// 维护约定：
+// - 新增纯渲染类需要划出分母 → 在此登记，并写明「0% + 无测试逻辑引用」的核对结果；
+// - 已登记类若后续新增逻辑 → 它仍在分母外（白名单按类名生效，这是显式白名单的
+//   固有权衡），因此**应将其从白名单移除**，或把逻辑挪到独立文件后再登记；
+// - 逻辑一律不写进这些文件（见 CONTRIBUTING.md）。
+private val coverageExcludedRenderClasses = listOf(
+    // 阅读器主渲染树（CI 口径 645 行 0%：仅 ReaderSpeech / Spread / Smoke 等 ui.smoke 用例渲染）
+    "io/github/lunalight/paperread/ui/reader/ReaderScreenKt.class",
+    // 传书 / 迁移 / 同步页渲染树（CI 口径 529 行 0%：仅 UiSmokeTest 渲染）
+    "io/github/lunalight/paperread/ui/transfer/TransferScreenKt.class",
+    // 平板双页跨页渲染（CI 口径 147 行 0%：仅 ReaderSpreadSmokeTest 渲染）
+    "io/github/lunalight/paperread/ui/reader/PaginatedSpreadKt.class",
+    // 目录 / 阅读设置弹层（CI 口径 93 行 0%：TocSheet / ReaderSettingsSheet 仅 UiSmokeTest 渲染）
+    "io/github/lunalight/paperread/ui/reader/ReaderSettingsSheetKt.class",
+)
+
 val coverageClassExcludes = listOf(
     "**/R.class",
     "**/R$*.class",
     "**/BuildConfig.class",
     "**/Manifest.class",
-    // Kotlin 闭包 / 匿名类：无独立行号，度量无意义
+    // Kotlin 闭包 / 匿名类（含 Compose 的 ComposableSingletons$*）：无独立行号，度量无意义
     "**/*\$*.class",
-    // 纯 Compose 渲染类（理由见上方注释）
-    "**/ui/**/*ScreenKt.class",
-    "**/ui/**/*SheetKt.class",
-    "**/ui/**/*DialogKt.class",
-    "**/ui/**/*PanelKt.class",
-    "**/ui/**/*SpreadKt.class",
-    "**/ui/**/*NavHostKt.class",
-    "**/ui/theme/ThemeKt.class",
-)
+) + coverageExcludedRenderClasses
 
 val coverageClassDirectories = fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/clientDebug") {
     exclude(coverageClassExcludes)
@@ -265,8 +289,9 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 // 描述的 worker 崩溃问题。
 //
 // 口径声明（与 README / docs/TASKS.md / CONTRIBUTING.md 表述一致）：
-// 「**逻辑层**行覆盖率 ≥ 80%（Compose 渲染类不计入分母；UI 行为由
-// robolectric-ui 作业的行为冒烟承载）」。CI `unit` 作业以
+// 「行覆盖率 ≥ 80%：经登记的零覆盖纯渲染类不计入分母（当前 4 个，见上方
+// `coverageExcludedRenderClasses` 清单，新增需登记并说明理由）；其余所有类
+// 一律计入分母。UI 行为由 robolectric-ui 作业的行为冒烟承载」。CI `unit` 作业以
 // `-PexcludeUiSmokeTests=true` 口径校验本门禁——两个作业口径互补，不重叠。
 //
 // 阈值口径：行覆盖率（与 ROADMAP / README 口径一致）。取 0.80 作为防回归

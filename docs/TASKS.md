@@ -8,14 +8,14 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **main 未发布变更**：无（干净发布点）
-- **质量基线**：531 单测全绿（其中 2 例门控 / skipped）、lint 0 error、**逻辑层**行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，Compose 渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
+- **质量基线**：531 单测全绿（其中 2 例门控 / skipped）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
 
 ## 当前能力（已完成）
 
 ### 工程与交付
 - Compose + Material 3 + 类型安全导航脚手架；Gradle 版本目录
-- CI 门禁：七个作业独立并行，强制全绿方可合并 —— `unit`（双 flavor 单测 + **逻辑层** JaCoCo 行覆盖率 ≥ 80%）、`robolectric-ui`（Robolectric UI 冒烟 + 失败重试 ≤ 1）、`lint`（Android lint + 文档口径一致性脚本）、`room-migration`（Room 迁移登记 / destructive fallback 禁用静态断言）、`network-audit`（不访问公网 / 无三方网络 SDK 静态断言）、`assemble`（双 flavor 装配 + release R8 打包）、`r8-smoke`（R8 mapping keep 断言 + release 变体序列化 round-trip）
-- 覆盖率口径（2026-10 第 0 阶段出口验收 P1 修正）：分母只含**逻辑类**（ViewModel / Controller / Manager / Repository / 纯函数），纯 Compose 渲染类（`*ScreenKt` / `*SheetKt` / `*DialogKt` / `*PanelKt` / `*SpreadKt` / `*NavHostKt` / `ThemeKt`）不计入分母 —— 理由：Compose 渲染树的行覆盖率只有 instrumented（androidTest）口径才有意义，单测里"跑过"不等于"被测过"，把它计入单测分母等于拿 `robolectric-ui` 作业（恰好是唯一允许重试的 flaky 作业）的成绩给 `unit` 门禁充值。UI 行为由 `robolectric-ui` 的行为冒烟承载，两个作业口径互补。规则与实测见 `app/build.gradle.kts` 的 `coverageClassExcludes` 注释；新逻辑必须放独立文件，别塞进 `*Screen.kt`（塞进去会被连带移出分母，等于放弃度量）
+- CI 门禁：七个作业独立并行，强制全绿方可合并 —— `unit`（双 flavor 单测 + JaCoCo 行覆盖率 ≥ 80%，经登记的零覆盖纯渲染类不计入分母）、`robolectric-ui`（Robolectric UI 冒烟 + 失败重试 ≤ 1）、`lint`（Android lint + 文档口径一致性脚本）、`room-migration`（Room 迁移登记 / destructive fallback 禁用静态断言）、`network-audit`（不访问公网 / 无三方网络 SDK 静态断言）、`assemble`（双 flavor 装配 + release R8 打包）、`r8-smoke`（R8 mapping keep 断言 + release 变体序列化 round-trip）
+- 覆盖率口径（2026-10 批次 4 整改·最小化 + 显式白名单）：分母默认包含**所有**类；仅**经登记的零覆盖纯渲染类**不计入分母（当前 4 个：`ReaderScreenKt` / `TransferScreenKt` / `PaginatedSpreadKt` / `ReaderSettingsSheetKt`，显式类名清单见 `app/build.gradle.kts` 的 `coverageExcludedRenderClasses`）。登记条件两条缺一不可：① CI 口径（`-PexcludeUiSmokeTests=true`）下该类 0%（完全未执行）；② 无任何 CI 测试代码 import / 调用其逻辑成员（仅被 `ui.smoke` 渲染用例引用不算被测）。**不再按 `*ScreenKt` / `*DialogKt` 等模式通配剔除**——通配会让新增的 `FooScreen.kt` 自动脱离度量，并让被测试直接调用的逻辑函数（如 `ImportResultDialogKt.formatFileSize`、`LicenseScreenKt.readLicenseText`）连同文件一起从分母消失；白名单后新增文件默认进分母，逻辑进 `*Screen.kt` 也会被度量，要划出分母须显式登记并说明理由。UI 行为由 `robolectric-ui` 作业的行为冒烟承载，两个作业口径互补
 - CI 结构演进（2026-10）：门禁原为「合并成单次 Gradle 调用」以省配置阶段，现改为七作业独立 —— 理由是**失败定位清晰**（哪道门禁红一目了然，不必翻单次构建日志）+ **flaky 隔离**（Robolectric 渲染在内存受限 runner 上抖动，重试 ≤ 1 隔离在 `robolectric-ui`，不阻塞 `unit`）；代价是各作业各付一次配置阶段（AGP + KSP + Room + Compose，约 10s），多作业并行执行下总时长不劣于单作业。其余提效手段保留：Robolectric android-all jar（API 34 运行 SDK + API 35 compileSdk，约 335MB/轮）经 actions/cache 跨运行复用；单测双 fork 并行；纯文档变更（md / docs）跳过 CI；产物保留期收敛为 14 天
 - 开源物料：README / LICENSE(Apache-2.0) / CONTRIBUTING / AGENTS / SECURITY / Issue 模板 / PR 模板 / CODEOWNERS / .editorconfig
 
