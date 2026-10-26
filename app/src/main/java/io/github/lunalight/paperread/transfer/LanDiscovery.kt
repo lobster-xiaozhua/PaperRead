@@ -17,6 +17,8 @@ data class DiscoveredDevice(
     val httpPort: Int,
     /** 最近一次收到其报文的时刻（[LanDiscovery] 注入时钟，测试可控）。 */
     val lastSeenAt: Long,
+    /** 对端是否要求配对鉴权（v2 报文恒 true；UI 据此提示「需配对」）。 */
+    val pairingRequired: Boolean = true,
 )
 
 /** 收到的 UDP 报文（data + 源地址；端口由传输层固定为发现端口，无需透出）。 */
@@ -111,6 +113,7 @@ class LanDiscovery(
             host = host,
             httpPort = presence.httpPort,
             lastSeenAt = clock(),
+            pairingRequired = presence.pairingRequired,
         )
         _devices.value = (_devices.value.filter { it.deviceId != device.deviceId } + device)
             .sortedBy { it.deviceName }

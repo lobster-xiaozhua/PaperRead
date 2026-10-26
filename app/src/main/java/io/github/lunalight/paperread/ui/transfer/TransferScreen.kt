@@ -12,11 +12,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -39,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,7 +55,10 @@ import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
 import io.github.lunalight.paperread.transfer.MigrationDirection
+import io.github.lunalight.paperread.transfer.PairingCode
+import io.github.lunalight.paperread.transfer.PairingGate
 import io.github.lunalight.paperread.transfer.TransferMigrationState
+import io.github.lunalight.paperread.transfer.TransferPairingState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
@@ -110,6 +119,14 @@ fun TransferScreen(
                 onRetry = viewModel::retryService,
             )
 
+            // ---- 配对（R-01 / G1：展示端码 / 已配对状态） ----
+            PairingCard(
+                pairing = state.pairing,
+                pairedDeviceName = state.pairedDeviceName,
+                onGenerateCode = viewModel::beginPairing,
+                onCancel = viewModel::cancelPairing,
+            )
+
             // ---- 待发送书目（AC-9.3 的多选来源） ----
             SelectedBooksCard(books = state.books, resolved = state.booksResolved)
 
@@ -145,6 +162,7 @@ fun TransferScreen(
                 sendEnabled = state.send.active.not() && state.books.isNotEmpty(),
                 migrationEnabled = state.migration.active.not() && state.devices.isNotEmpty(),
                 syncEnabled = state.sync.active.not() && state.devices.isNotEmpty(),
+                isPaired = viewModel::isPairedWith,
                 onDeviceClick = viewModel::sendTo,
                 onMigrateClick = viewModel::startMigration,
                 onSyncClick = viewModel::startSync,
@@ -164,6 +182,166 @@ fun TransferScreen(
             onDismiss = viewModel::cancelReceived,
         )
     }
+
+    // 配对对话框（输入侧：对未配对设备的动作先弹此框，成功后自动继续）
+    val pairingTarget = state.pairingTarget
+    if (pairingTarget != null) {
+        PairingDialog(
+            deviceName = pairingTarget.deviceName,
+            code = state.pairingInput,
+            error = state.pairing.error,
+            busy = state.pairing.busy,
+            onCodeChange = viewModel::updatePairingInput,
+            onConfirm = viewModel::confirmPairing,
+            onDismiss = viewModel::dismissPairingDialog,
+        )
+    }
+}
+
+/**
+ * 配对卡片（展示端视角：生成配对码 / 展示等待 / 已配对状态）。
+ *
+ * 输入侧交互在设备行的配对对话框中（见 [PairingDialog]）。
+ */
+@Composable
+private fun PairingCard(
+    pairing: TransferPairingState,
+    pairedDeviceName: String?,
+    onGenerateCode: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Lock,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.transfer_pairing_card_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            when (pairing.status) {
+                PairingGate.Status.UNPAIRED -> {
+                    Text(
+                        stringResource(R.string.transfer_pairing_unpaired_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onGenerateCode) {
+                        Text(stringResource(R.string.transfer_pairing_generate))
+                    }
+                }
+
+                PairingGate.Status.PAIRING -> {
+                    Text(
+                        pairing.displayCode.orEmpty(),
+                        style = MaterialTheme.typography.headlineLarge,
+                        letterSpacing = 12.sp,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(R.string.transfer_pairing_waiting),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = onCancel) {
+                        Text(stringResource(R.string.transfer_pairing_cancel))
+                    }
+                }
+
+                PairingGate.Status.PAIRED -> {
+                    Text(
+                        stringResource(
+                            R.string.transfer_pairing_paired,
+                            pairedDeviceName ?: "对端设备",
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = onCancel) {
+                        Text(stringResource(R.string.transfer_pairing_cancel))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 配对对话框（输入侧：输入对端展示的 6 位配对码）。 */
+@Composable
+private fun PairingDialog(
+    deviceName: String,
+    code: String,
+    error: String?,
+    busy: Boolean,
+    onCodeChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.transfer_pairing_dialog_title, deviceName)) },
+        text = {
+            Column {
+                Text(
+                    stringResource(R.string.transfer_pairing_dialog_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = onCodeChange,
+                    label = { Text(stringResource(R.string.transfer_pairing_dialog_input)) },
+                    singleLine = true,
+                    isError = error != null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (error != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = code.length == PairingCode.LENGTH && !busy,
+            ) {
+                Text(
+                    if (busy) {
+                        "配对中…"
+                    } else {
+                        stringResource(R.string.transfer_pairing_dialog_confirm)
+                    }
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.transfer_pairing_dialog_cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -546,6 +724,7 @@ private fun DeviceListCard(
     sendEnabled: Boolean,
     migrationEnabled: Boolean,
     syncEnabled: Boolean,
+    isPaired: (DiscoveredDevice) -> Boolean,
     onDeviceClick: (DiscoveredDevice) -> Unit,
     onMigrateClick: (DiscoveredDevice) -> Unit,
     onSyncClick: (DiscoveredDevice) -> Unit,
@@ -600,6 +779,19 @@ private fun DeviceListCard(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (isPaired(device)) {
+                                Text(
+                                    stringResource(R.string.transfer_pairing_badge_paired),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            } else if (device.pairingRequired) {
+                                Text(
+                                    stringResource(R.string.transfer_pairing_badge_required),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                         }
                         if (!sendEnabled) {
                             Text(

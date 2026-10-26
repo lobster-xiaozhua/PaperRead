@@ -197,7 +197,7 @@ fun verifyTokenDigest(
     val ts = parts[0].toLongOrNull() ?: return VerifyResult.Malformed
     val nonce = parts[1]
     val macHex = parts[2]
-    if (nonce.isBlank() || !isHex(macHex)) return VerifyResult.Malformed
+    if (nonce.isBlank() || !isSha256Hex(macHex)) return VerifyResult.Malformed
 
     if (abs(nowMillis - ts) > TIME_WINDOW_MS) return VerifyResult.Expired
 
@@ -243,10 +243,14 @@ fun interface TokenVerifier {
  *
  * 线程安全：状态字段为 `@Volatile`，nonce 缓存内部同步；并发请求下配对落定
  * 具备幂等性（同一对端的重复确认不改变结果）。
+ *
+ * @param onPaired 配对落定回调（展示端侧：对端输入正确配对码后触发，
+ *   携带对端设备 ID；服务端 accept 线程调用，实现方需自行保证线程安全）
  */
 class PairingGate(
     private val selfDeviceId: () -> String,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val onPaired: (peerDeviceId: String) -> Unit = {},
 ) : TokenVerifier {
 
     /** 配对状态。 */
@@ -360,6 +364,7 @@ class PairingGate(
                     pairedDeviceId = peerId
                     pendingCode = null
                     status = Status.PAIRED
+                    onPaired(peerId)
                     true
                 } else {
                     candidate.fill(0)
@@ -466,8 +471,12 @@ private fun extractBearerToken(header: String): String? {
     return value.substring(schemeEnd + 1).trim().takeIf { it.isNotEmpty() }
 }
 
-/** mac hex 格式：64 个十六进制字符（大小写均可，比对前归一化为小写）。 */
-private fun isHex(value: String): Boolean =
+/**
+ * SHA-256 十六进制格式：64 个十六进制字符（大小写均可，比对前归一化为小写）。
+ *
+ * 同时用于令牌 mac 与请求体摘要声明（`X-Content-Sha256`）的格式校验。
+ */
+internal fun isSha256Hex(value: String): Boolean =
     value.length == MAC_HEX_LENGTH && value.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
 
 /** 字节数组转小写十六进制字符串。 */

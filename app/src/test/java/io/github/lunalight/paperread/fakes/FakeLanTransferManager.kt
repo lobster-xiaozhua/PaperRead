@@ -4,7 +4,9 @@ import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
 import io.github.lunalight.paperread.transfer.LanTransferManager
+import io.github.lunalight.paperread.transfer.PairingGate
 import io.github.lunalight.paperread.transfer.TransferMigrationState
+import io.github.lunalight.paperread.transfer.TransferPairingState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
@@ -38,6 +40,9 @@ class FakeLanTransferManager : LanTransferManager {
     private val _sync = MutableStateFlow(TransferSyncState())
     override val sync: StateFlow<TransferSyncState> = _sync.asStateFlow()
 
+    private val _pairing = MutableStateFlow(TransferPairingState())
+    override val pairing: StateFlow<TransferPairingState> = _pairing.asStateFlow()
+
     // ---- 调用记录 ----
 
     var startServiceCount = 0
@@ -58,11 +63,16 @@ class FakeLanTransferManager : LanTransferManager {
         private set
     var dismissSyncReportCount = 0
         private set
+    var beginPairingCount = 0
+        private set
+    var cancelPairingCount = 0
+        private set
 
     val migrationTargets = mutableListOf<DiscoveredDevice>()
     val syncTargets = mutableListOf<DiscoveredDevice>()
     val sentTargets = mutableListOf<SentBooks>()
     val reparses = mutableListOf<Reparse>()
+    val pairWithTargets = mutableListOf<Pair<DiscoveredDevice, String>>()
 
     data class SentBooks(val target: DiscoveredDevice, val books: List<Book>)
     data class Reparse(val charsetName: String, val strategy: SplitStrategy)
@@ -91,6 +101,10 @@ class FakeLanTransferManager : LanTransferManager {
 
     fun emitSync(state: TransferSyncState) {
         _sync.value = state
+    }
+
+    fun emitPairing(state: TransferPairingState) {
+        _pairing.value = state
     }
 
     // ---- 接口实现 ----
@@ -145,5 +159,22 @@ class FakeLanTransferManager : LanTransferManager {
 
     override fun dismissSyncReport() {
         dismissSyncReportCount++
+    }
+
+    override fun beginPairing() {
+        beginPairingCount++
+        _pairing.value = TransferPairingState(
+            status = PairingGate.Status.PAIRING,
+            displayCode = "123456",
+        )
+    }
+
+    override fun cancelPairing() {
+        cancelPairingCount++
+        _pairing.value = TransferPairingState()
+    }
+
+    override fun pairWith(device: DiscoveredDevice, code: String) {
+        pairWithTargets += device to code
     }
 }

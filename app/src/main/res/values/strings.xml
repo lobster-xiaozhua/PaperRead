@@ -4,4 +4,19 @@
     <string name="about_app_title">纸阅 PaperRead</string>
     <string name="about_intro">纸阅是一款本地小说阅读器：支持 TXT / EPUB 导入、智能章节切分、书签与阅读进度恢复，所有数据只保存在本机。</string>
     <string name="about_privacy_promise">纸阅仅申请 INTERNET 权限，以及朗读后台播放所需的前台服务权限（FOREGROUND_SERVICE / FOREGROUND_SERVICE_MEDIA_PLAYBACK / POST_NOTIFICATIONS）：INTERNET 用于同一局域网内的设备发现与书籍传输（传书 / 迁移 / 同步），不连接互联网；前台服务与通知权限仅用于朗读退到后台后继续播放并在通知栏控制，语音由系统 TTS 引擎在本机离线合成。不收集、不上传任何个人信息，书籍与阅读记录仅存储在本机。</string>
+
+    <!-- 局域网传输配对（R-01 / G1） -->
+    <string name="transfer_pairing_card_title">传输配对</string>
+    <string name="transfer_pairing_unpaired_hint">为防止误连与未授权访问，传输前需要配对：在本机点「生成配对码」并把该码输入对端传书页；向对端发送时，则输入对端显示的配对码。</string>
+    <string name="transfer_pairing_generate">生成配对码</string>
+    <string name="transfer_pairing_waiting">等待对端输入配对码…</string>
+    <string name="transfer_pairing_paired">已与 %1$s 配对，可以开始传输</string>
+    <string name="transfer_pairing_cancel">取消配对</string>
+    <string name="transfer_pairing_badge_required">需配对</string>
+    <string name="transfer_pairing_badge_paired">已配对</string>
+    <string name="transfer_pairing_dialog_title">与 %1$s 配对</string>
+    <string name="transfer_pairing_dialog_message">请输入对端设备传书页显示的 6 位配对码，配对成功后自动继续。</string>
+    <string name="transfer_pairing_dialog_input">6 位配对码</string>
+    <string name="transfer_pairing_dialog_confirm">配对</string>
+    <string name="transfer_pairing_dialog_cancel">取消</string>
 </resources>

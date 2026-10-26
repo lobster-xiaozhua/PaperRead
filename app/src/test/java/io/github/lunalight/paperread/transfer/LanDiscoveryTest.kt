@@ -129,6 +129,32 @@ class LanDiscoveryTest {
         assertEquals("本机", decoded.deviceName)
         assertEquals(8080, decoded.httpPort)
         assertTrue(decoded.isBroadcast)
+        assertTrue("本机在线报文应声明要求配对（v2 恒真）", decoded.pairingRequired)
+    }
+
+    @Test
+    fun `对端配对要求透传至设备列表`() {
+        val d = discovery(transport())
+        // v2 报文默认 pairingRequired=true
+        d.handleIncoming(
+            UdpPacket(
+                TransferProtocol.encodePresence("peer-a", "Pixel 7", 9001, isBroadcast = true),
+                peerA,
+            ),
+        )
+        assertTrue(d.devices.value.single().pairingRequired)
+
+        // 显式 false 的报文同样透传（前向兼容：未来配对可设为可选）
+        d.handleIncoming(
+            UdpPacket(
+                TransferProtocol.encodePresence(
+                    "peer-b", "小米 14", 9002, isBroadcast = true, pairingRequired = false,
+                ),
+                peerB,
+            ),
+        )
+        val byId = d.devices.value.associateBy { it.deviceId }
+        assertFalse(byId.getValue("peer-b").pairingRequired)
     }
 
     @Test

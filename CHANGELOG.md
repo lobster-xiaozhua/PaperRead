@@ -3,6 +3,34 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
 每个正式版本的完整说明见 [GitHub Releases](https://github.com/lobster-xiaozhua/PaperRead/releases)。
 
+## [2.0.0] - 未发布
+
+> **Breaking**：局域网传输协议升级至 v2，与 v1 设备**不互通**；传输需配对鉴权。
+
+### 新增
+- **传输配对鉴权（R-01 / G1）**：同一 WiFi 下的传书 / 迁移 / 进度同步增加配对门——未配对拒绝一切请求
+  - 配对码：展示端 SecureRandom 生成 6 位数字（当面展示 / 输入，不经网络传输）
+  - secret 派生：PBKDF2-HMAC-SHA256（100,000 迭代 / 256 bit，salt = 双方设备 ID 排序拼接的 SHA-256）
+  - 请求令牌：HMAC-SHA256 覆盖 `method + path + ts + nonce + sha256(body)`，±60s 时间窗 + nonce LRU 缓存（1024 / TTL 5 分钟）防重放
+  - 配对 UI：展示端生成配对码并展示等待、发送端输入并探测配对、配对状态与错误提示（取消配对 / 配对失效可重来）
+- **传输完整性：先验签、后落盘**：POST 请求携带 `X-Content-Sha256` 摘要声明，服务端以声明摘要验签（令牌时间窗只覆盖请求发起时刻，大文件传输不中途失效），落盘后核对实际摘要与声明值，不符即拒绝并清理——落库流水线只见双重校验通过的字节
+- **接收进度与中止**： spill 落盘阶段实时回报进度（字节比），断链 / 数据不符触发中止回调并复位 UI
+- **`SECURITY.md`**：攻击面说明、威胁模型（资产 / 攻击者 / 向量缓解 / 已知限制）、传输加密（TLS）后置决策记录、漏洞报告流程
+
+### 变更
+- **协议版本 v1 → v2**：`PresencePacket`（UDP 发现报文）增加 `pairingRequired` 字段；v1 报文一律拒绝（版本门控优先于字段兼容），**v1 与 v2 设备无法互相发现**
+- **配对为会话级**：secret 仅存内存，停止传输服务或取消配对即清零；重新开放传书需重新配对
+- **401 语义映射**：对端未配对 / 配对失效时，发送侧提示「对端未配对或配对已失效，请重新配对」而非笼统网络错误
+
+### 基础设施
+- CI 结构调整为四 job：`unit`（双 flavor 单测 + 覆盖率门禁）、`robolectric-ui`（Robolectric UI 测试独立 job + 失败重试 ≤1 次，隔离内存抖动）、`lint`、`assemble`；Robolectric jar 缓存 key 增加 `libs.versions.toml` 哈希（依赖变更即失效）
+- 新增 `scripts/check-doc-consistency.sh`（权限清单比对 Manifest、覆盖率数字引用检查、禁文档硬编码 Kotlin 版本号）并纳入 CI
+- CONTRIBUTING / README 口径修正（flavor 命名约束、CI 结构、最小权限说明）
+
+[未发布]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.0.1...v1.1.0
+
 ## [1.2.0] - 2026-10-20
 
 ### 新增
@@ -70,6 +98,3 @@
 ### 质量
 - 单元测试全绿；lint 0 error / 0 warning
 - 行覆盖率约 87%（JaCoCo，见下方 CI 覆盖率门禁）
-
-[未发布]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.1.0...HEAD
-[1.1.0]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.0.1...v1.1.0

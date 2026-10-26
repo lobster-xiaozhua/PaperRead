@@ -293,7 +293,9 @@ class UiSmokeTest {
         composeRule.waitUntilAtLeastOneExists(hasText("待发送书籍"), timeoutMillis = 30_000)
         composeRule.onNodeWithText("待发送书籍").assertRendered()
         composeRule.waitUntilAtLeastOneExists(hasText("在线设备"), timeoutMillis = 30_000)
-        composeRule.onNodeWithText("在线设备").assertRendered()
+        // T-003 新增配对卡片后传书页内容高于 Robolectric 小窗，「在线设备」位于折叠线以下，
+        // 断言前先滚动到可见区域
+        composeRule.onNodeWithText("在线设备").performScrollTo().assertRendered()
         // 书架流到达后，待发送列表出现所传书籍
         composeRule.waitUntilAtLeastOneExists(hasText("冒烟之书", substring = true), timeoutMillis = 30_000)
     }

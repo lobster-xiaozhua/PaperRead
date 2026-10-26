@@ -12,8 +12,11 @@ import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
 import io.github.lunalight.paperread.transfer.LanTransferManager
 import io.github.lunalight.paperread.transfer.MigrationReport
+import io.github.lunalight.paperread.transfer.PairingCode
+import io.github.lunalight.paperread.transfer.PairingGate
 import io.github.lunalight.paperread.transfer.SyncReport
 import io.github.lunalight.paperread.transfer.TransferMigrationState
+import io.github.lunalight.paperread.transfer.TransferPairingState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
@@ -25,10 +28,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * 传书页 UI 状态：管理器四个状态流的透传 + 待发送书目 + 一次性消息。
+ * 传书页 UI 状态：管理器六个状态流的透传 + 待发送书目 + 配对交互 + 一次性消息。
  *
  * @param booksResolved 书目是否已完成首次解析（未完成时展示加载态，
  *   避免把「尚未解析」误呈现为「未选择书籍」）
+ * @param pairing 配对状态（展示端码 / 已配对对端 / 输入侧探测进度与错误）
+ * @param pairingTarget 配对对话框的目标设备（非空 = 对话框可见）
+ * @param pairingInput 配对输入框内容（仅数字，长度 ≤ [PairingCode.LENGTH]）
+ * @param pairedDeviceName 已配对对端的设备名（尽力从设备列表解析）
  */
 data class TransferUiState(
     val service: TransferServiceState = TransferServiceState(),
@@ -41,13 +48,19 @@ data class TransferUiState(
     val booksResolved: Boolean = false,
     /** 一次性提示（Snackbar）：发送 / 接收错误、导入成功、迁移 / 同步结果。 */
     val message: String? = null,
+    val pairing: TransferPairingState = TransferPairingState(),
+    val pairingTarget: DiscoveredDevice? = null,
+    val pairingInput: String = "",
+    val pairedDeviceName: String? = null,
 )
 
 /**
- * 传书页 ViewModel（AC-9.1 ~ AC-9.7）。
+ * 传书页 ViewModel（AC-9.1 ~ AC-9.7 + R-01 / G1 配对流程）。
  *
  * 职责边界：不直连任何 socket，全部经 [LanTransferManager]；
- * 书目按传入 id 从书架实时解析（删除的书籍自动从待发送列表消失）。
+ * 书目按传入 id 从书架实时解析（删除的书籍自动从待发送列表消失）；
+ * 发送 / 迁移 / 同步三类动作在与目标设备配对前先弹配对对话框，
+ * 配对成功自动继续挂起的动作（无需用户二次点击）。
  */
 class TransferViewModel(
     private val bookIds: List<Long>,
@@ -57,6 +70,9 @@ class TransferViewModel(
 
     private val _uiState = MutableStateFlow(TransferUiState())
     val uiState: StateFlow<TransferUiState> = _uiState.asStateFlow()
+
+    /** 配对成功后要继续执行的动作（发送 / 迁移 / 同步）。 */
+    private var pendingAfterPairing: (() -> Unit)? = null
 
     init {
         // 进入页面即启动局域网服务（AC-9.1）
@@ -123,6 +139,29 @@ class TransferViewModel(
             }
         }
         viewModelScope.launch {
+            transferManager.pairing.collect { pairing ->
+                _uiState.update { state ->
+                    state.copy(
+                        pairing = pairing,
+                        pairedDeviceName = pairing.pairedDeviceId?.let { id ->
+                            state.devices.firstOrNull { it.deviceId == id }?.deviceName
+                        },
+                    )
+                }
+                // 配对落定且正是对话框目标设备：关闭对话框并继续挂起动作
+                val target = _uiState.value.pairingTarget
+                if (pairing.status == PairingGate.Status.PAIRED &&
+                    pairing.error == null &&
+                    target != null &&
+                    pairing.pairedDeviceId == target.deviceId
+                ) {
+                    _uiState.update { it.copy(pairingTarget = null, pairingInput = "") }
+                    pendingAfterPairing?.invoke()
+                    pendingAfterPairing = null
+                }
+            }
+        }
+        viewModelScope.launch {
             bookRepository.observeBooks().collect { all ->
                 val byId = all.associateBy { it.id }
                 _uiState.update { state ->
@@ -138,9 +177,68 @@ class TransferViewModel(
         transferManager.stopService()
     }
 
-    /** 选择目标设备开始发送（AC-9.3）。 */
+    // ---- 配对（R-01 / G1） ----
+
+    /** 本机是否已与指定设备配对（PAIRED 且对端一致）。 */
+    fun isPairedWith(device: DiscoveredDevice): Boolean =
+        _uiState.value.pairing.status == PairingGate.Status.PAIRED &&
+            _uiState.value.pairing.pairedDeviceId == device.deviceId
+
+    /**
+     * 需要配对才能执行的动作统一入口：已配对直接执行，
+     * 否则打开配对对话框并把动作挂起，配对成功后自动继续。
+     */
+    private fun requirePairingThen(device: DiscoveredDevice, action: () -> Unit) {
+        if (isPairedWith(device)) {
+            action()
+            return
+        }
+        pendingAfterPairing = action
+        _uiState.update {
+            it.copy(
+                pairingTarget = device,
+                pairingInput = "",
+                pairing = it.pairing.copy(error = null),
+            )
+        }
+    }
+
+    /** 展示端：生成配对码（对端据此在传书页输入并完成配对）。 */
+    fun beginPairing() {
+        transferManager.beginPairing()
+    }
+
+    /** 取消配对 / 中止等待（展示端与输入侧通用）。 */
+    fun cancelPairing() {
+        transferManager.cancelPairing()
+    }
+
+    /** 配对输入框更新：仅保留数字并限长 [PairingCode.LENGTH]。 */
+    fun updatePairingInput(text: String) {
+        _uiState.update {
+            it.copy(pairingInput = text.filter { ch -> ch.isDigit() }.take(PairingCode.LENGTH))
+        }
+    }
+
+    /** 确认配对：把输入框内容提交给管理器（探测对端）。 */
+    fun confirmPairing() {
+        val target = _uiState.value.pairingTarget ?: return
+        transferManager.pairWith(target, _uiState.value.pairingInput)
+    }
+
+    /** 关闭配对对话框（放弃本次配对与挂起动作）。 */
+    fun dismissPairingDialog() {
+        pendingAfterPairing = null
+        _uiState.update { it.copy(pairingTarget = null, pairingInput = "") }
+    }
+
+    // ---- 发送 / 迁移 / 同步（配对门控） ----
+
+    /** 选择目标设备开始发送（AC-9.3；未配对先弹配对对话框）。 */
     fun sendTo(device: DiscoveredDevice) {
-        transferManager.sendBooks(device, _uiState.value.books)
+        requirePairingThen(device) {
+            transferManager.sendBooks(device, _uiState.value.books)
+        }
     }
 
     /** 取消进行中的发送（AC-9.4）。 */
@@ -168,9 +266,9 @@ class TransferViewModel(
         transferManager.reparseReceived(charsetName, strategy)
     }
 
-    /** 向该设备发起整库迁移（AC-10.1）。 */
+    /** 向该设备发起整库迁移（AC-10.1；未配对先弹配对对话框）。 */
     fun startMigration(device: DiscoveredDevice) {
-        transferManager.startMigration(device)
+        requirePairingThen(device) { transferManager.startMigration(device) }
     }
 
     /** 取消进行中的迁移（发送或接收）。 */
@@ -183,9 +281,9 @@ class TransferViewModel(
         transferManager.dismissMigrationReport()
     }
 
-    /** 与对端交换阅读进度（AC-11.1）。 */
+    /** 与对端交换阅读进度（AC-11.1；未配对先弹配对对话框）。 */
     fun startSync(device: DiscoveredDevice) {
-        transferManager.startSync(device)
+        requirePairingThen(device) { transferManager.startSync(device) }
     }
 
     /** 关闭同步结果卡片。 */

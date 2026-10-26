@@ -455,4 +455,32 @@ class TransferAuthTest {
         assertEquals(PairingGate.Status.PAIRED, gate.status)
         assertEquals("peer-a", gate.pairedDeviceId)
     }
+
+    @Test
+    fun `展示端配对落定触发 onPaired 回调（携带对端设备 ID）`() {
+        var notified: String? = null
+        val gate = PairingGate(
+            selfDeviceId = { "self" },
+            clock = { 0L },
+            onPaired = { notified = it },
+        )
+        val code = gate.beginPairing()
+        val candidate = deriveSecret(code, listOf("peer-a", "self"))
+        val headers = mapOf(
+            "authorization" to "Bearer " + issueTokenDigest(candidate, "GET", "/meta", EMPTY_BODY_SHA256, nowMillis = 0L),
+            "x-device-id" to "peer-a",
+        )
+        assertTrue(gate.verify("GET", "/meta", headers, EMPTY_BODY_SHA256))
+        assertEquals("peer-a", notified)
+    }
+
+    @Test
+    fun `发送侧显式确认不触发 onPaired 回调（由调用方自行展示状态）`() {
+        var notified: String? = null
+        val gate = PairingGate(selfDeviceId = { "self" }, onPaired = { notified = it })
+        val candidate = gate.deriveForPeer("peer-a", "123456")!!
+        gate.onPairingConfirmed("peer-a", candidate)
+        assertNull(notified)
+        assertEquals(PairingGate.Status.PAIRED, gate.status)
+    }
 }

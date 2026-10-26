@@ -8,8 +8,10 @@ import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
 import io.github.lunalight.paperread.transfer.MigrationDirection
 import io.github.lunalight.paperread.transfer.MigrationReport
+import io.github.lunalight.paperread.transfer.PairingGate
 import io.github.lunalight.paperread.transfer.SyncReport
 import io.github.lunalight.paperread.transfer.TransferMigrationState
+import io.github.lunalight.paperread.transfer.TransferPairingState
 import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
@@ -67,6 +69,16 @@ class TransferViewModelTest {
 
     private fun createViewModel(bookIds: List<Long> = emptyList()): TransferViewModel =
         TransferViewModel(bookIds, repository, manager)
+
+    /** 与 [device]（peer-1）完成配对（R-01：动作前置条件）。 */
+    private fun pairWithDevice() {
+        manager.emitPairing(
+            TransferPairingState(
+                status = PairingGate.Status.PAIRED,
+                pairedDeviceId = device.deviceId,
+            ),
+        )
+    }
 
     private fun book(id: Long, title: String) = Book(
         id = id,
@@ -162,6 +174,8 @@ class TransferViewModelTest {
     fun `选择设备后发送解析出的书籍`() = runTest(mainDispatcher) {
         viewModel = createViewModel(bookIds = listOf(1, 2))
         repository.emitBooks(listOf(book(1, "书一"), book(2, "书二")))
+        advanceUntilIdle()
+        pairWithDevice()
         advanceUntilIdle()
 
         viewModel.sendTo(device)
@@ -279,6 +293,8 @@ class TransferViewModelTest {
     fun `发起迁移委托管理器并透传状态`() = runTest(mainDispatcher) {
         viewModel = createViewModel()
         advanceUntilIdle()
+        pairWithDevice()
+        advanceUntilIdle()
         viewModel.startMigration(device)
         advanceUntilIdle()
         manager.emitMigration(
@@ -345,6 +361,8 @@ class TransferViewModelTest {
     fun `发起同步委托管理器并透传状态`() = runTest(mainDispatcher) {
         viewModel = createViewModel()
         advanceUntilIdle()
+        pairWithDevice()
+        advanceUntilIdle()
 
         viewModel.startSync(device)
         manager.emitSync(TransferSyncState(active = true, phaseLabel = "读取对端进度"))
@@ -409,5 +427,152 @@ class TransferViewModelTest {
         viewModel.dismissSyncReport()
 
         assertEquals(1, manager.dismissSyncReportCount)
+    }
+
+    // ---- 配对（R-01 / G1） ----
+
+    @Test
+    fun `未配对设备上的发送动作先弹配对对话框`() = runTest(mainDispatcher) {
+        viewModel = createViewModel(bookIds = listOf(1))
+        repository.emitBooks(listOf(book(1, "书一")))
+        advanceUntilIdle()
+
+        viewModel.sendTo(device)
+        advanceUntilIdle()
+
+        assertTrue("不应直接发送", manager.sentTargets.isEmpty())
+        assertEquals(device, viewModel.uiState.value.pairingTarget)
+    }
+
+    @Test
+    fun `输入配对码委托管理器（仅数字限长 6 位）`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.sendTo(device) // 打开对话框
+        advanceUntilIdle()
+
+        viewModel.updatePairingInput("12ab34cd56ef")
+        assertEquals("123456", viewModel.uiState.value.pairingInput)
+
+        viewModel.confirmPairing()
+        advanceUntilIdle()
+
+        val (target, code) = manager.pairWithTargets.single()
+        assertEquals(device, target)
+        assertEquals("123456", code)
+    }
+
+    @Test
+    fun `配对成功后自动继续挂起的发送并关闭对话框`() = runTest(mainDispatcher) {
+        viewModel = createViewModel(bookIds = listOf(1))
+        repository.emitBooks(listOf(book(1, "书一")))
+        advanceUntilIdle()
+        viewModel.sendTo(device)
+        advanceUntilIdle()
+        assertTrue(manager.sentTargets.isEmpty())
+
+        pairWithDevice() // 管理器状态落定 PAIRED
+        advanceUntilIdle()
+
+        assertNull("对话框应关闭", viewModel.uiState.value.pairingTarget)
+        assertEquals(device, manager.sentTargets.single().target)
+        assertEquals(listOf(1L), manager.sentTargets.single().books.map { it.id })
+    }
+
+    @Test
+    fun `配对失败保持对话框并展示错误`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        viewModel.sendTo(device)
+        advanceUntilIdle()
+
+        manager.emitPairing(
+            TransferPairingState(
+                status = PairingGate.Status.PAIRING,
+                busy = false,
+                error = "配对码不正确，请确认后重试",
+            ),
+        )
+        advanceUntilIdle()
+
+        assertEquals(device, viewModel.uiState.value.pairingTarget)
+        assertEquals("配对码不正确，请确认后重试", viewModel.uiState.value.pairing.error)
+        assertTrue("失败不应触发发送", manager.sentTargets.isEmpty())
+    }
+
+    @Test
+    fun `放弃配对关闭对话框且不执行挂起动作`() = runTest(mainDispatcher) {
+        viewModel = createViewModel(bookIds = listOf(1))
+        repository.emitBooks(listOf(book(1, "书一")))
+        advanceUntilIdle()
+        viewModel.sendTo(device)
+        advanceUntilIdle()
+
+        viewModel.dismissPairingDialog()
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.pairingTarget)
+        // 关对话框后即便配对状态到来也不应补发
+        pairWithDevice()
+        advanceUntilIdle()
+        assertTrue(manager.sentTargets.isEmpty())
+    }
+
+    @Test
+    fun `已配对设备点击直接发送不弹对话框`() = runTest(mainDispatcher) {
+        viewModel = createViewModel(bookIds = listOf(1))
+        repository.emitBooks(listOf(book(1, "书一")))
+        advanceUntilIdle()
+        pairWithDevice()
+        advanceUntilIdle()
+
+        viewModel.sendTo(device)
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.pairingTarget)
+        assertEquals(1, manager.sentTargets.size)
+    }
+
+    @Test
+    fun `已配对判定按对端设备 ID 精确匹配`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        pairWithDevice()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.isPairedWith(device))
+        assertFalse(viewModel.isPairedWith(device.copy(deviceId = "peer-2")))
+    }
+
+    @Test
+    fun `配对状态透传并解析对端设备名`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        manager.emitDevices(listOf(device, device.copy(deviceId = "peer-2", deviceName = "另一台")))
+        advanceUntilIdle()
+
+        pairWithDevice()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.pairing.status == PairingGate.Status.PAIRED)
+        assertEquals("peer-1", viewModel.uiState.value.pairing.pairedDeviceId)
+        assertEquals("对端设备", viewModel.uiState.value.pairedDeviceName)
+    }
+
+    @Test
+    fun `生成配对码与取消配对委托管理器`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        viewModel.beginPairing()
+        advanceUntilIdle()
+        assertEquals(1, manager.beginPairingCount)
+        assertEquals(PairingGate.Status.PAIRING, viewModel.uiState.value.pairing.status)
+        assertEquals("123456", viewModel.uiState.value.pairing.displayCode)
+
+        viewModel.cancelPairing()
+        advanceUntilIdle()
+        assertEquals(1, manager.cancelPairingCount)
+        assertEquals(PairingGate.Status.UNPAIRED, viewModel.uiState.value.pairing.status)
     }
 }

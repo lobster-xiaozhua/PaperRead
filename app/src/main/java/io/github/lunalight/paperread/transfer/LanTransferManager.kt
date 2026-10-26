@@ -11,7 +11,6 @@ import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import java.io.File
-import java.io.InputStream
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -26,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 /** 传书服务状态（AC-9.1：本机标识 = 设备名 + IP:端口）。 */
@@ -72,6 +72,23 @@ data class TransferSyncState(
 )
 
 /**
+ * 配对状态（R-01 / G1：UI 展示 + 对话框驱动）。
+ *
+ * @param status 配对状态机状态（[PairingGate.Status]）
+ * @param displayCode 本机展示中的配对码（PAIRING 时非空，仅内存）
+ * @param pairedDeviceId 已配对的对端设备 ID（PAIRED 时非空）
+ * @param busy 配对探测请求进行中（输入侧；防重复提交）
+ * @param error 配对失败原因（输入侧；下次尝试前保持展示）
+ */
+data class TransferPairingState(
+    val status: PairingGate.Status = PairingGate.Status.UNPAIRED,
+    val displayCode: String? = null,
+    val pairedDeviceId: String? = null,
+    val busy: Boolean = false,
+    val error: String? = null,
+)
+
+/**
  * 换机迁移状态（AC-10.1 ~ AC-10.4）。
  *
  * @param report 完成后的成功 / 失败清单（AC-10.3）；仅接收端产出
@@ -110,11 +127,32 @@ interface LanTransferManager {
     val migration: StateFlow<TransferMigrationState>
     val sync: StateFlow<TransferSyncState>
 
+    /** 配对状态（展示端码 / 已配对对端 / 输入侧探测进度与错误）。 */
+    val pairing: StateFlow<TransferPairingState>
+
     /** 启动局域网服务（发现 + HTTP 服务）。已在运行时幂等返回。 */
     fun startService()
 
     /** 停止服务并清理状态。 */
     fun stopService()
+
+    /**
+     * 展示端：生成配对码并进入等待（PAIRING）。
+     *
+     * 对端在传书页输入该码即完成配对（服务端验签落定）。
+     */
+    fun beginPairing()
+
+    /** 取消配对：解除已配对关系 / 中止等待，secret 清零，回到 UNPAIRED。 */
+    fun cancelPairing()
+
+    /**
+     * 输入侧：以对端设备 + 输入的配对码发起配对探测（AC-9.x 之外的 R-01 流程）。
+     *
+     * 探测成功即配对落定（后续发送 / 迁移 / 同步均以该 secret 鉴权）；
+     * 失败原因经 [pairing] 的 error 字段暴露。
+     */
+    fun pairWith(device: DiscoveredDevice, code: String)
 
     /** 向已发现设备发送多本书（逐本上传，任一失败即中止，AC-9.6）。 */
     fun sendBooks(target: DiscoveredDevice, books: List<Book>)
@@ -161,8 +199,10 @@ interface LanTransferManager {
  *
  * 组合：
  * - [LanDiscovery]（UDP 发现状态机）+ [UdpSocketTransport]（发现端口）；
- * - [TransferHttpServer]（仅绑 WiFi 网卡地址，AC-9.7）+ 本类的接收 handler；
- * - [TransferClient]（发送）；
+ * - [TransferHttpServer]（仅绑 WiFi 网卡地址，AC-9.7）+ 本类的接收 handler，
+ *   路由前经 [pairingGate] 鉴权（未配对拒收，R-01 / G1）；
+ * - [TransferClient]（发送；Bearer 令牌 + 摘要声明，配对成功后才拿得到 secret）；
+ * - [PairingGate]（配对状态机 + secret 生命周期：仅内存，取消即清零）；
  * - 接收落盘 cacheDir/transfer/ → FileProvider content Uri → [BookImporter]
  *   （复用既有导入流水线，不出现第二条导入逻辑，AC-9.5）；
  * - 换机迁移（[MigrationBundleCodec] 打包 / 解包 + [MigrationProcessor] 编排，
@@ -195,7 +235,66 @@ class DefaultLanTransferManager(
     private val _sync = MutableStateFlow(TransferSyncState())
     override val sync: StateFlow<TransferSyncState> = _sync.asStateFlow()
 
+    private val _pairing = MutableStateFlow(TransferPairingState())
+    override val pairing: StateFlow<TransferPairingState> = _pairing.asStateFlow()
+
     private var syncJob: Job? = null
+
+    /**
+     * 配对门（R-01 / G1）：HTTP 服务的路由前鉴权器 + secret 生命周期。
+     *
+     * [PairingGate.onPaired] 在服务端 accept 线程触发（对端输入正确配对码），
+     * 仅做 MutableStateFlow 赋值，线程安全。
+     */
+    private val pairingGate = PairingGate(
+        selfDeviceId = { identityStore.deviceId() },
+        onPaired = { peerId ->
+            _pairing.value = TransferPairingState(
+                status = PairingGate.Status.PAIRED,
+                pairedDeviceId = peerId,
+            )
+        },
+    )
+
+    /**
+     * 传输客户端（凭证随取随用：已配对时由 [pairingGate] 供给 secret）。
+     *
+     * 单实例复用：无连接状态，每个请求自建 HttpURLConnection。
+     */
+    private val transferClient = TransferClient(
+        secretProvider = { pairingGate.secret },
+        selfDeviceId = { identityStore.deviceId() },
+    )
+
+    /** spill 目录（服务端鉴权前置落盘；服务启动时清理上次残留）。 */
+    private val spillDir: File
+        get() = File(context.cacheDir, "transfer/spill")
+
+    /** 请求体接收进度（服务端 spill 阶段驱动 UI 的「正在接收」）。 */
+    private val onReceiveProgress: (TransferEndpoint, String, Float) -> Unit = { endpoint, name, fraction ->
+        when (endpoint) {
+            TransferEndpoint.UPLOAD -> _receiveState.value = TransferReceiveState(
+                receiving = true,
+                fileName = name,
+                fraction = fraction,
+            )
+
+            TransferEndpoint.BUNDLE -> _migration.value = TransferMigrationState(
+                active = true,
+                direction = MigrationDirection.RECEIVE,
+                phaseLabel = "接收迁移包",
+                fraction = fraction,
+            )
+        }
+    }
+
+    /** 请求体接收中止（鉴权后断链 / 摘要不符：服务端已清理 spill，UI 复位）。 */
+    private val onReceiveAborted: (TransferEndpoint, String) -> Unit = { endpoint, reason ->
+        when (endpoint) {
+            TransferEndpoint.UPLOAD -> _receiveState.value = TransferReceiveState(error = reason)
+            TransferEndpoint.BUNDLE -> _migration.value = TransferMigrationState(error = reason)
+        }
+    }
 
     private val syncJson = Json {
         ignoreUnknownKeys = true
@@ -335,14 +434,14 @@ class DefaultLanTransferManager(
     private val remoteSyncGateway = object : RemoteSyncGateway {
 
         override fun fetchState(device: DiscoveredDevice): SyncEnvelope? {
-            val text = TransferClient().fetchSyncState(device.host, device.httpPort) ?: return null
+            val text = transferClient.fetchSyncState(device.host, device.httpPort) ?: return null
             return runCatching {
                 syncJson.decodeFromString(SyncEnvelope.serializer(), text)
             }.getOrNull()?.takeIf { it.version <= SYNC_PROTOCOL_VERSION }
         }
 
         override fun pushState(device: DiscoveredDevice, envelope: SyncEnvelope): Boolean =
-            TransferClient().pushSyncState(
+            transferClient.pushSyncState(
                 device.host,
                 device.httpPort,
                 syncJson.encodeToString(SyncEnvelope.serializer(), envelope),
@@ -362,121 +461,77 @@ class DefaultLanTransferManager(
             ServerMeta(ok = true, deviceName = identityStore.deviceName(), protocol = TRANSFER_VERSION),
         )
 
-        override fun onUpload(fileName: String, contentLength: Long, body: InputStream): String? {
-            val safeName = sanitizeFileName(fileName) ?: return "文件名不合法"
-            val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
-            val target = File(tempDir, safeName)
-            _receiveState.value = TransferReceiveState(receiving = true, fileName = safeName)
-            var copied = 0L
-            try {
-                target.outputStream().use { out ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE * 8)
-                    while (copied < contentLength) {
-                        val want = minOf(buffer.size.toLong(), contentLength - copied).toInt()
-                        val read = body.read(buffer, 0, want)
-                        if (read <= 0) break
-                        out.write(buffer, 0, read)
-                        copied += read
-                        _receiveState.value = _receiveState.value.copy(
-                            fraction = (copied.toFloat() / contentLength).coerceIn(0f, 1f),
-                        )
-                    }
-                }
-                if (copied != contentLength) {
-                    target.delete()
-                    _receiveState.value = TransferReceiveState(error = "传输不完整，已丢弃")
-                    return "incomplete"
-                }
-            } catch (e: Exception) {
-                target.delete()
-                _receiveState.value = TransferReceiveState(error = "保存失败：${e.message}")
-                return e.message ?: "io"
-            }
-
-            // 落盘完成 → FileProvider content Uri → 复用导入流水线（AC-9.5）
-            receivedTempFile = target
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                target,
-            )
-            val result = runBlocking { bookImporter.prepare(uri) }
-            return when (result) {
-                is PrepareResult.Success -> {
-                    _receiveState.value = TransferReceiveState(pending = result.pending)
-                    null
-                }
-
-                is PrepareResult.Duplicate -> {
-                    // 内容已存在：丢弃临时文件并提示，不弹导入确认
-                    deleteReceivedTemp()
-                    _receiveState.value = TransferReceiveState(
-                        error = "《${result.existing.title}》已存在于书架，已跳过",
-                    )
-                    null
-                }
-
-                is PrepareResult.Unsupported -> {
-                    deleteReceivedTemp()
-                    _receiveState.value = TransferReceiveState(error = result.error.userMessage)
-                    null
-                }
-
-                is PrepareResult.Failure -> {
-                    deleteReceivedTemp()
-                    _receiveState.value = TransferReceiveState(error = result.error.userMessage)
-                    null
-                }
-            }
+    override fun onUpload(fileName: String, contentLength: Long, bodyFile: File): String? {
+        val safeName = sanitizeFileName(fileName) ?: run {
+            bodyFile.delete()
+            return "文件名不合法"
+        }
+        val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
+        val target = File(tempDir, safeName)
+        // 已鉴权落盘的文件直接改名到位（同分区原子 rename，零拷贝）；
+        // rename 失败（极少见的跨分区场景）回落拷贝后删除原件
+        if (!bodyFile.renameTo(target)) {
+            bodyFile.copyTo(target, overwrite = true)
+            bodyFile.delete()
         }
 
-        override fun onBundle(fileName: String, contentLength: Long, body: InputStream): String? {
-            if (_migration.value.active) return "busy"
-            val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
-            val target = File(tempDir, "incoming.bundle.zip")
-            _migration.value = TransferMigrationState(
-                active = true,
-                direction = MigrationDirection.RECEIVE,
-                phaseLabel = "接收迁移包",
-            )
-            val copied = try {
-                var count = 0L
-                target.outputStream().use { out ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE * 8)
-                    while (count < contentLength) {
-                        val want = minOf(buffer.size.toLong(), contentLength - count).toInt()
-                        val read = body.read(buffer, 0, want)
-                        if (read <= 0) break
-                        out.write(buffer, 0, read)
-                        count += read
-                        _migration.value = _migration.value.copy(
-                            fraction = (count.toFloat() / contentLength).coerceIn(0f, 1f),
-                        )
-                    }
-                }
-                count
-            } catch (e: Exception) {
-                target.delete()
-                _migration.value = _migration.value.copy(
-                    active = false,
-                    error = "接收迁移包失败：${e.message}",
+        // 落盘完成 → FileProvider content Uri → 复用导入流水线（AC-9.5）
+        receivedTempFile = target
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            target,
+        )
+        val result = runBlocking { bookImporter.prepare(uri) }
+        return when (result) {
+            is PrepareResult.Success -> {
+                _receiveState.value = TransferReceiveState(pending = result.pending)
+                null
+            }
+
+            is PrepareResult.Duplicate -> {
+                // 内容已存在：丢弃临时文件并提示，不弹导入确认
+                deleteReceivedTemp()
+                _receiveState.value = TransferReceiveState(
+                    error = "《${result.existing.title}》已存在于书架，已跳过",
                 )
-                return e.message ?: "io"
+                null
             }
-            if (copied != contentLength) {
-                target.delete()
-                _migration.value = _migration.value.copy(
-                    active = false,
-                    error = "迁移包传输不完整，已丢弃",
-                )
-                return "incomplete"
+
+            is PrepareResult.Unsupported -> {
+                deleteReceivedTemp()
+                _receiveState.value = TransferReceiveState(error = result.error.userMessage)
+                null
             }
-            // 字节已完整落盘：解包与逐本导入转为后台，HTTP 尽早应答（避免对端超时）
-            migrationJob = scope.launch {
-                processIncomingBundle(target)
+
+            is PrepareResult.Failure -> {
+                deleteReceivedTemp()
+                _receiveState.value = TransferReceiveState(error = result.error.userMessage)
+                null
             }
-            return null
         }
+    }
+
+    override fun onBundle(fileName: String, contentLength: Long, bodyFile: File): String? {
+        // 发送中的迁移占用同一状态通道：接收请求让位（服务端顺序处理，真正的
+        // 并发冲突不存在，此处仅防「边发边收」的 UI 状态互踩）
+        if (_migration.value.active && _migration.value.direction == MigrationDirection.SEND) {
+            bodyFile.delete()
+            return "busy"
+        }
+        val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
+        val target = File(tempDir, "incoming.bundle.zip")
+        if (!bodyFile.renameTo(target)) {
+            bodyFile.copyTo(target, overwrite = true)
+            bodyFile.delete()
+        }
+        // 字节已完整落盘（服务端已鉴权 + 摘要核对）：解包与逐本导入转为后台，
+        // HTTP 尽早应答（避免对端超时）
+        migrationJob = scope.launch {
+            processIncomingBundle(target)
+        }
+        return null
+    }
 
         override fun syncState(): String = runBlocking {
             val envelope = localSyncGateway.snapshot(identityStore.deviceId())
@@ -519,7 +574,18 @@ class DefaultLanTransferManager(
                 _serviceState.value = TransferServiceState(error = "未接入 WiFi，无法启动传书服务")
                 return@launch
             }
-            val httpServer = TransferHttpServer(address, 0, handler)
+            // 清理上次异常退出可能残留的 spill 临时文件（cacheDir 可被系统回收，
+            // 此处仅避免堆积）
+            spillDir.deleteRecursively()
+            val httpServer = TransferHttpServer(
+                bindAddress = address,
+                port = 0,
+                handler = handler,
+                tokenVerifier = pairingGate,
+                spillDir = spillDir,
+                onReceiveProgress = onReceiveProgress,
+                onReceiveAborted = onReceiveAborted,
+            )
             val port = httpServer.actualPort
             val udpSocket = try {
                 DatagramSocket(null).apply {
@@ -566,8 +632,81 @@ class DefaultLanTransferManager(
         transport = null
         discovery?.reset()
         discovery = null
+        // 配对随服务会话终结：secret 清零，下次进入传书页需重新配对
+        pairingGate.cancelPairing()
+        _pairing.value = TransferPairingState()
         _devices.value = emptyList()
         _serviceState.value = TransferServiceState()
+    }
+
+    // ---- 配对（R-01 / G1） ----
+
+    override fun beginPairing() {
+        val code = pairingGate.beginPairing()
+        _pairing.value = TransferPairingState(
+            status = PairingGate.Status.PAIRING,
+            displayCode = code,
+        )
+    }
+
+    override fun cancelPairing() {
+        pairingGate.cancelPairing()
+        _pairing.value = TransferPairingState()
+    }
+
+    override fun pairWith(device: DiscoveredDevice, code: String) {
+        if (_pairing.value.busy) return
+        val candidate = pairingGate.deriveForPeer(device.deviceId, code)
+        if (candidate == null) {
+            _pairing.value = _pairing.value.copy(busy = false, error = "配对码应为 6 位数字")
+            return
+        }
+        _pairing.value = _pairing.value.copy(busy = true, error = null)
+        scope.launch {
+            val result = try {
+                withContext(Dispatchers.IO) {
+                    transferClient.probePairing(
+                        host = device.host,
+                        port = device.httpPort,
+                        candidateSecret = candidate,
+                        selfDeviceId = identityStore.deviceId(),
+                    )
+                }
+            } catch (e: Exception) {
+                PairingProbeResult.Unreachable
+            }
+            when (result) {
+                is PairingProbeResult.Paired -> {
+                    // 候选 secret 移交配对门（其生命周期自此由门管理）
+                    pairingGate.onPairingConfirmed(device.deviceId, candidate)
+                    _pairing.value = TransferPairingState(
+                        status = PairingGate.Status.PAIRED,
+                        pairedDeviceId = device.deviceId,
+                    )
+                }
+
+                is PairingProbeResult.Rejected -> {
+                    candidate.fill(0)
+                    _pairing.value = _pairing.value.copy(
+                        busy = false,
+                        error = "配对码不正确，请确认后重试",
+                    )
+                }
+
+                is PairingProbeResult.Failed -> {
+                    candidate.fill(0)
+                    _pairing.value = _pairing.value.copy(busy = false, error = "对端无响应，请重试")
+                }
+
+                is PairingProbeResult.Unreachable -> {
+                    candidate.fill(0)
+                    _pairing.value = _pairing.value.copy(
+                        busy = false,
+                        error = "无法连接对端，请确认两台设备处于同一 WiFi 且对端已打开传书页",
+                    )
+                }
+            }
+        }
     }
 
     override fun sendBooks(target: DiscoveredDevice, books: List<Book>) {
@@ -591,7 +730,7 @@ class DefaultLanTransferManager(
                         return@launch
                     }
                     val displayName = "${book.title}.${book.format.extension}"
-                    val result = TransferClient().upload(
+                    val result = transferClient.upload(
                         host = target.host,
                         port = target.httpPort,
                         file = source,
@@ -602,7 +741,11 @@ class DefaultLanTransferManager(
                     if (result is UploadResult.Failure) {
                         _sendState.value = _sendState.value.copy(
                             active = false,
-                            error = "《${book.title}》发送失败：${result.message}",
+                            error = if (result.unauthorized) {
+                                result.message
+                            } else {
+                                "《${book.title}》发送失败：${result.message}"
+                            },
                         )
                         return@launch
                     }
@@ -703,7 +846,7 @@ class DefaultLanTransferManager(
                     fraction = 0.2f,
                     currentTitle = "${books.size} 本书",
                 )
-                val result = TransferClient().uploadBundle(
+                val result = transferClient.uploadBundle(
                     host = target.host,
                     port = target.httpPort,
                     file = zip,
@@ -720,7 +863,11 @@ class DefaultLanTransferManager(
 
                     is UploadResult.Failure -> _migration.value = _migration.value.copy(
                         active = false,
-                        error = "迁移包发送失败：${result.message}",
+                        error = if (result.unauthorized) {
+                            result.message
+                        } else {
+                            "迁移包发送失败：${result.message}"
+                        },
                     )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
