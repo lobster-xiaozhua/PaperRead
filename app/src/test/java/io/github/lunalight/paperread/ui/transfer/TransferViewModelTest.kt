@@ -1,5 +1,6 @@
 package io.github.lunalight.paperread.ui.transfer
 
+import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.domain.model.BookFormat
 import io.github.lunalight.paperread.fakes.FakeBookRepository
@@ -252,6 +253,81 @@ class TransferViewModelTest {
         advanceUntilIdle()
 
         assertEquals("传输不完整，已丢弃", viewModel.uiState.value.message)
+    }
+
+    @Test
+    fun `重复导入跳过转为一次性消息且可关闭`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        manager.emitReceive(TransferReceiveState(error = "《旧书架》已存在于书架，已跳过"))
+        advanceUntilIdle()
+
+        assertEquals("《旧书架》已存在于书架，已跳过", viewModel.uiState.value.message)
+        viewModel.dismissMessage()
+        assertNull(viewModel.uiState.value.message)
+    }
+
+    @Test
+    fun `重新解析失败转为一次性消息且保留待确认`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        val pending = PendingImport(
+            dirName = "dir-rp",
+            displayName = "重解书.txt",
+            title = "重解书",
+            author = "未知",
+            format = BookFormat.TXT,
+            charsetName = "UTF-8",
+            strategy = SplitStrategy.CONSERVATIVE,
+            sha256 = "sha-rp",
+            fileSize = 16L,
+            totalChars = 16L,
+            chapters = emptyList(),
+        )
+        manager.emitReceive(
+            TransferReceiveState(pending = pending, error = "重新解析失败，请重试"),
+        )
+        advanceUntilIdle()
+
+        assertEquals("重新解析失败，请重试", viewModel.uiState.value.message)
+        // 待确认态保留：用户可换编码 / 策略重试，不被错误清掉
+        assertEquals("重解书", viewModel.uiState.value.receive.pending?.title)
+    }
+
+    @Test
+    fun `对端处理失败话术透传且不随进度重复弹出`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        manager.emitReceive(
+            TransferReceiveState(receiving = true, fileName = "drm.epub", fraction = 0.5f),
+        )
+        advanceUntilIdle()
+        assertNull("纯进度不得弹消息", viewModel.uiState.value.message)
+
+        manager.emitReceive(TransferReceiveState(error = "该 EPUB 含 DRM 加密，无法导入"))
+        advanceUntilIdle()
+        assertEquals("该 EPUB 含 DRM 加密，无法导入", viewModel.uiState.value.message)
+
+        // 随后的无错误发射沿用旧消息（一次性语义：只弹一次，关闭才消失）
+        manager.emitReceive(TransferReceiveState())
+        advanceUntilIdle()
+        assertEquals("该 EPUB 含 DRM 加密，无法导入", viewModel.uiState.value.message)
+
+        viewModel.dismissMessage()
+        assertNull(viewModel.uiState.value.message)
+    }
+
+    @Test
+    fun `取消迁移转为一次性消息`() = runTest(mainDispatcher) {
+        viewModel = createViewModel()
+        advanceUntilIdle()
+        manager.emitMigration(TransferMigrationState(error = "已取消迁移"))
+        advanceUntilIdle()
+
+        assertEquals("已取消迁移", viewModel.uiState.value.message)
+        assertFalse(viewModel.uiState.value.migration.active)
+        viewModel.dismissMessage()
+        assertNull(viewModel.uiState.value.message)
     }
 
     @Test

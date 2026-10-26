@@ -13,6 +13,10 @@ import kotlinx.coroutines.CompletableDeferred
 /**
  * [BookImporter] 的内存 fake：结果可配置，[prepareGate] 可挂起 prepare
  * （配合取消测试），全部调用被记录。
+ *
+ * 失败注入（G4 对端处理失败 / 导入失败路径）：
+ * - [failNextImport]：下一次 prepare 抛 [java.io.IOException]（导入流水线崩溃）；
+ * - [failNextConfirm]：下一次 confirm 抛 [java.io.IOException]（入库失败）。
  */
 class FakeBookImporter : BookImporter {
 
@@ -23,8 +27,20 @@ class FakeBookImporter : BookImporter {
     /** 非空时 prepare 先等待该门（测试取消 / 观察运行态）。 */
     var prepareGate: CompletableDeferred<Unit>? = null
 
+    /**
+     * 非空时 prepare 按调用顺序依次消费（模拟迁移多本书不同的导入结局：
+     * 第一本成功、第二本 DRM……）。消费完回落到 [prepareResult]。
+     */
+    var prepareResultQueue: ArrayDeque<PrepareResult>? = null
+
     /** prepare 期间经 onProgress 回调的阶段序列（放行门前/后各一轮）。 */
     var progressSteps: List<ImportProgress> = emptyList()
+
+    /** 为 true 时下一次 prepare 抛 IOException（模拟导入流水线崩溃，用后自复位）。 */
+    var failNextImport: Boolean = false
+
+    /** 为 true 时下一次 confirm 抛 IOException（模拟入库失败，用后自复位）。 */
+    var failNextConfirm: Boolean = false
 
     var reparseResult: PendingImport? = null
     var reparseBookResult: ImportError? = null
@@ -45,7 +61,12 @@ class FakeBookImporter : BookImporter {
     ): PrepareResult {
         prepareCalls += PrepareCall(uri, strategy)
         prepareGate?.await()
+        if (failNextImport) {
+            failNextImport = false
+            throw java.io.IOException("模拟导入流水线崩溃")
+        }
         progressSteps.forEach(onProgress)
+        prepareResultQueue?.removeFirstOrNull()?.let { return it }
         return prepareResult
     }
 
@@ -60,6 +81,10 @@ class FakeBookImporter : BookImporter {
 
     override suspend fun confirm(pending: PendingImport): Long {
         confirmed += pending
+        if (failNextConfirm) {
+            failNextConfirm = false
+            throw java.io.IOException("模拟入库失败")
+        }
         return confirmResult
     }
 

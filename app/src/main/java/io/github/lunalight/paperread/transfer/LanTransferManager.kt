@@ -215,6 +215,21 @@ class DefaultLanTransferManager(
     private val bookTextStore: BookTextStore,
     private val identityStore: DeviceIdentityStore,
     private val scope: CoroutineScope,
+    /**
+     * WiFi 网卡地址解析（生产见 [LanAddresses.wifiIPv4]）。
+     *
+     * 抽为注入点：编排层流程单测（G4）需要驱动真实 HTTP 服务，而测试环境
+     * （Robolectric 沙箱）无 wlan 网卡，注入回环地址即可不改生产行为地
+     * 覆盖「服务已启动」之后的全部接收 / 迁移 / 同步分支。
+     */
+    private val wifiAddressProvider: () -> InetAddress? = { LanAddresses.wifiIPv4() },
+    /**
+     * UDP 发现端口（生产固定 [DISCOVERY_PORT]）。
+     *
+     * 抽为注入点：同一 JVM 内并存多个管理器实例（同步 / 迁移的双端编排单测）
+     * 时各持独立发现端口，避免固定端口争抢导致启动失败。
+     */
+    private val discoveryPort: Int = DISCOVERY_PORT,
 ) : LanTransferManager {
 
     private val _serviceState = MutableStateFlow(TransferServiceState())
@@ -279,12 +294,22 @@ class DefaultLanTransferManager(
                 fraction = fraction,
             )
 
-            TransferEndpoint.BUNDLE -> _migration.value = TransferMigrationState(
-                active = true,
-                direction = MigrationDirection.RECEIVE,
-                phaseLabel = "接收迁移包",
-                fraction = fraction,
-            )
+            TransferEndpoint.BUNDLE -> {
+                // 发送中的迁移与本接收共用同一状态通道：progress 回调先于
+                // onBundle 的 busy 拒绝触发，若无条件改写会把 SEND 状态踩成
+                // RECEIVE（既错乱 UI，又让 busy 拒绝永远不生效）。
+                // 发送进行中（active + SEND）时保持原状，交由 onBundle 拒绝。
+                val sending = _migration.value.active &&
+                    _migration.value.direction == MigrationDirection.SEND
+                if (!sending) {
+                    _migration.value = TransferMigrationState(
+                        active = true,
+                        direction = MigrationDirection.RECEIVE,
+                        phaseLabel = "接收迁移包",
+                        fraction = fraction,
+                    )
+                }
+            }
         }
     }
 
@@ -292,7 +317,14 @@ class DefaultLanTransferManager(
     private val onReceiveAborted: (TransferEndpoint, String) -> Unit = { endpoint, reason ->
         when (endpoint) {
             TransferEndpoint.UPLOAD -> _receiveState.value = TransferReceiveState(error = reason)
-            TransferEndpoint.BUNDLE -> _migration.value = TransferMigrationState(error = reason)
+            TransferEndpoint.BUNDLE -> {
+                // 同上：发送进行中的迁移不接收中止反馈（该上传本就要被 busy 拒绝）
+                val sending = _migration.value.active &&
+                    _migration.value.direction == MigrationDirection.SEND
+                if (!sending) {
+                    _migration.value = TransferMigrationState(error = reason)
+                }
+            }
         }
     }
 
@@ -401,6 +433,13 @@ class DefaultLanTransferManager(
 
         override suspend fun applyProgress(state: BookSyncState) {
             val book = bookRepository.findBySha256(state.sha256) ?: return
+            // 回推防御（AC-11.2「最后阅读时间较新者胜」）：对端回推的
+            // pushBack 条目可能因书签差异携带旧进度——[SyncMerger.merge] 的
+            // pushBack 条件是「本地有对端缺的差异」，并非只携带较新进度。
+            // 落地前按 [WriteBackDecider] 复核，避免旧进度覆盖本地较新记录
+            // （协调器路径的 applyRemoteProgress 已保证较新，复核对其恒真，
+            // 此处仅拦截回推通道的旧数据与「从未阅读」的空记录）。
+            if (!WriteBackDecider.shouldWriteBack(book.lastReadAt, state.lastReadAt)) return
             bookRepository.saveReaderPosition(
                 bookId = book.id,
                 position = ReaderPosition(
@@ -569,7 +608,7 @@ class DefaultLanTransferManager(
         _serviceState.value = TransferServiceState(starting = true)
         serviceJob = scope.launch {
             val deviceName = identityStore.deviceName()
-            val address = LanAddresses.wifiIPv4()
+            val address = wifiAddressProvider()
             if (address == null) {
                 _serviceState.value = TransferServiceState(error = "未接入 WiFi，无法启动传书服务")
                 return@launch
@@ -591,7 +630,7 @@ class DefaultLanTransferManager(
                 DatagramSocket(null).apply {
                     reuseAddress = true
                     broadcast = true
-                    bind(InetSocketAddress(DISCOVERY_PORT))
+                    bind(InetSocketAddress(discoveryPort))
                 }
             } catch (e: Exception) {
                 httpServer.close()
@@ -773,9 +812,19 @@ class DefaultLanTransferManager(
     override fun confirmReceived() {
         val pending = _receiveState.value.pending ?: return
         scope.launch {
-            bookImporter.confirm(pending)
-            deleteReceivedTemp()
-            _receiveState.value = TransferReceiveState(importedTitle = pending.title)
+            try {
+                bookImporter.confirm(pending)
+                deleteReceivedTemp()
+                _receiveState.value = TransferReceiveState(importedTitle = pending.title)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 入库失败（磁盘异常等）：保留 pending 与临时文件供重试，
+                // 错误上浮 UI（AC-9.6：提示失败原因）而非静默吞掉
+                _receiveState.value = _receiveState.value.copy(
+                    error = "导入失败：${e.message ?: "未知错误"}",
+                )
+            }
         }
     }
 
@@ -885,9 +934,11 @@ class DefaultLanTransferManager(
     }
 
     override fun cancelMigration() {
+        // 状态复位由协程的取消分支负责（"已取消迁移"提示，见
+        // processIncomingBundle / startMigration 的 CancellationException 分支）：
+        // 此处若再无条件复位，与协程的写入存在竞态，取消反馈可能被吞掉。
         migrationJob?.cancel()
         migrationJob = null
-        _migration.value = TransferMigrationState()
     }
 
     override fun dismissMigrationReport() {
@@ -975,7 +1026,7 @@ class DefaultLanTransferManager(
             udpTransport.send(
                 discovery.presenceBytes(isBroadcast = true),
                 broadcastAddress,
-                DISCOVERY_PORT,
+                discoveryPort,
             )
             // 接收窗口 = 一个广播周期（超时即到期）
             var elapsed = 0L
@@ -988,7 +1039,7 @@ class DefaultLanTransferManager(
                         udpTransport.send(
                             discovery.presenceBytes(isBroadcast = false),
                             packet.address,
-                            DISCOVERY_PORT,
+                            discoveryPort,
                         )
                     }
                     elapsed += RECEIVE_POLL_MS
@@ -1003,15 +1054,29 @@ class DefaultLanTransferManager(
         receivedTempFile = null
     }
 
-    private fun sanitizeFileName(raw: String): String? {
-        val base = raw.substringAfterLast('/').substringAfterLast('\\').trim()
-        if (base.isBlank()) return null
-        val cleaned = base.filter { it.code in 32..126 && it !in "/\\:%*?\"<>|" }
-            .take(64)
-        return cleaned.ifBlank { null }
-    }
-
     private companion object {
         const val RECEIVE_POLL_MS = 500L
     }
 }
+
+/**
+ * 文件名净化（HTTP 上传通道的路径穿越防线，与 [MigrationBundleCodec] 解包时的
+ * zip slip 防护对称）：取末段 basename → 拒绝 "." / ".." → 剔除控制字符与
+ * Windows 非法字符 → 限长 [SANITIZED_NAME_MAX_LENGTH]。
+ *
+ * 保留 Unicode 可打印字符：Android 文件系统无保留设备名（CON / PRN / COM1 等
+ * 为 Windows 语义），中文书名等非 ASCII 名是正常输入，一并剔除会丢书名。
+ *
+ * @return 净化后的文件名；输入不合法（空 basename / 全非法字符）时返回 null，
+ *   调用方应拒绝该上传
+ */
+internal fun sanitizeFileName(raw: String): String? {
+    val base = raw.substringAfterLast('/').substringAfterLast('\\').trim()
+    if (base.isBlank() || base == "." || base == "..") return null
+    val cleaned = base.filter { it.code >= 32 && it !in "/\\:%*?\"<>|" }
+        .take(SANITIZED_NAME_MAX_LENGTH)
+    return cleaned.ifBlank { null }
+}
+
+/** 净化后文件名长度上限（超长名截断而非拒绝：对端展示名常带长书名）。 */
+private const val SANITIZED_NAME_MAX_LENGTH = 64

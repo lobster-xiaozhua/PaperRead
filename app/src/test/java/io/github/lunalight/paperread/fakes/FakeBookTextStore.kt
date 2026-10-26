@@ -9,8 +9,14 @@ import java.nio.charset.Charset
 /**
  * [BookTextStore] 的内存 fake：readChapter 由 [chapterText] 提供，
  * 目录删除被记录；File 返回临时路径（测试不触盘）。
+ *
+ * [booksRoot] 可指向临时目录：迁移 / 发送流程单测需要真实存在的源文件
+ * （打包进迁移包），默认值保持既有行为。
  */
 class FakeBookTextStore : BookTextStore {
+
+    /** 书籍根目录（bookDir 的父级；默认系统临时目录下的 fake-books）。 */
+    var booksRoot: File = File(System.getProperty("java.io.tmpdir"), "fake-books")
 
     /** 按 (dirName, chapter) 提供章节文本，默认空串。 */
     var chapterText: (String, Chapter) -> String = { _, _ -> "" }
@@ -26,7 +32,7 @@ class FakeBookTextStore : BookTextStore {
     /** 正文文件是否被认为存在（默认 true；置 false 模拟云备份恢复后的空壳书）。 */
     var textAvailable: Boolean = true
 
-    override fun bookDir(dirName: String): File = File("/tmp/fake-books/$dirName")
+    override fun bookDir(dirName: String): File = File(booksRoot, dirName)
 
     override fun textFile(dirName: String): File = File(bookDir(dirName), "book.txt")
 

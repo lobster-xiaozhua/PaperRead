@@ -273,4 +273,43 @@ class SyncMergerTest {
 
         assertNull(remote.pushed)
     }
+
+    @Test
+    fun `回推失败时本地变化保留且报告未回推`() = runBlocking {
+        val local = FakeLocal(
+            SyncEnvelope(deviceId = "me", books = listOf(state("a", lastReadAt = 900L))),
+        )
+        val remote = FakeRemote(
+            SyncEnvelope(deviceId = "peer", books = listOf(state("a", lastReadAt = 100L))),
+            pushOk = false,
+        )
+
+        val outcome = ProgressSyncCoordinator(local, remote).sync(device, "me").getOrThrow()
+
+        assertEquals(0, outcome.pushed)
+        assertEquals(1, outcome.report.pushBack.size)
+        assertNotNull(remote.pushed)
+    }
+
+    @Test
+    fun `应用对端进度失败时整体同步失败`() = runBlocking {
+        val failing = object : LocalSyncGateway {
+            override suspend fun snapshot(deviceId: String) =
+                SyncEnvelope(deviceId = "me", books = listOf(state("a", lastReadAt = 100L)))
+
+            override suspend fun applyProgress(state: BookSyncState) {
+                error("写入本机进度失败")
+            }
+
+            override suspend fun addBookmarks(state: BookSyncState, bookmarks: List<SyncBookmark>) = Unit
+        }
+        val remote = FakeRemote(
+            SyncEnvelope(deviceId = "peer", books = listOf(state("a", lastReadAt = 300L))),
+        )
+
+        val result = ProgressSyncCoordinator(failing, remote).sync(device, "me")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("同步过程中出错"))
+    }
 }

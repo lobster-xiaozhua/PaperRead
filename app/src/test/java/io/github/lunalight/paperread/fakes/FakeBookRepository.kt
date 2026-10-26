@@ -5,25 +5,38 @@ import io.github.lunalight.paperread.domain.model.Bookmark
 import io.github.lunalight.paperread.domain.model.Chapter
 import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 
 /**
  * [BookRepository] 的内存 fake：可配置返回值 + 记录调用。
  *
  * 观察流由 [booksFlow] / [bookmarksFlow] 驱动，测试用 [emitBooks] / [emitBookmarks] 推送新值。
+ *
+ * 失败 / 挂起注入（G4 编排错误路径）：
+ * - [observeBooksError] 非空时 observeBooks 收集即抛（读取本机书库失败）；
+ * - [booksGate] 非空时 observeBooks 先等待该门（把发送侧迁移稳定挂在
+ *   「收集书库」相位，供 busy / 取消类用例确定性驱动）。
  */
 class FakeBookRepository : BookRepository {
 
     private val booksFlow = MutableStateFlow<List<Book>>(emptyList())
     private val bookmarksFlow = MutableStateFlow<List<Bookmark>>(emptyList())
 
+    /** 非空时 observeBooks 收集即抛（模拟读取本机书库失败，失败注入）。 */
+    var observeBooksError: Throwable? = null
+
+    /** 非空时 observeBooks 先等待该门（挂起「收集书库」相位，取消即释放）。 */
+    var booksGate: CompletableDeferred<Unit>? = null
+
     /** getBook / getChapters 的返回（按需配置）。 */
     var book: Book? = null
     var chapters: List<Chapter> = emptyList()
 
-    /** findBySha256 命中时返回的已存在书籍（判重流程）。 */
+    /** findBySha256 未命中书架时的兜底返回（判重流程）。 */
     var duplicateOf: Book? = null
 
     /** saveImport 返回的书籍 id。 */
@@ -58,7 +71,15 @@ class FakeBookRepository : BookRepository {
         bookmarksFlow.value = bookmarks
     }
 
-    override fun observeBooks(): Flow<List<Book>> = booksFlow
+    override fun observeBooks(): Flow<List<Book>> = when {
+        observeBooksError != null -> flow { throw observeBooksError!! }
+        booksGate != null -> flow {
+            booksGate!!.await()
+            emit(booksFlow.value)
+        }
+
+        else -> booksFlow
+    }
 
     override fun observeChapters(bookId: Long): Flow<List<Chapter>> =
         MutableStateFlow(chapters)
@@ -72,7 +93,8 @@ class FakeBookRepository : BookRepository {
 
     override suspend fun getChapters(bookId: Long): List<Chapter> = chapters
 
-    override suspend fun findBySha256(sha256: String): Book? = duplicateOf
+    override suspend fun findBySha256(sha256: String): Book? =
+        booksFlow.value.firstOrNull { it.sha256 == sha256 } ?: duplicateOf
 
     // ---- 写 ----
 
