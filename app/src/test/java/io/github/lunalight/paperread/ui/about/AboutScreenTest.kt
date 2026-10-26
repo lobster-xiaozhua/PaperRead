@@ -248,9 +248,10 @@ class AboutScreenTest {
             PaperReadTheme { PrivacyScreen(onBack = {}) }
         }
 
-        // 页面逐项渲染（名称节点存在；用途文案随之展示）
+        // 权限名来自 strings.xml（privacy_permission_*_name）：页面逐项渲染，
+        // 断言时用同一份资源解出文案，避免测试与实现各写一份字面量。
         PrivacyPermissionItems.items.forEach { item ->
-            composeRule.onNodeWithText(item.name).scrollToAndAssertRendered()
+            composeRule.onNodeWithText(app.getString(item.nameRes)).scrollToAndAssertRendered()
         }
 
         val info = app.packageManager.getPackageInfo(
@@ -258,7 +259,7 @@ class AboutScreenTest {
             PackageManager.GET_PERMISSIONS,
         )
         val requested = info.requestedPermissions?.toList().orEmpty()
-        val displayed = PrivacyPermissionItems.items.map { it.name }.toSet()
+        val displayed = PrivacyPermissionItems.items.map { app.getString(it.nameRes) }.toSet()
         val expected = requested.toSet() - "${app.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
         assertEquals(
             "隐私页权限清单必须与合并 Manifest 实际权限一致（AC-20.4）",

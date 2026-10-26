@@ -26,6 +26,11 @@
 - CI 结构调整为四 job：`unit`（双 flavor 单测 + 覆盖率门禁）、`robolectric-ui`（Robolectric UI 测试独立 job + 失败重试 ≤1 次，隔离内存抖动）、`lint`、`assemble`；Robolectric jar 缓存 key 增加 `libs.versions.toml` 哈希（依赖变更即失效）
 - 新增 `scripts/check-doc-consistency.sh`（权限清单比对 Manifest、覆盖率数字引用检查、禁文档硬编码 Kotlin 版本号）并纳入 CI
 - CONTRIBUTING / README 口径修正（flavor 命名约束、CI 结构、最小权限说明）
+- **200MB GBK 大文件验收基建（R-05 / G5）**：新增 `scripts/gen-large-book-sample.sh`（固定 seed、字节级可复现的 200MB GBK 样本生成，输出 `.meta` 供真机核对章节数 / 体积 / 首末行 / SHA-256）与 `LargeBookImportTest`（JVM 侧直测导入流水线：章节数生成器/独立扫描/导入三方交叉、GBK 首末章解码、双偏移全链连续、末章不以换行截断；20MB 进 CI，200MB 由属性门控）；新增 `docs/PERFORMANCE_BASELINE.md`（沙箱自动化口径与待真机补测项分栏，明确 JVM 堆与 Android PSS 不可换算）
+- **release/R8 运行时冒烟（R-07 / G7，架构 §6.2 方案 B）**：CI 新增 `r8-smoke` job（`assembleClientRelease` → `scripts/check-r8-keep.sh` 的 mapping 静态断言 → `testClientReleaseUnitTest` 只跑 `quality.*` 序列化 round-trip）；模拟器 install + instrumented 步骤以注释预留（需 KVM runner）
+- `scripts/check-room-migration.sh` 加固（QA 批次 3 反馈）：destructive fallback 匹配放宽到方法名（覆盖 `From(vararg)` / `(dropAllTables)`），新增第 6 项「`version >= 2` 必须有 `MigrationTestHelper` + `runMigrationsAndValidate` 的迁移测试」
+- `docs/NETWORK_AUDIT.md` 补「验证机制的能力边界」：脚本是关键字黑名单 + 字面量扫描，依赖坐标白名单由 `BuildDependencyAllowlistTest` 承担，拼接式 URL 不可静态检出（不再承诺「跳过任一步骤必失败」）
+- 隐私页权限名改由 `strings.xml` 提供（`PrivacyPermissionItems.Item.nameRes`），消除 4 条未引用的 `privacy_permission_*_name` 死资源
 
 [未发布]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.2.0...HEAD
 [1.2.0]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.1.0...v1.2.0

@@ -39,8 +39,16 @@ import io.github.lunalight.paperread.R
  */
 internal object PrivacyPermissionItems {
 
-    /** 一项权限的展示数据：[name] 为合并 Manifest 中的权限全名。 */
-    data class Item(val name: String, val purposeRes: Int)
+    /**
+     * 一项权限的展示数据。
+     *
+     * @param nameRes 权限全名的字符串资源（如 `privacy_permission_internet_name`）。
+     *   刻意**不写 Kotlin 字面量**：权限名是用户可见文案，必须走 `strings.xml`
+     *   （可翻译、可被 lint 的「资源未使用」检查覆盖），也避免同一字符串
+     *   存在于代码与资源两处而漂移。
+     * @param purposeRes 用途说明的字符串资源
+     */
+    data class Item(val nameRes: Int, val purposeRes: Int)
 
     /**
      * 页面展示的权限清单（顺序即展示顺序）。
@@ -50,19 +58,19 @@ internal object PrivacyPermissionItems {
      */
     val items: List<Item> = listOf(
         Item(
-            name = "android.permission.INTERNET",
+            nameRes = R.string.privacy_permission_internet_name,
             purposeRes = R.string.privacy_permission_internet_purpose,
         ),
         Item(
-            name = "android.permission.FOREGROUND_SERVICE",
+            nameRes = R.string.privacy_permission_foreground_service_name,
             purposeRes = R.string.privacy_permission_foreground_service_purpose,
         ),
         Item(
-            name = "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+            nameRes = R.string.privacy_permission_foreground_service_media_playback_name,
             purposeRes = R.string.privacy_permission_foreground_service_media_playback_purpose,
         ),
         Item(
-            name = "android.permission.POST_NOTIFICATIONS",
+            nameRes = R.string.privacy_permission_post_notifications_name,
             purposeRes = R.string.privacy_permission_post_notifications_purpose,
         ),
     )
@@ -108,7 +116,7 @@ fun PrivacyScreen(
                 Row(modifier = Modifier.padding(vertical = 6.dp)) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            text = item.name,
+                            text = stringResource(item.nameRes),
                             style = MaterialTheme.typography.titleSmall,
                         )
                         Text(
