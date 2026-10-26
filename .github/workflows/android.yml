@@ -22,7 +22,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# 门禁拆分为六个独立作业（T-001 · R-03 / R-09；T-006 · R-06；T-009 · R-02 增量接入）：
+# 门禁拆分为七个独立作业（T-001 · R-03 / R-09；T-006 · R-06；T-009 · R-02 增量接入；T-008 · R-07 增补 r8-smoke）：
 #   unit          双 flavor 单元测试 + 覆盖率门禁（client 变体口径）
 #   robolectric-ui UI 冒烟独立作业 + 失败重试 ≤ 1（G9：Robolectric 渲染在
 #                 内存受限环境有抖动，隔离出不阻塞主测试门禁）
@@ -221,7 +221,7 @@ jobs:
           yes | "$sdkmanager" --licenses > /dev/null
           "$sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Doc consistency (permissions / coverage / Kotlin version)
+      - name: Doc consistency (permissions / coverage / Kotlin version / test count / CI jobs)
         run: ./scripts/check-doc-consistency.sh
 
       - name: Android lint

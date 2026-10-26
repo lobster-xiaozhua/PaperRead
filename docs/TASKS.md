@@ -8,14 +8,14 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **main 未发布变更**：无（干净发布点）
-- **质量基线**：382 单测全绿、lint 0 error、行覆盖率以 jacocoTestReport 报告为准、CI 双 flavor 测试 + 覆盖率门禁（≥ 0.80）+ Debug/Release 打包全绿
+- **质量基线**：530 单测全绿（其中 2 例门控 / skipped）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准、CI 七作业独立全绿（见下「工程与交付」）
 
 ## 当前能力（已完成）
 
 ### 工程与交付
 - Compose + Material 3 + 类型安全导航脚手架；Gradle 版本目录
-- CI 门禁：`testClientDebugUnitTest` + `testDevDebugUnitTest` + `lint` + `assembleDebug` + `assembleRelease`（R8）+ JaCoCo 行覆盖率 ≥ 80%，强制全绿方可合并
-- CI 提效（2026-10-18）：四门禁任务合并为单次 Gradle 调用（省 3 次配置阶段）；Robolectric android-all jar（API 34 运行 SDK + API 35 compileSdk，约 335MB/轮）经 actions/cache 跨运行复用；单测双 fork 并行；纯文档变更（md / docs）跳过 CI；产物保留期收敛为 14 天
+- CI 门禁：七个作业独立并行，强制全绿方可合并 —— `unit`（双 flavor 单测 + JaCoCo 行覆盖率 ≥ 80%）、`robolectric-ui`（Robolectric UI 冒烟 + 失败重试 ≤ 1）、`lint`（Android lint + 文档口径一致性脚本）、`room-migration`（Room 迁移登记 / destructive fallback 禁用静态断言）、`network-audit`（不访问公网 / 无三方网络 SDK 静态断言）、`assemble`（双 flavor 装配 + release R8 打包）、`r8-smoke`（R8 mapping keep 断言 + release 变体序列化 round-trip）
+- CI 结构演进（2026-10）：门禁原为「合并成单次 Gradle 调用」以省配置阶段，现改为七作业独立 —— 理由是**失败定位清晰**（哪道门禁红一目了然，不必翻单次构建日志）+ **flaky 隔离**（Robolectric 渲染在内存受限 runner 上抖动，重试 ≤ 1 隔离在 `robolectric-ui`，不阻塞 `unit`）；代价是各作业各付一次配置阶段（AGP + KSP + Room + Compose，约 10s），多作业并行执行下总时长不劣于单作业。其余提效手段保留：Robolectric android-all jar（API 34 运行 SDK + API 35 compileSdk，约 335MB/轮）经 actions/cache 跨运行复用；单测双 fork 并行；纯文档变更（md / docs）跳过 CI；产物保留期收敛为 14 天
 - 开源物料：README / LICENSE(Apache-2.0) / CONTRIBUTING / AGENTS / SECURITY / Issue 模板 / PR 模板 / CODEOWNERS / .editorconfig
 
 ### 导入
