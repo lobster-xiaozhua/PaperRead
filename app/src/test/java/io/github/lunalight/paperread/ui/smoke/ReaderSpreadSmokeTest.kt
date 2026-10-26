@@ -140,7 +140,11 @@ class ReaderSpreadSmokeTest {
             }
         }
         // 双页分支渲染：章首段出现在视口（左页）
-        composeRule.waitUntilAtLeastOneExists(hasText("这是第 1 段正文", substring = true))
+        // Robolectric 在内存受限的串行全量跑中渲染可能超过 1s；15s 仅防挂死，不作为性能断言
+        composeRule.waitUntilAtLeastOneExists(
+            hasText("这是第 1 段正文", substring = true),
+            timeoutMillis = 15_000L,
+        )
         firstParagraphNode().assertExists()
 
         // 点按右区（第三区）：翻到下一 spread，首段离开视口
@@ -169,7 +173,11 @@ class ReaderSpreadSmokeTest {
         val id = seedBook("单栏", longParagraphs(6))
         composeRule.setContent { PaperReadTheme { ReaderScreen(bookId = id, onBack = {}) } }
         // 默认 COMPACT：连续滚动渲染首段，工具栏入口在
-        composeRule.waitUntilAtLeastOneExists(hasText("这是第 1 段正文", substring = true))
+        // Robolectric 在内存受限的串行全量跑中渲染可能超过 1s；15s 仅防挂死，不作为性能断言
+        composeRule.waitUntilAtLeastOneExists(
+            hasText("这是第 1 段正文", substring = true),
+            timeoutMillis = 15_000L,
+        )
         composeRule.onNodeWithContentDescription("开始朗读").assertExists()
     }
 

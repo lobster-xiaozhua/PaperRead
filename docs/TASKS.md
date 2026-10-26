@@ -57,6 +57,17 @@
 - 备份策略（方案甲-B）：云备份排除书库目录（`books/`），换机（D2D）保留整库；双 XML 规则覆盖 Android 11–12+
 - 测试：JVM 单测 + Turbine ViewModel 测试 + Robolectric Compose UI 冒烟 + JaCoCo 覆盖率度量
 
+## 未发布技术债（v2.0 前跟踪）
+
+> 均为「已知、可接受、v2.0 前处理」的存量项，不阻塞当前发布；每条附依据，便于复核。
+
+- speech 包行覆盖率 82.2%（TtsSpeechEngine 25% / AndroidSpeechController 31.4%）——距 80% 阈值余量薄，后续给该包加分支容易直接破门禁；依据：`jacocoTestReport` 实际 XML 逐类统计（CI 口径 `-PexcludeUiSmokeTests=true`）
+- 覆盖率白名单 4 类内的存量逻辑：`ReaderScreen.kt` 的权限 launcher / `SpeechService` 编排 / 亮度保存还原、`ReaderSettingsSheet.kt` 的 `formatBookmarkTime`——白名单按类名生效，这些行不在门禁内（等于无门禁保护），建议随评审建议 R-11 的文件拆分抽到独立文件后补测；依据：`app/build.gradle.kts` 的 `coverageExcludedRenderClasses` 维护约定「已登记类新增逻辑应移出白名单」
+- `CoverGenerator` 0/14、`RememberChapterPagesKt` 0/26——如实留在分母内计账（不靠剔除掩盖），属该补的测试；依据：同处「刻意**不**剔除」清单与 `jacocoTestReport` 逐类 missed / covered 行数
+- `PaginatedSpreadKt` 跨页索引算术——在白名单外，但当前仅由 `ReaderSpreadSmokeTest` 这条 `robolectric-ui` 作业的用例验证（`unit` 作业不覆盖），建议把索引计算抽成纯函数补单测；依据：`app/build.gradle.kts` 白名单清单未登记该类 + grep `app/src/test` 无对其逻辑成员的直接调用
+- 建议加机械护栏：断言 4 个白名单文件内不存在非 `@Composable` 的顶层 `fun`（脚本级静态断言，防「逻辑悄悄进渲染文件」复发）；依据：白名单按类名生效，靠人工 review 拦不住回归
+- 沙箱不可执行项：200MB 大文件六项真机验收（G5）、R8 后真机 install smoke（G7，需 KVM runner）、CI 七作业尚无真实运行记录；依据：`docs/DEVICE_CHECKLIST.md` §7 与 `.github/workflows/android.yml` 中预留的注释步骤
+
 ## 规划工单（T 系列，局域网传输）
 
 > 来源：用户 2026-10-18 拍板（ROADMAP C9 决策点 2）——项目允许申请权限、保持最小权限：INTERNET 进主包（Android 无「仅局域网」权限，任何 socket 均需声明），传输能力进主包；分发拆 client（客户端正式版）/ dev（调试版，可同机安装）两个 flavor。验收标准见 SPEC 第 7、9 节（US-9 / US-10 / US-11）。
