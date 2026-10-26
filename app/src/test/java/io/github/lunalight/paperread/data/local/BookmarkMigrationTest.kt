@@ -28,8 +28,10 @@ import org.robolectric.annotation.Config
  * DAO / 仓储可正常读写。
  *
  * schema JSON 由 KSP 导出至 `app/schemas/`，测试 assets 内的副本
- * （`app/src/test/assets/<数据库类全名>/`）与之一致性由
- * `scripts/check-room-migration.sh` 在 CI 中断言，防止只改 schema
+ * （`app/src/debug/assets/<数据库类全名>/`——Robolectric 的
+ * MigrationTestHelper 只读变体合并 assets，`src/test/assets` 不进合并结果，
+ * 放那里等于空跑）与导出的一致性由 `scripts/check-room-migration.sh` 与
+ * [DestructiveMigrationGuardTest] 在 CI 中断言，防止只改 schema
  * 忘了同步测试夹具、迁移测试空跑。
  */
 @RunWith(RobolectricTestRunner::class)
