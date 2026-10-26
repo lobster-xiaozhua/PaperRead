@@ -48,9 +48,9 @@ class TransferHttpServerTest {
     private val abortEvents = CopyOnWriteArrayList<Pair<TransferEndpoint, String>>()
 
     private val handler = object : TransferHttpHandler {
-        override fun meta(): String = """{"ok":true,"deviceName":"测试机"}"""
+        override suspend fun meta(): String = """{"ok":true,"deviceName":"测试机"}"""
 
-        override fun onUpload(fileName: String, contentLength: Long, bodyFile: File): String? {
+        override suspend fun onUpload(fileName: String, contentLength: Long, bodyFile: File): String? {
             if (failNextUpload) {
                 failNextUpload = false
                 bodyFile.delete()
@@ -60,14 +60,14 @@ class TransferHttpServerTest {
             return null
         }
 
-        override fun onBundle(fileName: String, contentLength: Long, bodyFile: File): String? {
+        override suspend fun onBundle(fileName: String, contentLength: Long, bodyFile: File): String? {
             bundles += Upload(fileName, bodyFile.readBytes())
             return null
         }
 
-        override fun syncState(): String = """{"version":1,"deviceId":"me","books":[]}"""
+        override suspend fun syncState(): String = """{"version":1,"deviceId":"me","books":[]}"""
 
-        override fun onSyncApply(payload: String): String? {
+        override suspend fun onSyncApply(payload: String): String? {
             if (payload.isBlank()) return "empty"
             appliedSync = payload
             return null

@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -288,11 +287,22 @@ class DefaultLanTransferManager(
     /** 请求体接收进度（服务端 spill 阶段驱动 UI 的「正在接收」）。 */
     private val onReceiveProgress: (TransferEndpoint, String, Float) -> Unit = { endpoint, name, fraction ->
         when (endpoint) {
-            TransferEndpoint.UPLOAD -> _receiveState.value = TransferReceiveState(
-                receiving = true,
-                fileName = name,
-                fraction = fraction,
-            )
+            TransferEndpoint.UPLOAD -> {
+                // 新上传的落盘进度即顶替旧待确认（进度与 pending 共用单状态流，
+                // 天然互斥）：作废旧 pending 的后台解析与导入元数据，避免
+                // 「上一本没确认就被下一本顶掉」时的残留
+                val stale = _receiveState.value.pending
+                if (stale != null) {
+                    bookImporter.cancel(stale)
+                    receiveJob?.cancel()
+                    deleteReceivedTemp()
+                }
+                _receiveState.value = TransferReceiveState(
+                    receiving = true,
+                    fileName = name,
+                    fraction = fraction,
+                )
+            }
 
             TransferEndpoint.BUNDLE -> {
                 // 发送中的迁移与本接收共用同一状态通道：progress 回调先于
@@ -339,6 +349,14 @@ class DefaultLanTransferManager(
     private var serviceJob: Job? = null
     private var sendJob: Job? = null
     private var migrationJob: Job? = null
+
+    /**
+     * 收到的书的解析作业（R-10 / G10：onUpload 落盘即应答，prepare 转后台）。
+     *
+     * 与 [migrationJob] 同款背景化：大书（数十 MB TXT）的编码探测 / 切分
+     * 不再占用 HTTP 连接线程，对端上传完立即拿到 200。
+     */
+    private var receiveJob: Job? = null
 
     /** 迁移导入网关（FileProvider → 导入流水线 → 仓储回写）。 */
     private val migrationGateway = object : MigrationImportGateway {
@@ -495,111 +513,136 @@ class DefaultLanTransferManager(
 
     private val handler = object : TransferHttpHandler {
 
-        override fun meta(): String = Json.encodeToString(
+        override suspend fun meta(): String = Json.encodeToString(
             ServerMeta.serializer(),
             ServerMeta(ok = true, deviceName = identityStore.deviceName(), protocol = TRANSFER_VERSION),
         )
 
-    override fun onUpload(fileName: String, contentLength: Long, bodyFile: File): String? {
-        val safeName = sanitizeFileName(fileName) ?: run {
-            bodyFile.delete()
-            return "文件名不合法"
-        }
-        val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
-        val target = File(tempDir, safeName)
-        // 已鉴权落盘的文件直接改名到位（同分区原子 rename，零拷贝）；
-        // rename 失败（极少见的跨分区场景）回落拷贝后删除原件
-        if (!bodyFile.renameTo(target)) {
-            bodyFile.copyTo(target, overwrite = true)
-            bodyFile.delete()
-        }
-
-        // 落盘完成 → FileProvider content Uri → 复用导入流水线（AC-9.5）
-        receivedTempFile = target
-        val uri = androidx.core.content.FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            target,
-        )
-        val result = runBlocking { bookImporter.prepare(uri) }
-        return when (result) {
-            is PrepareResult.Success -> {
-                _receiveState.value = TransferReceiveState(pending = result.pending)
-                null
+        override suspend fun onUpload(fileName: String, contentLength: Long, bodyFile: File): String? {
+            val safeName = sanitizeFileName(fileName) ?: run {
+                bodyFile.delete()
+                return "文件名不合法"
+            }
+            val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
+            val target = File(tempDir, safeName)
+            // 已鉴权落盘的文件直接改名到位（同分区原子 rename，零拷贝）；
+            // rename 失败（极少见的跨分区场景）回落拷贝后删除原件
+            if (!bodyFile.renameTo(target)) {
+                bodyFile.copyTo(target, overwrite = true)
+                bodyFile.delete()
             }
 
-            is PrepareResult.Duplicate -> {
-                // 内容已存在：丢弃临时文件并提示，不弹导入确认
-                deleteReceivedTemp()
-                _receiveState.value = TransferReceiveState(
-                    error = "《${result.existing.title}》已存在于书架，已跳过",
-                )
-                null
+            // 单槽语义（与旧「顺序处理连接」一致）：上一本尚未确认就被新上传
+            // 顶替时，取消其后台解析并清理临时文件——UI 同时只保留一个
+            // 待确认导入（pending 的作废已在 onReceiveProgress 完成）
+            receiveJob?.cancel()
+            deleteReceivedTemp()
+            receivedTempFile = target
+
+            // 字节已完整落盘（服务端已鉴权 + 摘要核对）：解析导入转后台，
+            // HTTP 尽早应答（R-10 / G10：大书 prepare 不得占着连接线程）
+            receiveJob = scope.launch {
+                prepareReceived(target)
             }
+            return null
+        }
 
-            is PrepareResult.Unsupported -> {
-                deleteReceivedTemp()
-                _receiveState.value = TransferReceiveState(error = result.error.userMessage)
-                null
+        override suspend fun onBundle(fileName: String, contentLength: Long, bodyFile: File): String? {
+            // 发送中的迁移占用同一状态通道：接收请求让位（服务端顺序处理，真正的
+            // 并发冲突不存在，此处仅防「边发边收」的 UI 状态互踩）
+            if (_migration.value.active && _migration.value.direction == MigrationDirection.SEND) {
+                bodyFile.delete()
+                return "busy"
             }
-
-            is PrepareResult.Failure -> {
-                deleteReceivedTemp()
-                _receiveState.value = TransferReceiveState(error = result.error.userMessage)
-                null
+            val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
+            val target = File(tempDir, "incoming.bundle.zip")
+            if (!bodyFile.renameTo(target)) {
+                bodyFile.copyTo(target, overwrite = true)
+                bodyFile.delete()
             }
+            // 字节已完整落盘（服务端已鉴权 + 摘要核对）：解包与逐本导入转为后台，
+            // HTTP 尽早应答（避免对端超时）
+            migrationJob = scope.launch {
+                processIncomingBundle(target)
+            }
+            return null
         }
-    }
 
-    override fun onBundle(fileName: String, contentLength: Long, bodyFile: File): String? {
-        // 发送中的迁移占用同一状态通道：接收请求让位（服务端顺序处理，真正的
-        // 并发冲突不存在，此处仅防「边发边收」的 UI 状态互踩）
-        if (_migration.value.active && _migration.value.direction == MigrationDirection.SEND) {
-            bodyFile.delete()
-            return "busy"
-        }
-        val tempDir = File(context.cacheDir, "transfer").apply { mkdirs() }
-        val target = File(tempDir, "incoming.bundle.zip")
-        if (!bodyFile.renameTo(target)) {
-            bodyFile.copyTo(target, overwrite = true)
-            bodyFile.delete()
-        }
-        // 字节已完整落盘（服务端已鉴权 + 摘要核对）：解包与逐本导入转为后台，
-        // HTTP 尽早应答（避免对端超时）
-        migrationJob = scope.launch {
-            processIncomingBundle(target)
-        }
-        return null
-    }
-
-        override fun syncState(): String = runBlocking {
+        override suspend fun syncState(): String {
             val envelope = localSyncGateway.snapshot(identityStore.deviceId())
-            syncJson.encodeToString(SyncEnvelope.serializer(), envelope)
+            return syncJson.encodeToString(SyncEnvelope.serializer(), envelope)
         }
 
-        override fun onSyncApply(payload: String): String? {
+        override suspend fun onSyncApply(payload: String): String? {
             val envelope = runCatching {
                 syncJson.decodeFromString(SyncEnvelope.serializer(), payload)
             }.getOrNull() ?: return "bad payload"
             if (envelope.version > SYNC_PROTOCOL_VERSION) return "version too new"
             // 对端已按合并规则挑出「它更新的一方」，这里只需落地（对端不推更旧的数据）
-            runBlocking {
-                envelope.books.forEach { state ->
-                    localSyncGateway.applyProgress(state)
-                    if (state.bookmarks.isNotEmpty()) {
-                        // 只补本地缺的书签（去重，避免重复条目）
-                        val book = bookRepository.findBySha256(state.sha256) ?: return@forEach
-                        val existing = bookRepository.observeBookmarks(book.id).first()
-                            .map { SyncBookmark.from(it).positionKey }
-                            .toSet()
-                        val missing = state.bookmarks.filter { it.positionKey !in existing }
-                        if (missing.isNotEmpty()) {
-                            localSyncGateway.addBookmarks(state, missing)
-                        }
+            envelope.books.forEach { state ->
+                localSyncGateway.applyProgress(state)
+                if (state.bookmarks.isNotEmpty()) {
+                    // 只补本地缺的书签（去重，避免重复条目）
+                    val book = bookRepository.findBySha256(state.sha256) ?: return@forEach
+                    val existing = bookRepository.observeBookmarks(book.id).first()
+                        .map { SyncBookmark.from(it).positionKey }
+                        .toSet()
+                    val missing = state.bookmarks.filter { it.positionKey !in existing }
+                    if (missing.isNotEmpty()) {
+                        localSyncGateway.addBookmarks(state, missing)
                     }
                 }
             }
             return null
+        }
+    }
+
+    /**
+     * 落盘后的解析导入（原 onUpload 内联逻辑，R-10 / G10 后台化）。
+     *
+     * 与 HTTP 应答解耦：prepare 的各结局（成功待确认 / 重复 / 不支持 / 失败）
+     * 全部经 [receiveState] 上浮 UI，对端收到的始终是「字节已送达」的 200。
+     */
+    private suspend fun prepareReceived(target: File) {
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                target,
+            )
+            val result = bookImporter.prepare(uri)
+            when (result) {
+                is PrepareResult.Success -> {
+                    _receiveState.value = TransferReceiveState(pending = result.pending)
+                }
+
+                is PrepareResult.Duplicate -> {
+                    // 内容已存在：丢弃临时文件并提示，不弹导入确认
+                    deleteReceivedTemp()
+                    _receiveState.value = TransferReceiveState(
+                        error = "《${result.existing.title}》已存在于书架，已跳过",
+                    )
+                }
+
+                is PrepareResult.Unsupported -> {
+                    deleteReceivedTemp()
+                    _receiveState.value = TransferReceiveState(error = result.error.userMessage)
+                }
+
+                is PrepareResult.Failure -> {
+                    deleteReceivedTemp()
+                    _receiveState.value = TransferReceiveState(error = result.error.userMessage)
+                }
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 解析流水线崩溃（磁盘异常等）：改造前由 HTTP 层的 try/catch 兜成
+            // 500，后台化后改经 receiveState 上浮（对端早已收到 200——字节
+            // 确已完整送达，失败的是本机解析这一环）
+            _receiveState.value = TransferReceiveState(
+                error = "解析失败：${e.message ?: "未知错误"}",
+            )
         }
     }
 
@@ -665,6 +708,8 @@ class DefaultLanTransferManager(
         sendJob = null
         serviceJob?.cancel()
         serviceJob = null
+        receiveJob?.cancel()
+        receiveJob = null
         server?.close()
         server = null
         transport?.close()
@@ -833,6 +878,10 @@ class DefaultLanTransferManager(
         if (pending != null) {
             bookImporter.cancel(pending)
         }
+        // 后台 prepare 可能仍在跑（落盘即应答后）：一并取消，
+        // 避免其完成后把已取消的状态改写回 pending
+        receiveJob?.cancel()
+        receiveJob = null
         deleteReceivedTemp()
         _receiveState.value = TransferReceiveState()
     }

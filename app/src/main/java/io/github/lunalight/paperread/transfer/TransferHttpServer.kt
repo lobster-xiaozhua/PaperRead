@@ -12,17 +12,27 @@ import java.net.URLDecoder
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * 传输 HTTP 服务的业务回调（由 Android 侧实现：落盘 + 复用导入流水线）。
  *
  * 实现方只面对已鉴权的文件 / 文本，不接触 socket / HTTP 细节；进度由实现方
  * 自行更新状态（UI 订阅其状态流），无需经本接口回传。
+ *
+ * 全部方法为 suspend：服务端以受限并发（Dispatchers.IO.limitedParallelism(4)）
+ * 派发连接，实现方的耗时操作（解析 / 入库）不得阻塞 accept 循环。
  */
 interface TransferHttpHandler {
 
     /** `GET /meta` 的响应体（JSON：设备名 + 在线信息）。 */
-    fun meta(): String
+    suspend fun meta(): String
 
     /**
      * 处理 `POST /upload`。
@@ -36,7 +46,7 @@ interface TransferHttpHandler {
      * @param bodyFile 已鉴权的请求体临时文件（实现方拥有其生命周期）
      * @return null = 成功；非 null = 失败原因（记日志；对端收到 500）
      */
-    fun onUpload(fileName: String, contentLength: Long, bodyFile: File): String?
+    suspend fun onUpload(fileName: String, contentLength: Long, bodyFile: File): String?
 
     /**
      * 处理 `POST /bundle`（换机迁移包上传，AC-10.1）。
@@ -45,21 +55,21 @@ interface TransferHttpHandler {
      * 迁移包的处理（解包 / 逐本导入 / 回写）由实现方自行安排——
      * 本服务只保证字节完整送达。
      */
-    fun onBundle(fileName: String, contentLength: Long, bodyFile: File): String?
+    suspend fun onBundle(fileName: String, contentLength: Long, bodyFile: File): String?
 
     /**
      * `GET /sync/state` 的响应体（本机阅读状态 JSON，AC-11.1）。
      *
      * @return 状态快照；返回空串表示同步能力不可用（对端据此提示）
      */
-    fun syncState(): String
+    suspend fun syncState(): String
 
     /**
      * 处理 `POST /sync/apply`（对端回推的较新状态，AC-11.1）。
      *
      * @return null = 应用成功；非 null = 失败原因（对端收到 500）
      */
-    fun onSyncApply(payload: String): String?
+    suspend fun onSyncApply(payload: String): String?
 }
 
 /** 请求体接收端点（进度 / 中止回调的路由标签）。 */
@@ -83,8 +93,9 @@ enum class TransferEndpoint { UPLOAD, BUNDLE }
  * 设计约束：
  * - **仅绑定调用方指定的网卡地址**（AC-9.7：WiFi 局域网地址，不听其他接口）；
  * - 每连接单请求 + `Connection: close`：无 keep-alive 状态机，实现面最小；
- * - 顺序处理连接（局域网传书工具的对端极少，避免线程池复杂度）；
- * - 单连接异常不中断服务（accept 循环容错）。
+ * - accept 后以 [Dispatchers.IO.limitedParallelism] 受限并发派发（R-10 / G10：
+ *   实现方的大书解析 / 迁移解包不再占着 accept 循环，后续连接可被及时处理）；
+ * - 单连接异常不中断服务（SupervisorJob + 静默 exception handler 吸收）。
  */
 class TransferHttpServer(
     bindAddress: InetAddress,
@@ -106,7 +117,29 @@ class TransferHttpServer(
 
     private val running = AtomicBoolean(true)
 
-    /** 接收循环（阻塞 accept）。调用方负责在独立线程 / 协程中运行。 */
+    /**
+     * 连接处理作用域（R-10 / G10）：accept 循环只负责「接收 + 派发」，
+     * 单连接的读请求体 → 落盘 → 交实现方的全程在此执行。
+     *
+     * 并发度 [MAX_CONCURRENT_CONNECTIONS]：传书 / 迁移 / 同步三类连接各自
+     * 持文件 I/O 与实现方耗时，4 条并发足够一台手机的对端场景，同时挡住
+     * 「多连接堆叠耗尽线程」的滥用。
+     */
+    private val connectionScope = CoroutineScope(
+        SupervisorJob() +
+            Dispatchers.IO.limitedParallelism(MAX_CONCURRENT_CONNECTIONS),
+    )
+
+    /**
+     * 单连接异常的兜底（G10「单连接异常不中断服务」）。
+     *
+     * SupervisorJob 保证一个连接的失败不波及其他连接；此处静默吸收，
+     * 与改造前 accept 循环内的 try/catch 语义一致（客户端多半已断链，
+     * 无可挽救也不必惊扰用户）。
+     */
+    private val connectionErrorHandler = CoroutineExceptionHandler { _, _ -> }
+
+    /** 接收循环（阻塞 accept，随后派发到 [connectionScope]）。 */
     fun serve() {
         while (running.get()) {
             val socket = try {
@@ -115,12 +148,18 @@ class TransferHttpServer(
                 if (!running.get()) return // 主动 close 导致的 accept 异常：正常退出
                 continue
             }
-            try {
-                handleConnection(socket)
-            } catch (e: Exception) {
-                // 单连接异常不得中断服务：吞掉后继续 accept
-            } finally {
+            // close 与 accept 交叠：作用域已取消时协程不会启动（其 finally
+            // 也就不会执行），此处直接关 socket 避免泄漏
+            if (!connectionScope.isActive) {
                 runCatching { socket.close() }
+                return
+            }
+            connectionScope.launch(connectionErrorHandler) {
+                try {
+                    handleConnection(socket)
+                } finally {
+                    runCatching { socket.close() }
+                }
             }
         }
     }
@@ -128,11 +167,13 @@ class TransferHttpServer(
     override fun close() {
         running.set(false)
         runCatching { serverSocket.close() }
+        // 取消在途连接的处理协程（其 finally 负责关 socket）
+        connectionScope.cancel()
     }
 
     // ---- 内部 ----
 
-    private fun handleConnection(socket: Socket) {
+    private suspend fun handleConnection(socket: Socket) {
         socket.soTimeout = SOCKET_TIMEOUT_MS
         val input = socket.getInputStream()
         val requestLine = input.readHeaderLine() ?: return
@@ -196,7 +237,7 @@ class TransferHttpServer(
     }
 
     /** `POST /sync/apply`：JSON 请求体（≤8MB 内存读入），摘要核对后交实现方。 */
-    private fun handleSyncApply(
+    private suspend fun handleSyncApply(
         socket: Socket,
         headers: Map<String, String>,
         input: InputStream,
@@ -247,14 +288,14 @@ class TransferHttpServer(
      * 「先落盘再交付」保证实现方只见验签通过的字节；spill 与目标同处
      * cacheDir，实现方改名即零拷贝到位。
      */
-    private fun handlePayload(
+    private suspend fun handlePayload(
         socket: Socket,
         headers: Map<String, String>,
         input: InputStream,
         claimedDigest: String,
         endpoint: TransferEndpoint,
         nameHeader: String,
-        call: (fileName: String, contentLength: Long, bodyFile: File) -> String?,
+        call: suspend (fileName: String, contentLength: Long, bodyFile: File) -> String?,
     ) {
         val rawName = headers[nameHeader]
         if (rawName.isNullOrBlank()) {
@@ -376,6 +417,13 @@ class TransferHttpServer(
     companion object {
         private const val SERVER_BACKLOG = 16
         private const val SOCKET_TIMEOUT_MS = 60_000
+
+        /**
+         * 连接处理的最大并发度（R-10 / G10）：一台手机作为接收端的典型并发
+         * 只有「对端正在发的连接」一条，4 条并发覆盖「发送中又来同步请求」
+         * 的交叠场景，且避免无上限派发耗尽 IO 线程。
+         */
+        private const val MAX_CONCURRENT_CONNECTIONS = 4
 
         /**
          * 同步 JSON 请求体上限（8 MB）：一个数千本书、每本几十条书签的书库
