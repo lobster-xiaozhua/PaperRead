@@ -1,5 +1,8 @@
 package io.github.lunalight.paperread.ui.reader
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -29,6 +32,22 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/**
+ * 朗读权限场景化的一次性 UI 事件（AC-20.1）。
+ *
+ * 事件而非布尔状态：对话框与系统申请都是「一次性票据」，用序号化字段
+ * 会在旋转屏幕 / 重组时重复触发；UI 消费后经
+ * [ReaderViewModel.onSpeechPermissionEventConsumed] 置回 null。
+ */
+sealed interface SpeechPermissionEvent {
+
+    /** 展示场景化说明对话框（携带待朗读起始段，确认/取消后据此起播）。 */
+    data class ShowPrompt(val fromParagraph: Int) : SpeechPermissionEvent
+
+    /** 用户已确认对话框，请 UI 发起系统 POST_NOTIFICATIONS 申请。 */
+    data class LaunchSystemRequest(val fromParagraph: Int) : SpeechPermissionEvent
+}
 
 /** 阅读器 UI 状态。 */
 data class ReaderUiState(
@@ -74,6 +93,13 @@ data class ReaderUiState(
     val textMissing: Boolean = false,
     /** 朗读（TTS）状态快照；phase 非 IDLE 时正文按 [SpeechState.speakingParagraph] 高亮。 */
     val speech: SpeechState = SpeechState(),
+    /**
+     * 朗读权限场景化事件（AC-20.1，一次性票据，见 [SpeechPermissionEvent]）。
+     *
+     * 权限仅用于朗读控制通知：首次朗读且未授权时先弹场景说明，
+     * 确认后转系统申请；拒绝 / 取消都不阻塞朗读本身。
+     */
+    val speechPermissionEvent: SpeechPermissionEvent? = null,
 ) {
     val chapterTitle: String get() = chapters.getOrNull(chapterIndex)?.title ?: ""
     val chapterPosition: String
@@ -89,8 +115,16 @@ data class ReaderUiState(
  * 引擎细节、线程安全、前台保活分别在 [io.github.lunalight.paperread.speech.AndroidSpeechController]
  * 与 [io.github.lunalight.paperread.speech.SpeechService]，本类不直接接触 android.speech.tts。
  *
+ * 权限场景化（AC-20.1 / AC-20.2 / AC-20.6）：通知权限（POST_NOTIFICATIONS）
+ * 不在冷启动申请，只在首次朗读前经 [SpeechPermissionEvent.ShowPrompt]
+ * 场景化说明后由 UI 发起系统申请；拒绝仍朗读，权限被系统撤销时降级提示
+ * 不崩。权限可用性经 [hasNotificationPermission] 注入（生产由
+ * AppContainer 提供 ContextCompat 探测，测试可固定返回值）。
+ *
  * @param appScope 应用级作用域，仅用于 onCleared 后仍需落地的写入
  *   （[flushPendingSave] 的收尾补存、[deleteBrokenBook]）。测试可用默认值。
+ * @param hasNotificationPermission 通知权限可用性探测；默认 true（视为已授权），
+ *   既有测试不感知通知权限、朗读主路径不变。
  */
 class ReaderViewModel(
     private val bookId: Long,
@@ -99,12 +133,25 @@ class ReaderViewModel(
     private val settingsStore: SettingsStore,
     private val speechController: SpeechController,
     private val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    private val hasNotificationPermission: () -> Boolean = { true },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
     val uiState: StateFlow<ReaderUiState> = _uiState.asStateFlow()
 
     private var saveJob: Job? = null
+
+    /**
+     * 本轮进程生命周期内是否已问过通知权限。
+     *
+     * 问过之后不再重复弹场景对话框（Android 自身在两次拒绝后也不再展示
+     * 系统弹窗，重复申请只会打扰用户）；撤销场景由 [beginSpeech] 的
+     * 降级提示覆盖（AC-20.6）。
+     */
+    private var notificationPermissionAsked = false
+
+    /** 场景对话框确认后、系统权限申请结果返回前，待起播的起始段。 */
+    private var pendingSpeechFromParagraph: Int? = null
 
     /**
      * 尚未落库的最新位置。
@@ -321,10 +368,75 @@ class ReaderViewModel(
     /**
      * 从 [fromParagraph]（默认当前可见段）开始朗读当前章。
      *
+     * 权限门（AC-20.1）：首次朗读且通知权限未授权时，不直接起播，而是
+     * 发射 [SpeechPermissionEvent.ShowPrompt] 由 UI 展示场景化说明
+     * （「用于朗读控制通知」）；用户确认后走系统申请、取消则直接起播，
+     * 两条路径都不阻塞朗读本身。
+     *
      * 单元表由当前渲染段落构建（长段已按句软切分，见 [SpeechText]）；
      * 引擎未初始化完成时控制器内部排队，初始化后自动开播。
      */
     fun startSpeech(fromParagraph: Int = _uiState.value.currentParagraph) {
+        if (hasNotificationPermission()) {
+            // 已授权（或 API < 33 无运行时权限语义）：无需场景化申请，
+            // 同时标记「问过」——若权限之后被系统撤销，走降级提示而非
+            // 重新弹场景对话框（AC-20.6）。
+            notificationPermissionAsked = true
+        } else if (!notificationPermissionAsked) {
+            _uiState.update {
+                it.copy(speechPermissionEvent = SpeechPermissionEvent.ShowPrompt(fromParagraph))
+            }
+            return
+        }
+        beginSpeech(fromParagraph)
+    }
+
+    /**
+     * 场景对话框「同意并申请」：转入系统 POST_NOTIFICATIONS 申请。
+     *
+     * 起播延后到 [onNotificationPermissionResult]——系统申请结果回来
+     * 后再开播，保证「先告知、再申请、后朗读」的顺序可被用户感知。
+     */
+    fun onSpeechPermissionPromptConfirm() {
+        val event = _uiState.value.speechPermissionEvent as? SpeechPermissionEvent.ShowPrompt ?: return
+        notificationPermissionAsked = true
+        pendingSpeechFromParagraph = event.fromParagraph
+        _uiState.update {
+            it.copy(
+                speechPermissionEvent = SpeechPermissionEvent.LaunchSystemRequest(event.fromParagraph),
+            )
+        }
+    }
+
+    /** 场景对话框「暂不申请」：不发起系统申请，直接开始朗读（降级：通知控制不可见）。 */
+    fun onSpeechPermissionPromptDismiss() {
+        val event = _uiState.value.speechPermissionEvent as? SpeechPermissionEvent.ShowPrompt ?: return
+        notificationPermissionAsked = true
+        _uiState.update { it.copy(speechPermissionEvent = null) }
+        beginSpeech(event.fromParagraph)
+    }
+
+    /**
+     * 系统权限申请结果回传。
+     *
+     * AC-20.1：拒绝后朗读仍可播放，仅通知栏控制不可见（降级提示经
+     * [beginSpeech] 按权限可用性发出）；授权则无提示直接起播。
+     */
+    fun onNotificationPermissionResult(granted: Boolean) {
+        notificationPermissionAsked = true
+        val from = pendingSpeechFromParagraph ?: _uiState.value.currentParagraph
+        pendingSpeechFromParagraph = null
+        _uiState.update { it.copy(speechPermissionEvent = null) }
+        beginSpeech(from)
+    }
+
+    /** 一次性事件消费完毕（UI 拉起系统申请后调用，防止重组重复触发）。 */
+    fun onSpeechPermissionEventConsumed() {
+        _uiState.update { it.copy(speechPermissionEvent = null) }
+    }
+
+    /** 真正起播：内容校验 + 单元表构建 + 权限降级提示（AC-20.6）。 */
+    private fun beginSpeech(fromParagraph: Int) {
         val state = _uiState.value
         if (state.loading || state.book == null || state.paragraphs.isEmpty()) {
             _uiState.update { it.copy(message = "本章暂无可朗读的内容") }
@@ -334,6 +446,11 @@ class ReaderViewModel(
         if (units.isEmpty()) {
             _uiState.update { it.copy(message = "本章暂无可朗读的内容") }
             return
+        }
+        // AC-20.6：权限不可用（曾拒绝 / 被系统撤销）→ 降级提示，不崩、
+        // 不阻塞朗读；通知通道侧（SpeechService）对无权限 notify 天然容错。
+        if (!hasNotificationPermission()) {
+            _uiState.update { it.copy(message = NOTIFICATION_PERMISSION_DEGRADED_MESSAGE) }
         }
         val start = SpeechText.firstUnitAtOrAfter(units, fromParagraph)
         speechController.speak(units, start)
@@ -569,6 +686,15 @@ class ReaderViewModel(
         const val CHAPTER_EMPTY_MESSAGE =
             "本章内容为空，可能章节索引已损坏。\n请回书架用「重新解析章节」后重试。"
 
+        /**
+         * 通知权限不可用时的降级提示（AC-20.6）。
+         *
+         * 覆盖两种成因：用户曾拒绝系统申请；朗读中权限被系统撤销。
+         * 朗读本身不受影响（前台服务照常运行），仅通知栏控制不可见。
+         */
+        const val NOTIFICATION_PERMISSION_DEGRADED_MESSAGE =
+            "未获得通知权限，朗读控制通知不可用；朗读仍可正常播放。"
+
         fun factory(container: AppContainer, bookId: Long): ViewModelProvider.Factory =
             viewModelFactory {
                 initializer {
@@ -579,6 +705,15 @@ class ReaderViewModel(
                         settingsStore = container.settingsStore,
                         speechController = container.speechController,
                         appScope = container.appScope,
+                        // 通知权限探测走 applicationContext（AC-20.1）：
+                        // Android 13+ 运行时权限，API < 33 时 checkSelfPermission
+                        // 恒返回已授权（安装期权限语义），无需额外按版本分流。
+                        hasNotificationPermission = {
+                            ContextCompat.checkSelfPermission(
+                                container.applicationContext,
+                                Manifest.permission.POST_NOTIFICATIONS,
+                            ) == PackageManager.PERMISSION_GRANTED
+                        },
                     )
                 }
             }

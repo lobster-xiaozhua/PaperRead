@@ -40,6 +40,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -71,6 +72,10 @@ class ReaderSpreadSmokeTest {
         app = ApplicationProvider.getApplicationContext()
         // 双页断言不依赖朗读控制器，装一个空 fake 防止继承态。
         app.container.speechController = FakeSpeechController()
+        // 朗读权限场景化（T-009 · AC-20.1）：预授权 POST_NOTIFICATIONS，
+        // 顶栏「开始朗读」入口点击走既有起播路径（本类断言工具栏显隐，
+        // 不涉对话框；对话框流程由 ReaderSpeechPermissionTest 覆盖）。
+        shadowOf(app).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun seedBook(title: String, paragraphs: List<String>): Long = runBlocking {

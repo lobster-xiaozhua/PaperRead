@@ -22,17 +22,20 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# 门禁拆分为五个独立作业（T-001 · R-03 / R-09；T-006 · R-06 增量接入）：
+# 门禁拆分为六个独立作业（T-001 · R-03 / R-09；T-006 · R-06；T-009 · R-02 增量接入）：
 #   unit          双 flavor 单元测试 + 覆盖率门禁（client 变体口径）
 #   robolectric-ui UI 冒烟独立作业 + 失败重试 ≤ 1（G9：Robolectric 渲染在
 #                 内存受限环境有抖动，隔离出不阻塞主测试门禁）
 #   lint          Android lint + 文档口径一致性脚本（G3）
 #   room-migration Room 迁移登记检查（G6：version+1 必须登记迁移 +
 #                 destructive fallback 禁用，纯 bash 断言，无需 JDK/SDK）
+#   network-audit 网络行为断言（G2①：不访问公网 / 无三方网络 SDK /
+#                 网络行为收敛于 transfer/，纯 bash 断言，无需 JDK/SDK）
 #   assemble      双 flavor 装配（client 交付版 + dev 调试版）
 # 拆分代价是各作业各自支付一次配置阶段（AGP + KSP + Room + Compose，约 10s），
-# 换取失败定位清晰与 flaky 隔离；四作业并行执行，总时长不劣于原单作业。
-# room-migration 为纯脚本作业（checkout 后直接跑 bash，无构建配置成本）。
+# 换取失败定位清晰与 flaky 隔离；多作业并行执行，总时长不劣于原单作业。
+# room-migration 与 network-audit 为纯脚本作业（checkout 后直接跑 bash，
+# 无构建配置成本）。
 jobs:
   # 门禁一：单元测试 + 覆盖率（client 变体口径）。
   # ui/smoke 冒烟在内存受限 runner 上存在 Robolectric 渲染超时抖动（已知基线
@@ -234,7 +237,21 @@ jobs:
       - name: Room migration registration (G6)
         run: ./scripts/check-room-migration.sh
 
-  # 门禁五：双 flavor 装配（client 正式版 + dev 调试版；含 release 打包路径）。
+  # 门禁五：网络行为断言（T-009 · R-02 / AC-20.5 / G2①）。
+  # 隐私页对用户承诺「不访问公网」，本作业把该承诺固化为 CI 断言：
+  # URL 字面量白名单（白名单外零 endpoint）、socket API 收敛于
+  # transfer/、三方网络 / 统计 SDK 禁入、构建配置 URL 仅限依赖解析。
+  # 纯 bash 静态断言，不依赖 JDK / Android SDK；与 privacy 页同源，
+  # 审计口径公开于 docs/NETWORK_AUDIT.md。
+  network-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Network behavior audit (G2)
+        run: ./scripts/check-network-behavior.sh
+
+  # 门禁六：双 flavor 装配（client 正式版 + dev 调试版；含 release 打包路径）。
   assemble:
     runs-on: ubuntu-latest
     steps:

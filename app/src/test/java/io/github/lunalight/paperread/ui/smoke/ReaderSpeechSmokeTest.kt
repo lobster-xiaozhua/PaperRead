@@ -44,6 +44,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -72,6 +73,11 @@ class ReaderSpeechSmokeTest {
         app = ApplicationProvider.getApplicationContext()
         controller = FakeSpeechController()
         app.container.speechController = controller
+        // 朗读权限场景化（T-009 · AC-20.1）：ReaderViewModel 经工厂注入真实
+        // POST_NOTIFICATIONS 探测，Robolectric 默认未授权会让首次朗读落入
+        // 场景对话框。本类聚焦朗读控制链路，setUp 预授权保持主路径不变
+        // （对话框流程由 ReaderSpeechPermissionTest 专项覆盖）。
+        shadowOf(app).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun seedBook(title: String, paragraphs: List<String>): Long = runBlocking {

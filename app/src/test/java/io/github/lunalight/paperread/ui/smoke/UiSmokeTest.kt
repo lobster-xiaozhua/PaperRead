@@ -38,6 +38,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -71,6 +72,10 @@ class UiSmokeTest {
     fun setUp() {
         // Robolectric 每个测试类全新 Application，仓储状态天然隔离
         app = ApplicationProvider.getApplicationContext()
+        // 朗读权限场景化（T-009 · AC-20.1）：预授权 POST_NOTIFICATIONS，
+        // 使「开始朗读」点击走既有起播路径；未授权的对话框流程由
+        // ReaderSpeechPermissionTest 专项覆盖。
+        shadowOf(app).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
     }
 
     // ---- 预置 ----

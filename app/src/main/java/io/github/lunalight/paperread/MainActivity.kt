@@ -1,41 +1,30 @@
 package io.github.lunalight.paperread
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
 import io.github.lunalight.paperread.ui.nav.PaperReadNavHost
 import io.github.lunalight.paperread.ui.theme.PaperReadTheme
 
-/** 单 Activity 入口，全应用唯一 Activity。 */
+/**
+ * 单 Activity 入口，全应用唯一 Activity。
+ *
+ * 权限策略（AC-20.2）：**不在冷启动批量申请任何运行时权限**。
+ * POST_NOTIFICATIONS 的唯一用途是朗读控制通知，已改为场景化申请——
+ * 用户首次在阅读器点朗读时，先弹场景说明对话框再发起系统申请，
+ * 拒绝不影响朗读本身（见 ReaderViewModel 的 speechPermissionEvent）。
+ */
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        // 朗读控制通知的运行时权限（Android 13+）：仅用于展示前台服务通知，
-        // 拒绝不影响朗读本身（服务仍以前台方式运行，仅通知不可见）。
-        requestNotificationPermissionIfNeeded()
         setContent {
             PaperReadTheme {
                 PaperReadNavHost()
             }
         }
-    }
-
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
-        if (granted) return
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            // 结果不改变朗读能力：仅决定控制通知是否可见。
-        }.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     companion object {

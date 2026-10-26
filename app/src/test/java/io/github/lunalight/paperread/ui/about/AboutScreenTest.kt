@@ -30,7 +30,9 @@ import org.robolectric.annotation.GraphicsMode
  * S1 关于页冒烟（Robolectric + createComposeRule，范式同 UiSmokeTest）。
  *
  * 覆盖 SPEC US-8（AC-8.4 ~ AC-8.9）：版本号 / 隐私承诺 / 许可入口 / 外链系统浏览器 /
- * 无第三方依赖与维护者 / 最小权限（INTERNET + 朗读前台服务三件套）。
+ * 无第三方依赖与维护者 / 最小权限（INTERNET + 朗读前台服务三件套）；
+ * 以及 T-009（R-02）隐私说明一页（AC-20.3 / AC-20.4）：权限清单与合并
+ * Manifest 一致、网络行为承诺、数据边界说明。
  *
  * 注意：Robolectric 默认设备视口较小，页面下半部分的节点需先
  * performScrollTo 滚入视口再断言 / 交互（与 UiSmokeTest 弹层用例同口径）。
@@ -86,7 +88,7 @@ class AboutScreenTest {
     @Test
     fun `关于页展示应用名与版本号`() {
         composeRule.setContent {
-            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}) }
+            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}, onOpenPrivacy = {}) }
         }
         composeRule.onNodeWithText("纸阅 PaperRead").assertRendered()
         composeRule.onNodeWithText("版本 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）")
@@ -96,7 +98,7 @@ class AboutScreenTest {
     @Test
     fun `关于页展示隐私承诺`() {
         composeRule.setContent {
-            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}) }
+            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}, onOpenPrivacy = {}) }
         }
         composeRule.onNodeWithText("隐私承诺").assertRendered()
         composeRule.onNodeWithText(
@@ -112,7 +114,7 @@ class AboutScreenTest {
     @Test
     fun `关于页展示无第三方依赖声明与维护者`() {
         composeRule.setContent {
-            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}) }
+            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}, onOpenPrivacy = {}) }
         }
         composeRule.onNodeWithText("第三方依赖").scrollToAndAssertRendered()
         composeRule.onNodeWithText(
@@ -127,7 +129,11 @@ class AboutScreenTest {
         var licenseOpened = false
         composeRule.setContent {
             PaperReadTheme {
-                AboutScreen(onBack = {}, onOpenLicense = { licenseOpened = true })
+                AboutScreen(
+                    onBack = {},
+                    onOpenLicense = { licenseOpened = true },
+                    onOpenPrivacy = {},
+                )
             }
         }
         // 隐私承诺文案较长，许可入口可能落在默认视口外：先滚入再点击
@@ -143,7 +149,7 @@ class AboutScreenTest {
     fun `点击项目主页以系统浏览器打开`() {
         registerBrowserResolver()
         composeRule.setContent {
-            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}) }
+            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}, onOpenPrivacy = {}) }
         }
         composeRule.onNodeWithText("GitHub 项目主页").performScrollTo()
         composeRule.waitForIdle()
@@ -158,7 +164,7 @@ class AboutScreenTest {
     fun `点击问题反馈以系统浏览器打开`() {
         registerBrowserResolver()
         composeRule.setContent {
-            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}) }
+            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}, onOpenPrivacy = {}) }
         }
         composeRule.onNodeWithText("问题反馈").performScrollTo()
         composeRule.waitForIdle()
@@ -216,11 +222,80 @@ class AboutScreenTest {
         var backClicked = false
         composeRule.setContent {
             PaperReadTheme {
-                AboutScreen(onBack = { backClicked = true }, onOpenLicense = {})
+                AboutScreen(onBack = { backClicked = true }, onOpenLicense = {}, onOpenPrivacy = {})
             }
         }
         composeRule.onNodeWithContentDescription("返回").performClick()
         composeRule.waitForIdle()
         assertTrue(backClicked)
+    }
+
+    // ---- 隐私说明一页（T-009 · AC-20.3 / AC-20.4） ----
+
+    /**
+     * 隐私说明页权限清单口径（AC-20.4）：
+     * 页面展示的权限集合必须与合并 Manifest 的 requestedPermissions
+     * 逐一一致（系统注入的 DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+     * 除外，其前缀随 flavor 的 applicationIdSuffix 变化，动态拼接）。
+     *
+     * 与下方既有白名单用例的分工：那条断言「不多不少」的合并清单；
+     * 这条断言「页面陈述 == 合并清单」——Manifest 增删权限而不同步
+     * 隐私页清单（PrivacyPermissionItems）会直接失败。
+     */
+    @Test
+    fun `隐私说明页权限清单与合并 Manifest 一致`() {
+        composeRule.setContent {
+            PaperReadTheme { PrivacyScreen(onBack = {}) }
+        }
+
+        // 页面逐项渲染（名称节点存在；用途文案随之展示）
+        PrivacyPermissionItems.items.forEach { item ->
+            composeRule.onNodeWithText(item.name).scrollToAndAssertRendered()
+        }
+
+        val info = app.packageManager.getPackageInfo(
+            app.packageName,
+            PackageManager.GET_PERMISSIONS,
+        )
+        val requested = info.requestedPermissions?.toList().orEmpty()
+        val displayed = PrivacyPermissionItems.items.map { it.name }.toSet()
+        val expected = requested.toSet() - "${app.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        assertEquals(
+            "隐私页权限清单必须与合并 Manifest 实际权限一致（AC-20.4）",
+            expected,
+            displayed,
+        )
+    }
+
+    @Test
+    fun `隐私说明页展示网络行为承诺与数据边界`() {
+        composeRule.setContent {
+            PaperReadTheme { PrivacyScreen(onBack = {}) }
+        }
+        composeRule.onNodeWithText("权限清单").scrollToAndAssertRendered()
+        composeRule.onNodeWithText("网络行为").scrollToAndAssertRendered()
+        composeRule.onNodeWithText("纸阅不访问公网", substring = true).scrollToAndAssertRendered()
+        composeRule.onNodeWithText("备份加密与诊断导出的数据边界").scrollToAndAssertRendered()
+        composeRule.onNodeWithText("条目级 AES-256-GCM", substring = true)
+            .scrollToAndAssertRendered()
+    }
+
+    @Test
+    fun `关于页隐私说明入口可进入隐私页`() {
+        var privacyOpened = false
+        composeRule.setContent {
+            PaperReadTheme {
+                AboutScreen(
+                    onBack = {},
+                    onOpenLicense = {},
+                    onOpenPrivacy = { privacyOpened = true },
+                )
+            }
+        }
+        composeRule.onNodeWithText("隐私说明").performScrollTo()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("隐私说明").performClick()
+        composeRule.waitForIdle()
+        assertTrue("点击隐私说明入口应跳转隐私说明页", privacyOpened)
     }
 }

@@ -52,6 +52,9 @@ import io.github.lunalight.paperread.R
  * 声明项为 INTERNET + 朗读前台服务三件套——INTERNET 供局域网传书 / 迁移 / 同步
  * （不访问公网），前台服务三件套供朗读后台保活与通知控制（系统 TTS 离线合成）；
  * 涉及权限的文案经字符串资源集中管理，保证页面陈述与实际合并 Manifest 一致。
+ *
+ * 隐私说明一页（T-009 · AC-20.3）经 [onOpenPrivacy] 进入：权限清单逐项用途、
+ * 网络行为承诺、备份加密与诊断导出的数据边界。
  */
 internal object AboutLinks {
     const val HOME = "https://github.com/lobster-xiaozhua/PaperRead"
@@ -63,6 +66,7 @@ internal object AboutLinks {
 fun AboutScreen(
     onBack: () -> Unit,
     onOpenLicense: () -> Unit,
+    onOpenPrivacy: () -> Unit,
 ) {
     val context = LocalContext.current
     Scaffold(
@@ -121,6 +125,14 @@ fun AboutScreen(
             // ---- 隐私承诺 ----
             AboutSectionLabel("隐私承诺")
             AboutBody(stringResource(R.string.about_privacy_promise))
+
+            // ---- 隐私说明一页入口（AC-20.3：权限清单 / 网络行为 / 数据边界） ----
+            AboutEntryItem(
+                title = stringResource(R.string.about_privacy_entry_title),
+                subtitle = stringResource(R.string.about_privacy_entry_subtitle),
+                leadingIcon = Icons.Filled.Info,
+                onClick = onOpenPrivacy,
+            )
 
             // ---- 开源许可 ----
             AboutSectionLabel("开源许可")

@@ -1,7 +1,10 @@
 package io.github.lunalight.paperread.ui.reader
 
+import android.Manifest
 import android.app.Activity
 import android.content.res.Configuration
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -50,6 +53,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -87,6 +91,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -197,6 +202,22 @@ fun ReaderScreen(
         val message = state.message ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
         viewModel.dismissMessage()
+    }
+
+    // 朗读通知权限场景化（T-009 · AC-20.1）：
+    // 首次朗读且未授权时 VM 先发射 ShowPrompt（场景对话框），用户确认后
+    // 转 LaunchSystemRequest，由这里发起系统 POST_NOTIFICATIONS 申请；
+    // 结果（含拒绝）回传 VM，朗读照常开始，仅通知栏控制不可见。
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        viewModel.onNotificationPermissionResult(granted)
+    }
+    LaunchedEffect(state.speechPermissionEvent) {
+        if (state.speechPermissionEvent is SpeechPermissionEvent.LaunchSystemRequest) {
+            viewModel.onSpeechPermissionEventConsumed()
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     Box(
@@ -328,6 +349,42 @@ fun ReaderScreen(
             onDismiss = viewModel::hideSettings,
         )
     }
+
+    // 朗读权限场景化说明对话框（AC-20.1）：告知通知权限用于「朗读控制通知」，
+    // 确认才发起系统申请；「暂不」直接朗读（降级：通知栏控制不可见）。
+    if (state.speechPermissionEvent is SpeechPermissionEvent.ShowPrompt) {
+        SpeechPermissionDialog(
+            onConfirm = viewModel::onSpeechPermissionPromptConfirm,
+            onDismiss = viewModel::onSpeechPermissionPromptDismiss,
+        )
+    }
+}
+
+/**
+ * 朗读通知权限的场景化说明对话框（AC-20.1）。
+ *
+ * 文案全部走字符串资源（R-19 口径：新功能文案直接进 strings.xml）。
+ */
+@Composable
+private fun SpeechPermissionDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.speech_permission_prompt_title)) },
+        text = { Text(stringResource(R.string.speech_permission_prompt_message)) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.speech_permission_prompt_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.speech_permission_prompt_dismiss))
+            }
+        },
+    )
 }
 
 @Composable

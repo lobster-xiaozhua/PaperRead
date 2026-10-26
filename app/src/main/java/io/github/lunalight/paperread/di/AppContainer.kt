@@ -32,7 +32,11 @@ import kotlinx.coroutines.SupervisorJob
  */
 class AppContainer(context: Context) {
 
-    private val applicationContext = context.applicationContext
+    /**
+     * 应用级 Context（供权限探测等只读使用，如 ReaderViewModel 的
+     * POST_NOTIFICATIONS 可用性检查）。
+     */
+    val applicationContext: Context = context.applicationContext
 
     private val database: AppDatabase by lazy { AppDatabase.build(applicationContext) }
 

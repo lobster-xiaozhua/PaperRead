@@ -10,6 +10,7 @@ import androidx.navigation.toRoute
 import io.github.lunalight.paperread.MainActivity
 import io.github.lunalight.paperread.ui.about.AboutScreen
 import io.github.lunalight.paperread.ui.about.LicenseScreen
+import io.github.lunalight.paperread.ui.about.PrivacyScreen
 import io.github.lunalight.paperread.ui.adaptive.LocalWindowWidthClass
 import io.github.lunalight.paperread.ui.adaptive.rememberWindowWidthClass
 import io.github.lunalight.paperread.ui.bookshelf.BookshelfScreen
@@ -59,11 +60,16 @@ fun PaperReadNavHost() {
             AboutScreen(
                 onBack = { navController.popBackStack() },
                 onOpenLicense = { navController.navigate(LicenseRoute) },
+                onOpenPrivacy = { navController.navigate(PrivacyRoute) },
             )
         }
 
         composable<LicenseRoute> {
             LicenseScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable<PrivacyRoute> {
+            PrivacyScreen(onBack = { navController.popBackStack() })
         }
 
         composable<TransferRoute> { backStackEntry ->

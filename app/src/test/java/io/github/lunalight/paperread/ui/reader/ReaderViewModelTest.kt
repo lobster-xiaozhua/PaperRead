@@ -628,4 +628,167 @@ class ReaderViewModelTest {
         assertTrue("每个单元不超过上限", call.units.all { it.text.length <= SpeechText.MAX_UNIT_CHARS })
         assertEquals("从恢复段落（第 3 段）起读", 2, call.startUnitIndex)
     }
+
+    // ---- 朗读权限场景化（T-009 · AC-20.1 / AC-20.6） ----
+
+    /** 构造「通知权限未授权」的 VM（AC-20.1 场景入口）。 */
+    private fun viewModelWithoutNotificationPermission(): ReaderViewModel =
+        ReaderViewModel(
+            bookId = 1L,
+            bookRepository = repository,
+            bookTextStore = textStore,
+            settingsStore = settingsStore,
+            speechController = speechController,
+            hasNotificationPermission = { false },
+        )
+
+    @Test
+    fun `未授权时首次朗读先弹场景对话框而不起播`() = runTest(dispatcher) {
+        viewModel = viewModelWithoutNotificationPermission()
+        advanceUntilIdle()
+
+        viewModel.startSpeech(fromParagraph = 1)
+        advanceUntilIdle()
+
+        val event = viewModel.uiState.value.speechPermissionEvent
+        assertTrue("应发射场景对话框事件", event is SpeechPermissionEvent.ShowPrompt)
+        assertEquals("对话框携带待朗读起始段", 1, (event as SpeechPermissionEvent.ShowPrompt).fromParagraph)
+        assertTrue("对话框展示期间不得起播", speechController.speakCalls.isEmpty())
+    }
+
+    @Test
+    fun `场景对话框确认后转入系统申请且延后起播`() = runTest(dispatcher) {
+        viewModel = viewModelWithoutNotificationPermission()
+        advanceUntilIdle()
+        viewModel.startSpeech(fromParagraph = 1)
+        advanceUntilIdle()
+
+        viewModel.onSpeechPermissionPromptConfirm()
+        advanceUntilIdle()
+
+        val event = viewModel.uiState.value.speechPermissionEvent
+        assertTrue("确认后应请求系统申请", event is SpeechPermissionEvent.LaunchSystemRequest)
+        assertEquals(1, (event as SpeechPermissionEvent.LaunchSystemRequest).fromParagraph)
+        assertTrue("系统申请结果回来前不得起播", speechController.speakCalls.isEmpty())
+
+        // UI 拉起系统申请后消费事件（防重组重复触发）
+        viewModel.onSpeechPermissionEventConsumed()
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.speechPermissionEvent)
+    }
+
+    @Test
+    fun `系统申请被拒后朗读照常且给出降级提示`() = runTest(dispatcher) {
+        viewModel = viewModelWithoutNotificationPermission()
+        advanceUntilIdle()
+        viewModel.startSpeech(fromParagraph = 1)
+        advanceUntilIdle()
+        viewModel.onSpeechPermissionPromptConfirm()
+        advanceUntilIdle()
+
+        viewModel.onNotificationPermissionResult(granted = false)
+        advanceUntilIdle()
+
+        assertTrue("拒绝后朗读仍可播放", speechController.speakCalls.isNotEmpty())
+        assertEquals(
+            "应给出降级提示",
+            ReaderViewModel.NOTIFICATION_PERMISSION_DEGRADED_MESSAGE,
+            viewModel.uiState.value.message,
+        )
+    }
+
+    @Test
+    fun `系统申请授权后直接起播无降级提示`() = runTest(dispatcher) {
+        var granted = false
+        viewModel = ReaderViewModel(
+            bookId = 1L,
+            bookRepository = repository,
+            bookTextStore = textStore,
+            settingsStore = settingsStore,
+            speechController = speechController,
+            hasNotificationPermission = { granted },
+        )
+        advanceUntilIdle()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+        viewModel.onSpeechPermissionPromptConfirm()
+        advanceUntilIdle()
+
+        granted = true // 用户授权后探测翻绿
+        viewModel.onNotificationPermissionResult(granted = true)
+        advanceUntilIdle()
+
+        assertTrue(speechController.speakCalls.isNotEmpty())
+        assertNull("授权不应有降级提示", viewModel.uiState.value.message)
+    }
+
+    @Test
+    fun `场景对话框取消后不申请权限但朗读照常`() = runTest(dispatcher) {
+        viewModel = viewModelWithoutNotificationPermission()
+        advanceUntilIdle()
+
+        viewModel.startSpeech(fromParagraph = 1)
+        advanceUntilIdle()
+        viewModel.onSpeechPermissionPromptDismiss()
+        advanceUntilIdle()
+
+        assertNull("对话框应消失", viewModel.uiState.value.speechPermissionEvent)
+        assertTrue("取消场景申请不阻塞朗读", speechController.speakCalls.isNotEmpty())
+        assertEquals(
+            ReaderViewModel.NOTIFICATION_PERMISSION_DEGRADED_MESSAGE,
+            viewModel.uiState.value.message,
+        )
+    }
+
+    @Test
+    fun `问过之后再次朗读不再弹对话框直接起播`() = runTest(dispatcher) {
+        viewModel = viewModelWithoutNotificationPermission()
+        advanceUntilIdle()
+
+        viewModel.startSpeech()
+        advanceUntilIdle()
+        viewModel.onSpeechPermissionPromptDismiss()
+        advanceUntilIdle()
+
+        viewModel.stopSpeech()
+        advanceUntilIdle()
+        speechController.speakCalls.clear()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+
+        assertNull("已问过则不再弹场景对话框", viewModel.uiState.value.speechPermissionEvent)
+        assertTrue("再次朗读直接起播", speechController.speakCalls.isNotEmpty())
+    }
+
+    @Test
+    fun `权限被系统撤销后起播降级提示且不崩`() = runTest(dispatcher) {
+        // AC-20.6：已授权状态下起播后权限被撤（探测结果翻转为 false），
+        // 再次起播应降级提示、朗读不受影响、无异常。
+        var granted = true
+        viewModel = ReaderViewModel(
+            bookId = 1L,
+            bookRepository = repository,
+            bookTextStore = textStore,
+            settingsStore = settingsStore,
+            speechController = speechController,
+            hasNotificationPermission = { granted },
+        )
+        advanceUntilIdle()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.message)
+
+        granted = false // 系统侧撤销
+        viewModel.stopSpeech()
+        advanceUntilIdle()
+        viewModel.startSpeech()
+        advanceUntilIdle()
+
+        assertTrue("撤销后朗读仍可播放", speechController.speakCalls.isNotEmpty())
+        assertEquals(
+            "撤销后应提示降级",
+            ReaderViewModel.NOTIFICATION_PERMISSION_DEGRADED_MESSAGE,
+            viewModel.uiState.value.message,
+        )
+    }
 }
