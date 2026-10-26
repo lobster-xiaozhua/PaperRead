@@ -49,6 +49,7 @@ class FakeBookRepository : BookRepository {
     val addedBookmarks = mutableListOf<Bookmark>()
     val deletedBookmarkIds = mutableListOf<Long>()
     val clearedBookmarkBookIds = mutableListOf<Long>()
+    val updatedBookmarkNotes = mutableListOf<UpdatedBookmarkNote>()
     val savedImports = mutableListOf<SavedImport>()
 
     data class SavedPosition(
@@ -130,7 +131,18 @@ class FakeBookRepository : BookRepository {
         deletedBookmarkIds += id
     }
 
+    override suspend fun updateBookmarkNote(id: Long, note: String, updatedAt: Long) {
+        updatedBookmarkNotes += UpdatedBookmarkNote(id, note, updatedAt)
+    }
+
     override suspend fun deleteBookmarksByBook(bookId: Long) {
         clearedBookmarkBookIds += bookId
     }
 }
+
+/** [FakeBookRepository.updateBookmarkNote] 的调用记录。 */
+data class UpdatedBookmarkNote(
+    val id: Long,
+    val note: String,
+    val updatedAt: Long,
+)

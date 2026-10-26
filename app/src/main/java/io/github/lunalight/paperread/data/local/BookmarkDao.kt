@@ -17,6 +17,10 @@ interface BookmarkDao {
     @Insert
     suspend fun insert(bookmark: BookmarkEntity): Long
 
+    /** 更新备注（R-18 消费；T-006 先行落 schema 与 DAO 槽位）。 */
+    @Query("UPDATE bookmarks SET note = :note, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun updateNote(id: Long, note: String, updatedAt: Long)
+
     @Query("DELETE FROM bookmarks WHERE id = :id")
     suspend fun deleteById(id: Long)
 

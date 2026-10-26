@@ -257,6 +257,10 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+    // Room 迁移测试基建（T-006 · R-06 / G6）：MigrationTestHelper 建指定
+    // 版本库 → 灌存量数据 → runMigrationsAndValidate 走真实迁移链路。
+    // 唯一 test 侧新增坐标（P-2 唯一例外口径），不进 release 包。
+    testImplementation(libs.androidx.room.testing)
 
     implementation(libs.androidx.window)
 

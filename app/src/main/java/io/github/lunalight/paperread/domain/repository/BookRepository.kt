@@ -43,6 +43,13 @@ interface BookRepository {
     /** 删除书签。 */
     suspend fun deleteBookmark(id: Long)
 
+    /**
+     * 更新书签备注（R-18 / US-17；schema 与 DAO 槽位随 T-006 先行落地）。
+     *
+     * @param updatedAt 备注最后修改时间（跨设备冲突裁决取较新者，AC-17.7）。
+     */
+    suspend fun updateBookmarkNote(id: Long, note: String, updatedAt: Long)
+
     /** 清空某书全部书签（重新解析后章节语义已变，书签必然失配）。 */
     suspend fun deleteBookmarksByBook(bookId: Long)
 }
