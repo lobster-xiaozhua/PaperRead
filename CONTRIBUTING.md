@@ -36,6 +36,10 @@ test(epub): 补充无 NCX 目录的解析用例
 - Kotlin，`kotlin.code.style=official`
 - `reader/` 引擎保持零 Android 依赖（纯 Kotlin，可 JVM 单测）
 - UI 层不直接访问 Room / 文件系统，一律经 Repository
+- **逻辑不写进 `*Screen.kt`**：页面文件只放 `@Composable` 渲染树，任何可测的状态 / 计算
+  （分页、排序、格式化以外的业务判断、状态机）放独立文件（`XxxViewModel` / `XxxManager` /
+  纯函数文件）。原因见下条：覆盖率分母把纯渲染类划了出去，逻辑塞进渲染文件会被连带
+  移出分母，等于那部分代码不再被门禁度量
 - 新增第三方依赖需在 PR 中说明理由并在 README 依赖清单登记
 - **最小权限**：`AndroidManifest.xml` 仅声明以下权限（新增任何权限需单独评审，
   并同步本清单与 README 表述；CI 脚本 `scripts/check-doc-consistency.sh`
@@ -48,7 +52,7 @@ test(epub): 补充无 NCX 目录的解析用例
 `scripts/check-doc-consistency.sh`（CI `lint` 作业执行）五项断言：
 
 1. 权限清单：`CONTRIBUTING.md` 声明的权限与 `AndroidManifest.xml` 实际声明逐一一致；
-2. 覆盖率：文档不写死行覆盖率实测数字，统一以 `jacocoTestReport` 实际 XML 报告为准（门禁阈值除外）；
+2. 覆盖率：文档不写死行覆盖率实测数字，统一以 `jacocoTestReport` 实际 XML 报告为准（门禁阈值除外）；门禁口径为「**逻辑层**行覆盖率 ≥ 80%」——纯 Compose 渲染类（`*ScreenKt` / `*SheetKt` / `*DialogKt` / `*PanelKt` / `*SpreadKt` / `*NavHostKt` / `ThemeKt`）不计入分母，UI 行为由 `robolectric-ui` 作业的冒烟承载（规则见 `app/build.gradle.kts` 的 `coverageClassExcludes`）；
 3. Kotlin 版本：文档不硬编码版本号，单一来源为 `gradle/libs.versions.toml`；
 4. 单测总数：`README.md` / `docs/ROADMAP.md` / `docs/TASKS.md` 质量基线中的「N 单测」必须等于 `app/src/test` 下 `@Test` 用例数（代码为单一来源，写精确数字，不写「约」「N+」）；
 5. CI 作业数：文档中「N 门禁 / N 个作业」必须等于 `.github/workflows/android.yml` 的作业数，且每个作业名都要在 `README.md` 以反引号形式登记。

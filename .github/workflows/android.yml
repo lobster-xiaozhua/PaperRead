@@ -45,6 +45,11 @@ jobs:
   # ui/smoke 冒烟在内存受限 runner 上存在 Robolectric 渲染超时抖动（已知基线
   # 现象，非回归），经 -PexcludeUiSmokeTests=true 移交 robolectric-ui 作业，
   # 不阻塞本门禁；本地构建不传该属性，全量照跑。
+  # 覆盖率口径：**逻辑层**行覆盖率 ≥ 80%。纯 Compose 渲染类（*ScreenKt /
+  # *SheetKt / *DialogKt / *PanelKt / *SpreadKt / *NavHostKt / ThemeKt）不计入
+  # 分母——它们只由本作业排除掉的 ui.smoke 覆盖，计入分母等于拿 robolectric-ui
+  # 的成绩给本作业充值（且是唯一允许重试的那份成绩）。规则与实测见
+  # app/build.gradle.kts 的 coverageClassExcludes 注释。
   unit:
     runs-on: ubuntu-latest
     steps:

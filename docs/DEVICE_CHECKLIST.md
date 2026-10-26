@@ -1,6 +1,6 @@
 # 纸阅 PaperRead 装机验证清单
 
-> 适用版本：v1.2.0（versionCode 4，minSdk 26 / targetSdk 35）
+> 适用版本：v2.0.0（发布前 bump，当前 versionName 见 app/build.gradle.kts；minSdk 26 / targetSdk 35）
 > 验证目标设备：至少一台 Android 8.0（API 26）真机；建议覆盖 Android 13/14/15 各一台
 > 隐私红线：全程开启飞行模式或断网验证，应用**不得**出现任何网络行为
 
@@ -88,7 +88,7 @@
 |------|------|
 | 执行设备（型号） | ____________ |
 | 系统版本（API / 版本号） | ____________ |
-| 应用版本（versionName / versionCode） | ____________ |
+| 应用版本（versionName / versionCode） | ____________ （填实际安装包 versionName / versionCode：`adb shell dumpsys package io.github.lunalight.paperread` 的 versionName 字段，或安装包文件名） |
 | 导入方式（SAF / 传书接收） | ____________ |
 | 样本 SHA-256（与 `.meta` 对齐） | ____________ |
 | 执行人 / 日期 | ____________ |

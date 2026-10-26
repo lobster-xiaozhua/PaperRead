@@ -18,7 +18,22 @@
 # - 下方三条规则正好覆盖这三样，因此**无需**对每个模型类写逐条 `-keep`。
 #   逐条枚举的坏处是新增模型时容易漏（漏了只在混淆产物上崩，debug 全绿）。
 # - kotlinx-serialization-core 自身还携带 consumer ProGuard 规则（jar 内
-#   META-INF/proguard/），与下方规则叠加生效。
+#   META-INF/proguard/kotlinx-serialization-common.pro 等），与下方规则叠加生效。
+#
+# 与依赖自带 consumer 规则的冗余是**有意保留**的（P2 结论，2026-10）：
+# - 事实：下方 `$$serializer` 与 `serializer(...)` 两条 -keep 与
+#   kotlinx-serialization-common.pro 中的对应规则**语义重叠**，R8 对同一条
+#   keep 去重，因此**删除下方规则不改变当前产物语义**——依据是
+#   check-r8-keep.sh 头部记录的那次实测：注释掉本仓库全部 keep 规则后
+#   assembleClientRelease 仍成功、三组 mapping 断言仍全绿（仅混淆编号变化）。
+# - 仍保留的理由：consumer 规则随 kotlinx-serialization 版本走。升级若调整
+#   了生成器命名（`$$serializer`）或入口签名（`Companion.serializer(...)`），
+#   本仓库的规则是**唯一的护栏**——升级当天就会在 `check-r8-keep.sh` 的
+#   mapping 断言上暴露，而不是等到用户装包后崩在启动。
+# - 边界（勿误判为脚本失效）：`scripts/check-r8-keep.sh` 检的是「契约类是否
+#   还在 mapping.txt 里」（即**类被裁掉**），它**检不出「本文件的 keep 规则被
+#   删掉」**——规则删了，类仍在产物中，断言照绿。规则是否该删由评审判断，
+#   不由脚本判断。该边界同样写在 check-r8-keep.sh 头部注释。
 #
 # 明确的能力边界：本文件 + 上述两道断言**不能**证明「混淆后的真实运行时行为」，
 # 因为混淆只在 assemble*Release 产物里发生，而单元测试跑的是未混淆的类。

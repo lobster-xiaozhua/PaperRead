@@ -192,6 +192,54 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+// ---- 覆盖率分母口径（report 与 verification 共用同一组 val，改一处即两处生效）----
+//
+// 为什么要动分母（2026-10 第 0 阶段出口验收的阻塞项 P1）：
+// `28d70fc`（T-001 七作业拆分）把 `ui.smoke.*`（Robolectric Compose 渲染冒烟）
+// 从 `unit` 作业移交给 `robolectric-ui` 作业，但覆盖率分母没有同步——于是
+// 「只由渲染冒烟覆盖」的纯 Compose 渲染类留在分母里、覆盖数却是 0：
+// 排除 ui.smoke 后实测 LINE 4164/6226 = 66.88% < 80%，门禁长期红着，只能靠人肉忽略。
+//
+// 判据：**Compose 渲染树的行覆盖率只有 instrumented（androidTest）口径才有意义**。
+// 单测能覆盖的是状态逻辑（ViewModel / Controller / Manager / Repository / 纯函数）；
+// 渲染函数体是 `@Composable` 的布局指令——在 Robolectric 冒烟里「跑过」不等于
+// 「被测过」，把它计入单测分母，等于用 UI 作业的成绩给单测门禁充值（而且充的是
+// flaky 的分，见 G9）。故：渲染类不进分母；逻辑类一个不落仍被度量
+// （剔除后逻辑层实测 90.36%），UI 行为由 `robolectric-ui` 作业的行为冒烟承载。
+//
+// 剔除范围（文件级：整个文件只由 `@Composable` 渲染树 + 其私有格式化助手构成）：
+//   `*ScreenKt` / `*SheetKt` / `*DialogKt` / `*PanelKt` / `*SpreadKt` /
+//   `*NavHostKt` / `ThemeKt` —— 页面 / 弹层 / 对话框 / 面板 / 翻页渲染 / 导航图 / 主题壳。
+// 刻意**不**剔除（避免「越算越少」）：
+// - `theme/ColorKt`、`theme/ReaderThemes`：调色板与主题**数据**，非渲染树，有单测覆盖；
+// - `reader/PaginatorKt`、`reader/PaginationKt`：纯函数分页计算，属逻辑；
+// - `ui/reader/RememberChapterPagesKt`（composable + 章节加载状态）、
+//   `ui/bookshelf/CoverGenerator`（Canvas 封面绘制）：CI 口径下实测覆盖率确实为 0%，
+//   如实留在分母里，不靠剔除掩盖——它们才是下一步该补测的地方。
+//
+// 维护约定：新逻辑放独立文件（`XxxViewModel` / `XxxManager` / 纯函数文件），
+// 不要塞进 `*Screen.kt`：塞进去会被本条规则连带移出分母，等于放弃度量。
+val coverageClassExcludes = listOf(
+    "**/R.class",
+    "**/R$*.class",
+    "**/BuildConfig.class",
+    "**/Manifest.class",
+    // Kotlin 闭包 / 匿名类：无独立行号，度量无意义
+    "**/*\$*.class",
+    // 纯 Compose 渲染类（理由见上方注释）
+    "**/ui/**/*ScreenKt.class",
+    "**/ui/**/*SheetKt.class",
+    "**/ui/**/*DialogKt.class",
+    "**/ui/**/*PanelKt.class",
+    "**/ui/**/*SpreadKt.class",
+    "**/ui/**/*NavHostKt.class",
+    "**/ui/theme/ThemeKt.class",
+)
+
+val coverageClassDirectories = fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/clientDebug") {
+    exclude(coverageClassExcludes)
+}
+
 tasks.register<JacocoReport>("jacocoTestReport") {
     group = "verification"
     description = "生成单元测试覆盖率报告（XML + HTML）"
@@ -201,17 +249,7 @@ tasks.register<JacocoReport>("jacocoTestReport") {
         html.required.set(true)
     }
     sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
-    classDirectories.setFrom(
-        fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/clientDebug") {
-            exclude(
-                "**/R.class",
-                "**/R$*.class",
-                "**/BuildConfig.class",
-                "**/Manifest.class",
-                "**/*\$*.class",
-            )
-        },
-    )
+    classDirectories.setFrom(coverageClassDirectories)
     // 只取 client 变体的 exec：build/jacoco 下同时存在 dev 变体（以及历史变体
     // 残留）的 exec 文件，通配 *.exec 会误吃 testDevDebugUnitTest 的输出——
     // 既触发 Gradle 隐式依赖校验失败，又会把旧变体数据混进本次度量。
@@ -222,8 +260,14 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 }
 
 // 覆盖率门禁：`./gradlew jacocoTestCoverageVerification`。
-// 与上方 report 共用同一份 classDirectories / executionData / 过滤规则，
-// 只读 exec 不做插桩，不会触发 report 注释里描述的 worker 崩溃问题。
+// 与上方 report 共用同一组 `coverageClassDirectories` / executionData / 过滤规则
+// （同一个 val，不是两处复制），只读 exec 不做插桩，不会触发 report 注释里
+// 描述的 worker 崩溃问题。
+//
+// 口径声明（与 README / docs/TASKS.md / CONTRIBUTING.md 表述一致）：
+// 「**逻辑层**行覆盖率 ≥ 80%（Compose 渲染类不计入分母；UI 行为由
+// robolectric-ui 作业的行为冒烟承载）」。CI `unit` 作业以
+// `-PexcludeUiSmokeTests=true` 口径校验本门禁——两个作业口径互补，不重叠。
 //
 // 阈值口径：行覆盖率（与 ROADMAP / README 口径一致）。取 0.80 作为防回归
 // 底线：既挡住明显退化，又给新增代码留足余量；随覆盖率提升可逐步上调
@@ -244,17 +288,7 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
         }
     }
     sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
-    classDirectories.setFrom(
-        fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/clientDebug") {
-            exclude(
-                "**/R.class",
-                "**/R$*.class",
-                "**/BuildConfig.class",
-                "**/Manifest.class",
-                "**/*\$*.class",
-            )
-        },
-    )
+    classDirectories.setFrom(coverageClassDirectories)
     // 只取 client 变体的 exec：build/jacoco 下同时存在 dev 变体（以及历史变体
     // 残留）的 exec 文件，通配 *.exec 会误吃 testDevDebugUnitTest 的输出——
     // 既触发 Gradle 隐式依赖校验失败，又会把旧变体数据混进本次度量。

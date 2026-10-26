@@ -19,7 +19,8 @@
 #      夹具不能放 src/test/assets）与 app/schemas/ 导出一一一致，防止
 #      只改 schema 忘了同步夹具、迁移测试空跑；
 #   6. version >= 2 时，src/test 下必须存在同时使用 MigrationTestHelper 与
-#      runMigrationsAndValidate 的迁移测试文件（删掉迁移测试不能只剩绿灯）。
+#      runMigrationsAndValidate 的迁移测试文件（删掉**全部**迁移测试文件不能
+#      只剩绿灯——存在性断言，单份被移走仍绿，详见第 6 项注释）。
 #
 # 用法：./scripts/check-room-migration.sh（在仓库任意目录执行均可）。
 
@@ -179,6 +180,13 @@ fi
 # 断言口径：src/test 下至少存在一个 **同时** 使用 MigrationTestHelper 与
 # runMigrationsAndValidate 的测试文件。只 `new MigrationTestHelper(...)` 而不跑
 # validate（或反之）不算——那样的"迁移测试"是空跑。
+#
+# 复验边界（勿误判为脚本失效）：本断言是「存在性」断言，不是「完整性」断言。
+# 当前有两份文件同时满足条件——`BookmarkMigrationTest` 与
+# `MigrationDataIntegrityTest`——因此**只移走其中一份，本项仍绿**（另一份还在）。
+# 要让本项变红，必须把**两份都**移走 / 都去掉 runMigrationsAndValidate。
+# 当初"移走迁移测试文件 → 脚本必红"的说法只在「移走全部」时成立；
+# 若将来新增第三份迁移测试，同样要全部移走才会红。
 
 if [ "$version" -ge 2 ]; then
   migration_test_file=""
