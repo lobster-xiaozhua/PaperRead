@@ -392,6 +392,66 @@ class TransferHttpServerTest {
         assertTrue("未配对不得落盘", spillDir.listFiles().isNullOrEmpty())
     }
 
+    /**
+     * QA-五端点鉴权全覆盖（G1①「五端点强制鉴权，缺失 / 错误 token 返 401」）。
+     *
+     * 既有用例只对 `GET /meta` 与 `POST /upload` 断言 401；中间件虽位于路由之前
+     * （结构性覆盖全部端点），但缺少**逐端点**的回归断言——一旦将来有人把某条
+     * 路由提到中间件之前（或给某端点加白名单），只有被断言过的两个端点会红。
+     *
+     * 本用例对 [Endpoints] 的五条路由逐一断言两种情况：
+     *   1. 请求格式合法但**缺失** Authorization 头 → 401；
+     *   2. 已配对后用**错误** secret 签发的令牌 → 401。
+     * POST 端点附合法 `X-Content-Sha256` 声明，避免落进「缺摘要 400」分支
+     * （那条分支由 `POST 缺少摘要声明被拒（400）` 覆盖），确保这里测的是鉴权而非格式。
+     */
+    @Test
+    fun `QA-五端点缺失或错误 token 一律 401`() {
+        data class Case(val method: String, val path: String, val body: ByteArray)
+
+        val cases = listOf(
+            Case("GET", "/meta", ByteArray(0)),
+            Case("GET", "/sync/state", ByteArray(0)),
+            Case("POST", "/upload", ByteArray(64) { it.toByte() }),
+            Case("POST", "/bundle", ByteArray(64) { (it + 1).toByte() }),
+            Case("POST", "/sync/apply", """{"version":1}""".toByteArray()),
+        )
+
+        // ---- 1) 缺失 Authorization 头（服务端 UNPAIRED） ----
+        assertEquals(PairingGate.Status.UNPAIRED, gate.status)
+        cases.forEach { case ->
+            val headers = if (case.method == "POST") {
+                mapOf("X-Content-Sha256" to sha256Hex(case.body))
+            } else {
+                emptyMap()
+            }
+            assertEquals(
+                "未配对时 ${case.method} ${case.path} 缺失 token 应返 401",
+                401,
+                sendRaw(case.method, case.path, case.body, headers).status,
+            )
+        }
+
+        // ---- 2) 已配对但令牌由错误 secret 签发 ----
+        pairAsSender()
+        assertEquals(PairingGate.Status.PAIRED, gate.status)
+        val wrongSecret = deriveSecret("654321", listOf("peer-a", "self-device"))
+        cases.forEach { case ->
+            val digest = if (case.method == "POST") sha256Hex(case.body) else EMPTY_BODY_SHA256
+            val headers = authHeaders(wrongSecret, case.method, case.path, digest)
+            assertEquals(
+                "已配对但 ${case.method} ${case.path} 携带错误 secret 的令牌应返 401",
+                401,
+                sendRaw(case.method, case.path, case.body, headers).status,
+            )
+        }
+
+        // 全程未产生任何副作用：未落库、未落盘、未应用同步
+        assertTrue("鉴权失败不得落库", uploads.isEmpty() && bundles.isEmpty())
+        assertTrue("鉴权失败不得落盘", spillDir.listFiles().isNullOrEmpty())
+        assertNull("鉴权失败不得应用同步状态", appliedSync)
+    }
+
     @Test
     fun `配对码正确即完成配对并放行后续请求`() {
         val secret = pairAsSender()

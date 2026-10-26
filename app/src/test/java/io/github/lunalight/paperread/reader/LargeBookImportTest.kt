@@ -247,6 +247,15 @@ class LargeBookImportTest {
             assertEquals("第 $i 章 charCount 应等于区间长度", chapter.charEnd - chapter.charStart, chapter.charCount)
             assertEquals("第 $i 章 cumulativeChars 应等于前缀和", cumulative, chapter.cumulativeChars)
             assertTrue("第 $i 章区间不应为空", chapter.charEnd > chapter.charStart)
+            // QA-逐章标题锚定：上四条都是「相邻自洽」断言（首尾相接 + 前缀和），
+            // 区间整体平移一章仍能全部成立——真正钉住边界位置的是「本章区间起点
+            // 读出来的标题必须是第 i+1 章」。样本标题由生成器确定性产出，
+            // 因此可对全部章（而非仅首末章）做零 I/O 的严格比对。
+            assertEquals(
+                "第 $i 章标题应为第 ${i + 1} 章标题（边界不得错位到相邻章）",
+                GbkSampleBookGenerator.chapterTitle(i + 1),
+                chapter.title,
+            )
             expectedCharStart = chapter.charEnd
             expectedByteStart = chapter.byteEnd
             cumulative += chapter.charCount
@@ -277,6 +286,32 @@ class LargeBookImportTest {
         assertFalse("末章不应含替换字符（GBK 解码正确）", lastText.contains('\uFFFD'))
         assertFalse("样本末行不以换行截断：末章文本不应以换行结尾", lastText.endsWith("\n"))
         assertFalse("book.txt 末字节不应为换行", lastByteOf(bookTxt) == '\n'.code.toByte())
+
+        // ---- QA-中间章抽读锚定 ----
+        // 上方标题锚定已覆盖全部章（零 I/O，比对的是切分产出的 title），
+        // 但 title 与「按 byteStart/byteEnd 读出的正文」是两条独立的取值路径：
+        // 若 byteStart 有系统性偏移而 charStart 无（或反之），标题断言仍会全绿，
+        // readChapter 却读到错位的正文。抽读 1/4、1/2、3/4 三章把两条路径钉在一起。
+        if (sample.chapters >= 4) {
+            listOf(sample.chapters / 4, sample.chapters / 2, sample.chapters * 3 / 4).forEach { index ->
+                val chapter = result.chapters[index]
+                val text = textStore.readChapter(result.dirName, chapter)
+                val expectedTitle = GbkSampleBookGenerator.chapterTitle(index + 1)
+                assertTrue(
+                    "第 $index 章按字节偏移读出的正文应以该章标题开头（首行实际：${text.take(24)}）",
+                    text.startsWith(expectedTitle),
+                )
+                assertTrue(
+                    "第 $index 章正文应含该章第一行样本句",
+                    text.contains(
+                        GbkSampleBookGenerator.bodyLine(
+                            index + 1, 0, GbkSampleBookGenerator.DEFAULT_SEED,
+                        ),
+                    ),
+                )
+                assertFalse("第 $index 章不应含替换字符", text.contains('\uFFFD'))
+            }
+        }
 
         return ImportReport(
             label = label,

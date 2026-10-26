@@ -13,6 +13,19 @@
 # 代价（明确承认）：两者都不覆盖 **R8 混淆后**的真实运行时行为，须由真机冒烟补齐；
 # 预留步骤见 .github/workflows/android.yml 的 r8-smoke 作业注释。
 #
+# 断言的能力边界（QA 第 0 阶段出口验收实测，勿高估本脚本）：
+# - 能检出：契约类 / $$serializer 被 R8 **裁掉**（从产物消失 → mapping 无该类行）；
+#   已用「从 mapping 删行」的方式复验过三组断言均会红。
+# - **不能**检出：proguard-rules.pro 的 keep 规则被删除 / 削弱。原因有二：
+#   ① 本脚本比对的是 mapping 的**左侧原 FQCN**，而 R8 只做改名时该类仍会留下
+#     `<原FQCN> -> a.a.b:` 行，改名对被裁判定不可见；
+#   ② kotlinx-serialization-core 的 jar 自带 consumer 规则
+#     （META-INF/proguard/kotlinx-serialization-common.pro）已覆盖 Companion /
+#     serializer() / INSTANCE / descriptor 的保留，本仓库的三条规则属叠加冗余。
+#   实测：注释掉本仓库全部 keep 规则后 assembleClientRelease 仍成功、三组断言仍全绿
+#   （仅混淆编号变化：PresencePacket -> d2.u0）。故「改 keep 规则」这条路不能靠
+#   本脚本守，须靠人工评审 + 真机 install smoke。
+#
 # 断言分三组：
 #   A. @Serializable 漂移守卫：src/main 中每个 @Serializable 声明（按简单名）
 #      都必须在 mapping 中出现——新增序列化类型时**自动**纳入，无需改脚本；
