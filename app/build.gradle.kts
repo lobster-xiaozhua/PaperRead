@@ -7,6 +7,16 @@ plugins {
     id("jacoco")
 }
 
+// 大文件样本门控属性（T-007 · R-05）：Gradle 属性 → 测试 JVM 系统属性。
+// 缺省（不传）时 LargeBookImportTest 跑 20MB 中等样本；发版前手动开 200MB：
+//   ./gradlew testClientDebugUnitTest --tests "*LargeBookImportTest" \
+//     -Ppaperread.largeBook.200mb=true -Ppaperread.largeBook.mb=200
+val largeBookTestProperties = listOf(
+    "paperread.largeBook.mb",
+    "paperread.largeBook.200mb",
+    "paperread.samplePath",
+)
+
 android {
     namespace = "io.github.lunalight.paperread"
     compileSdk = 35
@@ -119,6 +129,23 @@ android {
                 // 不阻塞主测试门禁。本地构建不传该属性，全量照跑，行为不变。
                 if (project.findProperty("excludeUiSmokeTests") == "true") {
                     test.filter.excludeTestsMatching("io.github.lunalight.paperread.ui.smoke.*")
+                }
+            }
+            // 大文件样本体积门控（T-007 · R-05）：Gradle 属性 → 测试 JVM 系统属性。
+            // 不转发则 LargeBookImportTest 只能读缺省值（20MB），200MB 用例无法手动开启。
+            all { test ->
+                largeBookTestProperties.forEach { key ->
+                    project.findProperty(key)?.let { test.systemProperty(key, it.toString()) }
+                }
+            }
+            // release 变体单测收窄（T-008 · R-07，架构 §6.2 方案 B）：
+            // clientRelease 变体只跑 quality.* ——R8 后的「序列化仍可用」JVM 侧近似验证
+            // （ReleaseSerializationTest）。不放全量：release 变体的 BuildConfig /
+            // 资源差异会让既有 debug 口径的 UI / 变体断言失败，与 R8 无关，
+            // 收窄后该作业的失败必然是序列化契约问题，信号干净。
+            all { test ->
+                if (test.name.contains("Release")) {
+                    test.filter.includeTestsMatching("io.github.lunalight.paperread.quality.*")
                 }
             }
         }

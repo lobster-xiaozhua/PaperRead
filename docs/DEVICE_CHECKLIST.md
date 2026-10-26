@@ -65,16 +65,56 @@
 - [ ] 导入一本 50 MB+ TXT：无 OOM、无 ANR，切章流畅（双偏移懒加载）
 - [ ] logcat 过滤 `E/AndroidRuntime`：无崩溃；` StrictMode` 无磁盘读写主线程警告（如有请记录）
 
-## 7. 流式导入专项（200 MB GBK，B1 待真机验收）
+## 7. 200MB GBK 大文件验收（R-05 / G5）
 
-> 前置：B1 流式导入代码已合入 v1.1.0（单测全绿 + lint 0/0），本节为真机验收。200 MB GBK 文件可用脚本拼接生成（保持 GBK 编码，含目录页与长短不一章）。
+> **状态：待真机执行。** 本节六项必须在真机上逐项填表；CI（`ubuntu-latest`）无
+> KVM / 模拟器 / 真机，instrumented 与 install smoke 均不可执行。沙箱内已完成的
+> 自动化部分（章节切分正确性、GBK 解码、双偏移连续性、耗时与堆采样）见
+> [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md)，**不能替代**本节。
 
-- [ ] 导入 200 MB GBK TXT：**导入成功**，书架出现书籍，无 OOM / 无 ANR
-- [ ] 导入全程进度对话框百分比平滑推进，无超过 2 秒的卡顿
-- [ ] 导入期间另一终端周期执行 `adb shell dumpsys meminfo io.github.lunalight.paperread | grep -i "TOTAL PSS"`：导入全程峰值 **< 100 MB**
-- [ ] 章节数与 PC 端按同策略（保守）批量切分数量一致（可用 `adb shell` 拉取 `files/books/<id>/chapters.json` 对比）
-- [ ] 进入书籍：首章 / 末章标题与正文无乱码；跳至末章进度百分比 ≈ 100%，与退出重进一致
-- [ ] `book.txt` 大小 = 原文件按探测编码解码后的字节数（`adb shell stat` 对比）；logcat 无 `E/AndroidRuntime`
+### 7.1 样本生成（可复现）
+
+```bash
+# 200MB GBK、93428 章、文末不以换行截断；同一 seed 在任何机器上字节一致
+./scripts/gen-large-book-sample.sh --size-mb 200 --out build/samples/large-book-200mb-gbk.txt
+# 输出含 CHAPTERS / GBK_BYTES / UTF8_BYTES / SHA256，并写同名 .meta 供核对
+```
+
+`adb push build/samples/large-book-200mb-gbk.txt /sdcard/Download/` 后用系统文件选择器导入。
+
+### 7.2 执行信息（每台设备填一份）
+
+| 项目 | 记录 |
+|------|------|
+| 执行设备（型号） | ____________ |
+| 系统版本（API / 版本号） | ____________ |
+| 应用版本（versionName / versionCode） | ____________ |
+| 导入方式（SAF / 传书接收） | ____________ |
+| 样本 SHA-256（与 `.meta` 对齐） | ____________ |
+| 执行人 / 日期 | ____________ |
+
+### 7.3 验收记录（六项，逐项打勾并填实测值）
+
+| # | 验收项 | 通过判据 | 结果（✓/✗） | 实测值 / 备注 |
+|---|--------|---------|------------|---------------|
+| 1 | 导入成功、无 OOM / ANR | 书架出现书籍；`logcat` 无 `E/AndroidRuntime`、无 `ANR in io.github.lunalight.paperread` | ☐ | |
+| 2 | 进度对话框无 > 2 秒卡顿 | 导入全程百分比平滑推进，任意两次刷新间隔 < 2s（肉眼 + 录屏复核） | ☐ | |
+| 3 | 峰值 PSS < 100MB | 导入期间 `adb shell dumpsys meminfo io.github.lunalight.paperread \| grep -i "TOTAL PSS"` 连续采样，取峰值 | ☐ | 峰值 ______ MB |
+| 4 | 章节数与 PC 端一致 | 真机章节数 = `meta.CHAPTERS` = PC 端同策略（保守）切分数 | ☐ | 真机 ______ / 期望 ______ |
+| 5 | 首章 / 末章无乱码 | 首章标题 `第1章 荒原第1节`、末章标题与正文均无 `�`；末章进度 ≈ 100% | ☐ | |
+| 6 | `book.txt` 大小对齐 | `adb shell stat -c %s files/books/<dir>/book.txt` = `meta.UTF8_BYTES - 1`（末行无换行） | ☐ | 实测 ______ / 期望 ______ |
+
+> 第 6 项的「-1」是样本末行不以换行截断所致：`UTF8_BYTES` 统计于截断前，
+> 落盘正文少一个 `\n`。这一字节差正是「末章边界」用例的意义——**必须相等**，
+> 偏差说明末章 `byteEnd` 少算 / 多算。
+
+### 7.4 判定
+
+- 六项全绿 → G5 真机口径通过，更新 [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md)
+  「待真机补测项」栏的真机实测值；
+- 任一项 ✗ → 在 `CHANGELOG.md` 记录现象 + 复现步骤，回到 `reader/txt/**` 或
+  `data/repository/BookImporter.kt` 定位（JVM 侧 `LargeBookImportTest` 的
+  双偏移连续性断言可先作为对照）。
 
 ## 8. 已知限制（非阻塞）
 
