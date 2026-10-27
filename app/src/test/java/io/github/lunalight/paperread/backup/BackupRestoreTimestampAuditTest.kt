@@ -21,7 +21,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -42,6 +41,11 @@ import org.robolectric.annotation.Config
  *    静默跳过回写——用户以为恢复了新进度，实际停留在旧进度。
  *
  * 这两条都以「用户可见的数据保真」为准，而不是以实现现状为准。
+ *
+ * ## 现状（F-01 已修）
+ * 链路已打通 `BackupImporter → BookStateWriter.writeProgress(readAt) →
+ * BookRepository.saveReaderPosition(readAt)`，恢复不再把 `lastReadAt` 写成 now。
+ * 本类两例是回归守卫：任一环断掉（例如有人删掉 `readAt` 透传）它们立刻变红。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -69,7 +73,6 @@ class BackupRestoreTimestampAuditTest {
         File(context.cacheDir, "backup").deleteRecursively()
     }
 
-    @Ignore("已知缺陷 F-01（P2）：恢复未还原 lastReadAt，被 saveReaderPosition 写成 now；修复后移除本注解")
     @Test
     fun `恢复后应还原备份中的最后阅读时间`() = runTest {
         val originalReadAt = 1_600_000_000_000L
@@ -113,7 +116,6 @@ class BackupRestoreTimestampAuditTest {
         )
     }
 
-    @Ignore("已知缺陷 F-01（P2）：恢复把 lastReadAt 写成 now，使后续恢复较新备份被判为「旧进度」而静默跳过回写；修复后移除本注解")
     @Test
     fun `连续恢复先旧后新两个备份时新备份的进度必须生效`() = runTest {
         val olderZip = File(context.cacheDir, "older.zip")

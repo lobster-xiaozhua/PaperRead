@@ -42,7 +42,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.lunalight.paperread.R
-import io.github.lunalight.paperread.backup.BACKUP_MIN_PASSWORD_LENGTH
+import io.github.lunalight.paperread.backup.BackupCrypto
 import io.github.lunalight.paperread.backup.BackupImportPreview
 import io.github.lunalight.paperread.backup.BackupPreview
 import io.github.lunalight.paperread.backup.BackupRestoreReport
@@ -228,11 +228,13 @@ private fun BackupExportDialog(
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
 
-    val tooShort = encrypt && password.isNotEmpty() && password.length < BACKUP_MIN_PASSWORD_LENGTH
+    // P3-3：口令判据**复用领域层**（`BackupCrypto.isValidPassword` = 长度 + 非全空白），
+    // 不再就地写 `length >= 8`——否则「8 位全空格」在 UI 通过、到导出时抛
+    // IllegalArgumentException，用户只看到一句泛化的「备份导出失败」。
+    val passwordAccepted = BackupCrypto.isValidPassword(password)
+    val passwordInvalid = encrypt && password.isNotEmpty() && !passwordAccepted
     val mismatch = encrypt && confirmPassword.isNotEmpty() && password != confirmPassword
-    val canConfirm = preview.bookCount > 0 && (
-        !encrypt || (password.length >= BACKUP_MIN_PASSWORD_LENGTH && password == confirmPassword)
-        )
+    val canConfirm = preview.bookCount > 0 && (!encrypt || (passwordAccepted && password == confirmPassword))
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -280,9 +282,9 @@ private fun BackupExportDialog(
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        isError = tooShort,
-                        supportingText = if (tooShort) {
-                            { Text(stringResource(R.string.backup_password_too_short)) }
+                        isError = passwordInvalid,
+                        supportingText = if (passwordInvalid) {
+                            { Text(stringResource(R.string.backup_password_invalid)) }
                         } else {
                             null
                         },
@@ -353,6 +355,11 @@ private fun BackupImportDialog(
                         preview.manifest.bookmarkCount,
                     ),
                 )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = importMetaText(preview),
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = stringResource(
@@ -371,16 +378,6 @@ private fun BackupImportDialog(
                             preview.missingEntries,
                         ),
                         color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                if (preview.fontFallbacks.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = stringResource(
-                            R.string.backup_import_fonts_missing,
-                            preview.fontFallbacks.joinToString("、"),
-                        ),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -437,6 +434,36 @@ private fun BackupImportDialog(
             }
         },
     )
+}
+
+/**
+ * 恢复预览副标题（AC-14.8 / P3-1）：备份格式版本 + 字体引用清单。
+ *
+ * AC-14.8 要求备份清单记录「版本号与内容摘要（书籍数 / 进度数 / 书签数 /
+ * 字体引用列表）」，预览侧原先只展示*缺失*字体——字体全部可用时什么都不显示，
+ * 「版本」则从未露出。这里把三项合并成一行：`备份格式 v1 · 字体：serif、sans`
+ * （有缺失时追加 `（缺失：xxx，将回退默认字体）`，AC-14.9 的提示不丢）。
+ */
+@Composable
+private fun importMetaText(preview: BackupImportPreview): String {
+    val version = preview.manifest.version
+    val fonts = preview.manifest.fontReferences.map { it.displayName }
+    return when {
+        fonts.isEmpty() -> stringResource(R.string.backup_import_meta_fonts_none, version)
+
+        preview.fontFallbacks.isNotEmpty() -> stringResource(
+            R.string.backup_import_meta_fonts_missing,
+            version,
+            fonts.joinToString("、"),
+            preview.fontFallbacks.joinToString("、"),
+        )
+
+        else -> stringResource(
+            R.string.backup_import_meta,
+            version,
+            fonts.joinToString("、"),
+        )
+    }
 }
 
 /** 恢复结果（AC-14.5：成功计数 + 失败明细 + 字体回退）。 */

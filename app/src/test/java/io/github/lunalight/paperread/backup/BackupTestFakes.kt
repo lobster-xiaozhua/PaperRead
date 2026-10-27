@@ -34,6 +34,8 @@ class MemoryBookRepository(initial: List<Book> = emptyList()) : BookRepository {
         val bookId: Long,
         val position: ReaderPosition,
         val progressPercent: Float,
+        /** 显式传入的「上次阅读时间」（null = 调用方未指定，生产实现取 now）。 */
+        val readAt: Long? = null,
     )
 
     val savedPositions = mutableListOf<SavedPosition>()
@@ -83,8 +85,9 @@ class MemoryBookRepository(initial: List<Book> = emptyList()) : BookRepository {
         bookId: Long,
         position: ReaderPosition,
         progressPercent: Float,
+        readAt: Long?,
     ) {
-        savedPositions += SavedPosition(bookId, position, progressPercent)
+        savedPositions += SavedPosition(bookId, position, progressPercent, readAt)
     }
 
     override suspend fun findBySha256(sha256: String): Book? =

@@ -14,10 +14,20 @@ import io.github.lunalight.paperread.domain.repository.BookRepository
  * 「是否该回写」不在这里判断：那是纯函数 `WriteBackDecider` 的职责（迁移与备份
  * 都显式调用它），本类只负责写。拆开的理由是二者可独立单测：决策是纯逻辑，
  * 写入是需要仓储的副作用。
+ *
+ * 时间戳（F-01）：[writeProgress] 的 `readAt` 决定落库的「上次阅读时间」。
+ * - 备份恢复**必须**透传归档里的 `state.lastReadAt`（AC-14.1 的进度保真，
+ *   也是「先恢复旧备份、再恢复新备份」不被误判为旧进度的前提）；
+ * - 换机迁移**不传**（走默认 `null` = now），保持 AC-10.4 既有语义不变。
  */
 class BookStateWriter(private val bookRepository: BookRepository) {
 
-    /** 替换式写入阅读进度（章节 / 段落 / 滚动偏移 / 字符偏移 + 百分比）。 */
+    /**
+     * 替换式写入阅读进度（章节 / 段落 / 滚动偏移 / 字符偏移 + 百分比）。
+     *
+     * @param readAt 归档里的原始「上次阅读时间」；`null` = 写入时刻（`now`）。
+     *   迁移侧固定传 `null`（AC-10.4 行为保持不变），备份恢复传 `state.lastReadAt`。
+     */
     suspend fun writeProgress(
         bookId: Long,
         chapterIndex: Int,
@@ -25,6 +35,7 @@ class BookStateWriter(private val bookRepository: BookRepository) {
         scrollOffset: Int,
         charOffset: Int,
         progressPercent: Float,
+        readAt: Long? = null,
     ) {
         bookRepository.saveReaderPosition(
             bookId = bookId,
@@ -35,6 +46,7 @@ class BookStateWriter(private val bookRepository: BookRepository) {
                 charOffset = charOffset,
             ),
             progressPercent = progressPercent,
+            readAt = readAt,
         )
     }
 

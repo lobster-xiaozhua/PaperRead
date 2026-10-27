@@ -73,7 +73,7 @@ class BackupExporter(
         shouldContinue: () -> Boolean = { true },
     ): BackupManifest = withContext(Dispatchers.IO) {
         require(password == null || BackupCrypto.isValidPassword(password)) {
-            "备份口令至少 $BACKUP_MIN_PASSWORD_LENGTH 位"
+            BackupCrypto.BACKUP_PASSWORD_REQUIREMENT
         }
         target.parentFile?.mkdirs()
 

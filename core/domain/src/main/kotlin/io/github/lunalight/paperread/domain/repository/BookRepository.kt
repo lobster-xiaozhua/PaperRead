@@ -28,7 +28,21 @@ interface BookRepository {
 
     suspend fun deleteBook(book: Book)
 
-    suspend fun saveReaderPosition(bookId: Long, position: ReaderPosition, progressPercent: Float)
+    /**
+     * 保存阅读进度。
+     *
+     * @param readAt 「上次阅读时间」的落库值。默认 `null` = 调用那一刻（`now`），
+     *   即正常阅读 / 进度同步的语义；**备份恢复**必须传归档里的原始时间戳
+     *   （F-01）——否则恢复一次就把本地时间抬到 now，此后恢复任何「时间戳较旧
+     *   但确实更新」的备份都会被 `WriteBackDecider` 判成旧进度而静默跳过回写。
+     * @param progressPercent 阅读百分比（0..100，调用方已按字符位置折算）
+     */
+    suspend fun saveReaderPosition(
+        bookId: Long,
+        position: ReaderPosition,
+        progressPercent: Float,
+        readAt: Long? = null,
+    )
 
     suspend fun findBySha256(sha256: String): Book?
 

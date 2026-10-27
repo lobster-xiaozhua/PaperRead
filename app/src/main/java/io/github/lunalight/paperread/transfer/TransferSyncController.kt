@@ -73,6 +73,9 @@ internal class TransferSyncController(
             // （协调器路径的 applyRemoteProgress 已保证较新，复核对其恒真，
             // 此处仅拦截回推通道的旧数据与「从未阅读」的空记录）。
             if (!WriteBackDecider.shouldWriteBack(book.lastReadAt, state.lastReadAt)) return
+            // F-01 复核：同步落地的时间戳仍取 now（本机此刻接受了对端进度），
+            // 不还原对端 `lastReadAt`——同步是「两台设备正在对齐」的在线动作，
+            // 没有备份恢复那条「先恢复旧包、再恢复新包」的时间戳比较路径。
             bookRepository.saveReaderPosition(
                 bookId = book.id,
                 position = ReaderPosition(

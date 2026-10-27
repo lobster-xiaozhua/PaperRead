@@ -24,6 +24,17 @@
 - **接收进度与中止**： spill 落盘阶段实时回报进度（字节比），断链 / 数据不符触发中止回调并复位 UI
 - **`SECURITY.md`**：攻击面说明、威胁模型（资产 / 攻击者 / 向量缓解 / 已知限制）、传输加密（TLS）后置决策记录、漏洞报告流程
 
+### 修复
+- **备份恢复不还原「上次阅读时间」（F-01，批次 10 QA 验收）**：`BookRepository.saveReaderPosition` 固定把 `lastReadAt` 写成本次调用的时刻，而共享回写器无法表达「还原历史时间戳」，于是
+  1. 备份里的 `lastReadAt` 恢复后一律变成「刚刚」，AC-14.1 的阅读进度保真只剩位置一半；
+  2. **更严重**：先恢复旧备份（第 1 章）再恢复新备份（第 3 章）时，第一次恢复已把本地时间抬到 now，第二次的真实新进度被 `WriteBackDecider` 判成「旧进度」而静默跳过回写——报告显示「已存在 1 本、回写 0 本」，用户不会察觉。
+  修法：`BookRepository.saveReaderPosition` 增加可选参数 `readAt: Long? = null`（缺省 `System.currentTimeMillis()`，实现零行为变化）→ `BookStateWriter.writeProgress` 透传 → `BackupImporter` 传 `state.lastReadAt`；**迁移侧保持不传**（AC-10.4 原有语义不变）。回归守卫：`BackupRestoreTimestampAuditTest` 两例（真实 Room + 真实导入流水线）由 `@Ignore` 转为常绿。
+- **恢复预览缺「版本」与「完整字体引用」**（P3-1，AC-14.8）：副标题改为「备份格式 v1 · 字体：serif、sans（缺失：…，将回退默认字体）」，文案进 `strings.xml`；加密包在口令未提供的预览阶段也能给出缺失字体。
+- **导出失败残留 0 字节文件**（P3-2）：`CreateDocument` 已建文档、`copyToDocument` 失败（或用户取消）时未删目标，SAF 上留下空的 `paperread-backup-*.zip`；现在失败 / 取消即清理**本次新建**的目标文档，成功路径不动。
+- **UI 口令校验口径与领域层不一致**（P3-3）：UI 只判 `length >= 8`，8 位全空格会通过 UI 校验、到领域层抛 `IllegalArgumentException`，用户只看到泛化的「备份导出失败」。现在 UI 复用 `BackupCrypto.isValidPassword`（新增 `CharSequence` 重载，单一来源），提示改为「口令至少 8 位且不能全为空格」。
+- **`BackupEntries.isSafeDirName` 与 KDoc 不符**（P3-4）：改用 ASCII 白名单（原 `Char.isLetterOrDigit()` 按 Unicode 放行中文 / emoji），并补中文 / emoji / 全角 / 空格 / `..` / 超长边界用例。
+- **观察项入文档**：条目级 AES-GCM 无 AAD 绑定（同包内可换条目）、明文备份无完整性认证，写入 `SECURITY.md` 新增的「威胁模型：本地备份与恢复」已知限制——当前口径是「防传输损坏与误操作」，不承诺「防主动篡改」。
+
 ### 变更
 - **协议版本 v1 → v2**：`PresencePacket`（UDP 发现报文）增加 `pairingRequired` 字段；v1 报文一律拒绝（版本门控优先于字段兼容），**v1 与 v2 设备无法互相发现**
 - **配对为会话级**：secret 仅存内存，停止传输服务或取消配对即清零；重新开放传书需重新配对

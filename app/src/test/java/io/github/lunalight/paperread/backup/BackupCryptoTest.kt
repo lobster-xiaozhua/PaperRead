@@ -142,6 +142,30 @@ class BackupCryptoTest {
     }
 
     @Test
+    fun `口令强度校验的CharSequence重载与CharArray判据完全一致`() {
+        // P3-3：UI 持 String、领域层持 CharArray，两条重载必须逐例同判——
+        // 否则「8 位全空格」又会出现「UI 放过、领域层拒绝」的口径分裂。
+        val cases = listOf(
+            "",
+            "       ",
+            "1234567",
+            "        ",
+            "12345678",
+            "correct-horse-battery",
+            "口令至少八位字符",
+        )
+        cases.forEach { sample ->
+            assertEquals(
+                "「$sample」的两种重载判定必须一致",
+                BackupCrypto.isValidPassword(sample.toCharArray()),
+                BackupCrypto.isValidPassword(sample),
+            )
+        }
+        assertFalse("8 位全空格非法", BackupCrypto.isValidPassword("        "))
+        assertTrue("8 位含一个非空白字符即合法", BackupCrypto.isValidPassword("       1"))
+    }
+
+    @Test
     fun `密文被篡改时抛损坏而非口令错误`() {
         BackupCrypto.create(password).use { crypto ->
             val payload = crypto.encrypt("tamper-me".toByteArray())

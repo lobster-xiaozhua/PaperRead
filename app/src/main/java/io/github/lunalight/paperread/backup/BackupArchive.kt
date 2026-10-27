@@ -36,10 +36,21 @@ internal object BackupEntries {
     fun sourceEntry(dirName: String, extension: String): String =
         "$BOOKS_PREFIX$dirName/source.$extension"
 
-    /** 目录名白名单（生产值 = 导入时生成的 UUID）。 */
+    /**
+     * 目录名白名单（生产值 = 导入时生成的 UUID）。
+     *
+     * 判据是 ASCII 白名单 `[A-Za-z0-9_-]+`（长度 ≤ 64）——**不用**
+     * `Char.isLetterOrDigit()`：后者按 Unicode 放行中文 / 全角 / 阿拉伯-印度数字 /
+     * emoji 变体等，与 KDoc 承诺的白名单不符。条目名本身不参与落盘路径
+     * （解包只写调用方给的临时文件名），但 manifest 是**可被第三方构造**的输入，
+     * 校验口径必须与文档逐字符一致，否则「白名单」只是一句无法验证的声明。
+     */
     fun isSafeDirName(dirName: String): Boolean =
-        dirName.isNotEmpty() && dirName.length <= 64 &&
-            dirName.all { it.isLetterOrDigit() || it == '-' || it == '_' }
+        dirName.isNotEmpty() && dirName.length <= 64 && dirName.all { it.isAsciiSafeDirChar() }
+
+    /** ASCII 安全字符：`A-Z` / `a-z` / `0-9` / `-` / `_`。 */
+    private fun Char.isAsciiSafeDirChar(): Boolean =
+        this in 'A'..'Z' || this in 'a'..'z' || this in '0'..'9' || this == '-' || this == '_'
 
     /** 条目路径只允许出现在约定的两个前缀下，且不含穿越片段。 */
     fun isSafeEntryPath(path: String, prefix: String): Boolean =

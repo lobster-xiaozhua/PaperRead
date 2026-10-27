@@ -56,6 +56,7 @@ class BookRepositoryImpl(
         bookId: Long,
         position: ReaderPosition,
         progressPercent: Float,
+        readAt: Long?,
     ) {
         bookDao.saveReaderPosition(
             id = bookId,
@@ -64,7 +65,9 @@ class BookRepositoryImpl(
             scrollOffset = position.scrollOffset,
             charOffset = position.charOffset,
             progressPercent = progressPercent,
-            readAt = System.currentTimeMillis(),
+            // F-01：readAt 非空 = 调用方要求还原历史时间戳（备份恢复）；为空 = now，
+            // 与修复前的行为逐字节一致（正常阅读 / 迁移 / 同步）。
+            readAt = readAt ?: System.currentTimeMillis(),
         )
     }
 

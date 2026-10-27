@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,7 +56,9 @@ data class BackupUiState(
  *
  * 职责边界：
  * - **文件搬运**：SAF Uri ↔ 应用缓存临时文件（导出先写临时文件再拷贝，
- *   恢复先拷贝再解包——保证取消时 SAF 目标不会被写成半个 zip）；
+ *   恢复先拷贝再解包——保证取消时 SAF 目标不会被写成半个 zip）；拷贝失败 /
+ *   取消时**清理由本次 `CreateDocument` 新建的目标文档**（P3-2：不留 0 字节残骸，
+ *   也不误删用户既有文件——判据是 [export] 的 `targetCreatedByThisExport`）；
  * - **状态流转**：进度 / 预览 / 报告 / 错误（文案走 strings.xml）；
  * - **口令生命周期**：口令只在本类与加密器之间传递，流程结束 zero-fill，
  *   不进状态流、不落盘、不打日志（AC-14.2）。
@@ -121,12 +124,19 @@ class BackupCoordinator(
     /**
      * 导出到 SAF 目标 [uri]。
      *
-     * @param password null = 明文包；非空 = 口令加密（调用方已做长度校验）
+     * @param password null = 明文包；非空 = 口令加密（调用方已做强度校验，
+     *   见 `BackupCrypto.isValidPassword`）
+     * @param targetCreatedByThisExport 目标文档是否**由本次导出新建**
+     *   （`CreateDocument` 返回的 Uri 恒为 true；若将来支持「复用既有文件」的
+     *   选择器，传 false）。失败 / 取消时只清理由本次新建的文档——P3-2 之前
+     *   `CreateDocument` 已建好的空文档在拷贝失败后会留在 SAF 上（0 字节），
+     *   用户下次导出还得自己删。
      */
-    fun export(uri: Uri, password: CharArray?) {
+    fun export(uri: Uri, password: CharArray?, targetCreatedByThisExport: Boolean = true) {
         if (_state.value.busy) return
         job = scope.launch {
             val temp = File(backupCacheDir(), "export-${System.currentTimeMillis()}.zip")
+            var targetWritten = false
             try {
                 _state.update {
                     it.copy(
@@ -160,6 +170,7 @@ class BackupCoordinator(
                 withContext(Dispatchers.IO) {
                     copyToDocument(temp, uri)
                 }
+                targetWritten = true
                 _state.update {
                     it.copy(
                         busy = false,
@@ -194,6 +205,12 @@ class BackupCoordinator(
             } finally {
                 temp.delete()
                 password?.fill('\u0000')
+                // P3-2：本次新建、且没写成 → 删掉 SAF 上那个 0 字节残骸。
+                // 用 NonCancellable 是因为取消路径下 finally 里的挂起调用会被
+                // 立刻打断，而清理必须完成。
+                if (!targetWritten && targetCreatedByThisExport) {
+                    discardDocument(uri)
+                }
             }
         }
     }
@@ -251,7 +268,7 @@ class BackupCoordinator(
                                     bookTitles = inspection.manifest.books.mapIndexed { index, entry ->
                                         entry.title ?: "书籍 ${index + 1}"
                                     },
-                                    fontFallbacks = emptyList(),
+                                    fontFallbacks = importer.missingFonts(inspection.manifest),
                                     missingEntries = 0,
                                     passwordRequired = true,
                                 ),
@@ -461,6 +478,19 @@ class BackupCoordinator(
         val output = context.contentResolver.openOutputStream(uri)
             ?: throw IOException("无法写入所选位置")
         output.use { out -> source.inputStream().buffered().use { it.copyTo(out) } }
+    }
+
+    /**
+     * 删除本次导出新建、但没写成的 SAF 文档（P3-2）。
+     *
+     * 失败原因（磁盘满 / 目标被回收 / 用户取消）都不影响这一步：留着只会让用户
+     * 在文件管理器里看到一个 0 字节的 `paperread-backup-*.zip`。删除本身失败也
+     * 不再抛——导出错误已经交给 UI 了，清理是尽力而为。
+     */
+    private suspend fun discardDocument(uri: Uri) {
+        withContext(NonCancellable + Dispatchers.IO) {
+            runCatching { context.contentResolver.delete(uri, null, null) }
+        }
     }
 
     private fun copyFromDocument(uri: Uri, target: File) {

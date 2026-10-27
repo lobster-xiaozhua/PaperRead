@@ -56,6 +56,8 @@ class FakeBookRepository : BookRepository {
         val bookId: Long,
         val position: ReaderPosition,
         val progressPercent: Float,
+        /** 显式传入的「上次阅读时间」（null = 调用方未指定，生产实现取 now）。 */
+        val readAt: Long? = null,
     )
 
     data class ReplacedChapters(val bookId: Long, val chapterCount: Int, val totalChars: Long)
@@ -116,8 +118,13 @@ class FakeBookRepository : BookRepository {
         deletedBooks += book
     }
 
-    override suspend fun saveReaderPosition(bookId: Long, position: ReaderPosition, progressPercent: Float) {
-        savedPositions += SavedPosition(bookId, position, progressPercent)
+    override suspend fun saveReaderPosition(
+        bookId: Long,
+        position: ReaderPosition,
+        progressPercent: Float,
+        readAt: Long?,
+    ) {
+        savedPositions += SavedPosition(bookId, position, progressPercent, readAt)
     }
 
     // ---- 书签 ----

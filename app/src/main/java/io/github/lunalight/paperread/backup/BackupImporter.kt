@@ -278,6 +278,10 @@ class BackupImporter(
                             scrollOffset = state.lastScrollOffset,
                             charOffset = state.lastCharOffset,
                             progressPercent = state.progressPercent,
+                            // F-01：恢复必须还原归档里的「上次阅读时间」，不能写 now——
+                            // 写 now 会让下一次恢复（同一本书、更新的备份）被
+                            // WriteBackDecider 判成旧进度而静默跳过回写。
+                            readAt = state.lastReadAt,
                         )
                         stateWriter.writeBookmarks(
                             bookId = book.id,
@@ -330,7 +334,14 @@ class BackupImporter(
         }
     }
 
-    private fun missingFonts(manifest: BackupManifest): List<String> =
+    /**
+     * 备份引用但本机不可用的字体（AC-14.9 的缺失清单）。
+     *
+     * 公开的理由：字体可用性只取决于 manifest（明文）与本机的 [FontAvailability]，
+     * **不需要解密**。加密包在「口令未提供」阶段（[BackupInspection.PasswordRequired]）
+     * 也能如实报缺失字体，预览就不必分两种情况给用户两套口径（P3-1）。
+     */
+    fun missingFonts(manifest: BackupManifest): List<String> =
         manifest.fontReferences
             .filterNot { fontAvailability.isAvailable(it.name) }
             .map { it.displayName }

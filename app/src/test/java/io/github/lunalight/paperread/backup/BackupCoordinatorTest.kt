@@ -182,6 +182,53 @@ class BackupCoordinatorTest {
         assertFalse(coordinator.state.value.busy)
     }
 
+    @Suppress("DEPRECATION") // ShadowContentResolver#getDeletedUris 在当前版本无替代 API
+    @Test
+    fun `导出失败时清理本次新建的SAF目标文档`() {
+        coordinator.loadExportPreview()
+        waitUntil { coordinator.state.value.exportPreview != null }
+
+        val uri = Uri.parse("content://paperread.test/broken.zip")
+        // 目标写入即失败（磁盘满 / 目标被回收的等价物）：CreateDocument 已经建好
+        // 那个文档了，导出失败后不能把 0 字节残骸留给用户（P3-2）
+        shadowOf(context.contentResolver).registerOutputStream(
+            uri,
+            object : java.io.OutputStream() {
+                override fun write(b: Int) {
+                    throw java.io.IOException("磁盘已满")
+                }
+            },
+        )
+
+        coordinator.export(uri, null)
+
+        waitUntil { coordinator.state.value.error != null || coordinator.state.value.message != null }
+        assertNotNull("写入失败应报错：${coordinator.state.value.message}", coordinator.state.value.error)
+        assertNull("失败不应给成功文案", coordinator.state.value.message)
+        // 清理发生在 finally（挂起调用，晚于状态写入）——按「最终状态」轮询，不猜时序
+        val deleted = awaitDeletedUris()
+        assertTrue("本次新建的目标文档必须被删除，实际删除清单=$deleted", deleted.contains(uri))
+    }
+
+    @Suppress("DEPRECATION") // 同上
+    @Test
+    fun `导出成功后不删除SAF目标文档`() {
+        coordinator.loadExportPreview()
+        waitUntil { coordinator.state.value.exportPreview != null }
+
+        val uri = Uri.parse("content://paperread.test/keep.zip")
+        shadowOf(context.contentResolver).registerOutputStream(uri, ByteArrayOutputStream())
+
+        coordinator.export(uri, null)
+
+        waitUntil { coordinator.state.value.message != null || coordinator.state.value.error != null }
+        assertNull("不应报错：${coordinator.state.value.error}", coordinator.state.value.error)
+        assertFalse(
+            "成功的备份文件不能被清理",
+            shadowOf(context.contentResolver).deletedUris.contains(uri),
+        )
+    }
+
     // ---- 工具 ----
 
     private fun exportToFile(password: CharArray?): File = kotlinx.coroutines.runBlocking {
@@ -202,5 +249,17 @@ class BackupCoordinatorTest {
             Thread.sleep(10)
         }
         error("等待条件超时（${timeoutMs}ms），当前状态：${coordinator.state.value}")
+    }
+
+    /** 轮询 SAF 目标删除记录（清理是 `finally` 里的挂起调用，与状态写入存在时序差）。 */
+    @Suppress("DEPRECATION")
+    private fun awaitDeletedUris(timeoutMs: Long = 10_000): List<Uri> {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val deleted = shadowOf(context.contentResolver).deletedUris
+            if (deleted.isNotEmpty()) return deleted
+            Thread.sleep(10)
+        }
+        return shadowOf(context.contentResolver).deletedUris
     }
 }

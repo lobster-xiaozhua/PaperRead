@@ -120,6 +120,33 @@ class BookRepositoryTest {
     }
 
     @Test
+    fun `saveReaderPosition 显式 readAt 时原样落库（F-01 备份恢复口径）`() = runTest {
+        val id = repository.saveImport(sampleBook(), sampleChapters(0L))
+        val archived = 1_600_000_000_000L
+
+        repository.saveReaderPosition(
+            bookId = id,
+            position = ReaderPosition(1, 0, 0, 3),
+            progressPercent = 50f,
+            readAt = archived,
+        )
+
+        val book = repository.getBook(id)!!
+        assertEquals("归档时间戳必须原样还原，不能被改写成 now", archived, book.lastReadAt)
+    }
+
+    @Test
+    fun `saveReaderPosition 不传 readAt 时写当前时间（既有语义）`() = runTest {
+        val id = repository.saveImport(sampleBook(), sampleChapters(0L))
+        val before = System.currentTimeMillis()
+
+        repository.saveReaderPosition(id, ReaderPosition(0, 0, 0, 0), 10f)
+
+        val readAt = repository.getBook(id)!!.lastReadAt!!
+        assertTrue("缺省 readAt 应写 now，实际 $readAt", readAt >= before)
+    }
+
+    @Test
     fun `findBySha256 hits and misses`() = runTest {
         val sha = "b".repeat(64)
         val id = repository.saveImport(sampleBook(sha256 = sha), sampleChapters(0L))

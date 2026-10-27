@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **main 未发布变更**：无（干净发布点）
-- **质量基线**：586 单测全绿（其中 2 例门控 / skipped；app 461 + `:core:data` 26 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
+- **质量基线**：614 单测全绿（其中 2 例门控 / skipped；app 487 + `:core:data` 28 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
 
 ## 当前能力（已完成）
 
@@ -57,7 +57,7 @@
 
 ### 备份与测试
 - 备份策略（方案甲-B）：云备份排除书库目录（`books/`），换机（D2D）保留整库；双 XML 规则覆盖 Android 11–12+
-- **本地备份 / 恢复（US-14，T-015 / T-016）**：设置页可导出 zip（书籍源文件 + 进度 + 书签，可选 AES-256-GCM 口令加密），并从备份恢复；恢复复用导入流水线与 SHA-256 去重，单本失败不中断、结束给失败明细；备份不含 `book.txt`（派生）与字体文件（只记引用）
+- **本地备份 / 恢复（US-14，T-015 / T-016）**：设置页可导出 zip（书籍源文件 + 进度 + 书签，可选 AES-256-GCM 口令加密），并从备份恢复；恢复复用导入流水线与 SHA-256 去重，单本失败不中断、结束给失败明细；备份不含 `book.txt`（派生）与字体文件（只记引用）；恢复会还原归档里的「上次阅读时间」（F-01），预览展示备份格式版本 + 字体引用清单
 - 测试：JVM 单测 + Turbine ViewModel 测试 + Robolectric Compose UI 冒烟 + JaCoCo 覆盖率度量
 
 ## 未发布技术债（v2.0 前跟踪）
@@ -163,6 +163,13 @@
   - 测试：`BackupExporterTest` 7 + `BackupCryptoTest` 12 + `BackupImporterTest` 14 + `BackupCoordinatorTest` 4 + `BackupEndToEndTest` 1 + `AndroidBookImportGatewayTest` 7 + `SettingsScreenTest` +2 + `BackupPrivacyTest` 2 = 49 例新增；其中端到端用例跑真实 Room / 导入流水线 / FileProvider：导出 → 删库 → 恢复 → 书籍 / 进度 / 书签逐字段比对
 - 约束达成：零网络（`check-network-behavior.sh` 通过，backup 包无 URL / 无 `java.net`）；不导出 `book.txt`（派生文件，恢复时由流水线重建）与字体文件（只记引用）；新代码全部进覆盖率分母（backup 包行覆盖率 88.4%，聚合 83.97% ≥ 80% 门禁）
 - 已知边界：迁移导入的书名仍按显示名推导（T-015 抽取时保持逐字节不变）；备份恢复通过 `ImportHints` 保留原始书名 / 作者，不改变迁移行为
+- **批次 10 QA 验收修复（F-01 + P3-1 ~ P3-4）**：
+  - **F-01（P2，数据保真）**：恢复把 `lastReadAt` 写成 `now`，导致（a）备份里的「上次阅读时间」不还原；（b）连续恢复「先旧后新」两个包时，第二次被 `WriteBackDecider` 判成旧进度而**静默跳过回写**（报告只显示「回写 0 本」）。修法是把时间戳打通三层：`BookRepository.saveReaderPosition(readAt: Long? = null)`（缺省 = now，零行为变化）→ `BookStateWriter.writeProgress(readAt)` 透传 → `BackupImporter` 传 `state.lastReadAt`；**迁移侧不传**（AC-10.4 语义不变）。回归守卫是 QA 的 `BackupRestoreTimestampAuditTest` 两例（真实 Room + 真实流水线，`@Ignore` 已解除）
+  - P3-1 恢复预览副标题补「备份格式 v%d · 字体：…（缺失：…）」（AC-14.8 的版本 + 字体引用清单，原先只在字体缺失时才露一行）；加密包在口令未提供阶段也能算出缺失字体（`BackupImporter.missingFonts` 只依赖明文 manifest）
+  - P3-2 导出失败 / 取消时清理本次 `CreateDocument` 新建的 SAF 目标文档（不再留 0 字节残骸；只在「本次新建」时删，成功路径不删）
+  - P3-3 UI 口令判据收敛到领域层 `BackupCrypto.isValidPassword`（新增 `CharSequence` 重载，免得多留一份口令副本）：8 位全空格在 UI 即被拦下并提示「口令至少 8 位且不能全为空格」，不再拖到导出时抛 `IllegalArgumentException`
+  - P3-4 `BackupEntries.isSafeDirName` 改为 ASCII 白名单（原 `Char.isLetterOrDigit()` 会放行中文 / emoji，与 KDoc 承诺的 `[A-Za-z0-9_-]+` 不符）；补边界用例（中文 / emoji / 全角 / 空格 / dot-dot / 超长）
+  - 观察项落文档：条目级 GCM 无 AAD 绑定、明文备份无完整性认证 → `SECURITY.md` 新增「威胁模型：本地备份与恢复」的已知限制（当前口径为「防传输损坏与误操作」，不承诺「防主动篡改」）
 
 ## 待办 / 未决项
 

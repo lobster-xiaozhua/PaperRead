@@ -241,16 +241,41 @@ class BackupCrypto private constructor(
         private val base64: Base64.Encoder = Base64.getEncoder()
         private val base64Decoder: Base64.Decoder = Base64.getDecoder()
 
+        /** 口令不合格时的统一说明（异常文案；UI 侧同义文案见 strings.xml）。 */
+        val BACKUP_PASSWORD_REQUIREMENT: String =
+            "口令至少 $BACKUP_MIN_PASSWORD_LENGTH 位且不能全为空格"
+
         /**
          * 口令强度校验（AC-14.2）：长度 ≥ [BACKUP_MIN_PASSWORD_LENGTH]，
-         * 且不能全为空白。UI 与领域层都调用它（双保险）。
+         * 且不能全为空白。
+         *
+         * **单一来源**：领域层（[create] 的 `require`）与 UI（导出对话框的
+         * 「开始」按钮可用性 + 错误提示）都调它——P3-3 之前 UI 只判
+         * `length >= 8`，于是「8 位全空格」在 UI 通过、到 [create] 抛
+         * `IllegalArgumentException`，用户只看到一句泛化的「备份导出失败」。
          */
         fun isValidPassword(password: CharArray): Boolean =
-            password.size >= BACKUP_MIN_PASSWORD_LENGTH && password.any { !it.isWhitespace() }
+            isStrongEnough(password.size) { index -> password[index] }
+
+        /**
+         * 同一判据的 [CharSequence] 版本（UI 持有 `String`，不必为校验先转
+         * `CharArray` 而多留一份口令副本）。
+         */
+        fun isValidPassword(password: CharSequence): Boolean =
+            isStrongEnough(password.length) { index -> password[index] }
+
+        /** 长度 + 「非全空白」的共用判据（两条重载只差取字符的方式）。 */
+        private inline fun isStrongEnough(size: Int, charAt: (Int) -> Char): Boolean {
+            if (size < BACKUP_MIN_PASSWORD_LENGTH) return false
+            for (index in 0 until size) {
+                if (!charAt(index).isWhitespace()) return true
+            }
+            return false
+        }
 
         /** 新备份：随机 salt + 口令派生 + 生成 verifier。 */
         fun create(password: CharArray): BackupCrypto {
-            require(isValidPassword(password)) { "备份口令至少 $BACKUP_MIN_PASSWORD_LENGTH 位" }
+            require(isValidPassword(password)) { BACKUP_PASSWORD_REQUIREMENT }
             val salt = randomBytes(BACKUP_SALT_BYTES)
             val key = deriveKey(password, salt, BACKUP_PBKDF2_ITERATIONS)
             // 先用占位 params 生成 verifier，再构造最终 params（verifier 参与自身定义）

@@ -72,6 +72,9 @@ internal class TransferMigrationController(
                 scrollOffset = snapshot.lastScrollOffset,
                 charOffset = snapshot.lastCharOffset,
                 progressPercent = snapshot.progressPercent,
+                // AC-10.4 语义不变：迁移落地即「本机此刻接受了这份进度」，时间戳
+                // 走 now（不传 readAt，取默认 null）。F-01 只修备份恢复——迁移是
+                // 一次性搬迁，没有「先恢复旧包、再恢复新包」这条时间戳比较路径。
             )
         }
 

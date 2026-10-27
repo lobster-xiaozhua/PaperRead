@@ -63,20 +63,23 @@
     <string name="backup_export_encrypt">使用口令加密（AES-256-GCM）</string>
     <string name="backup_export_password">备份口令（至少 8 位）</string>
     <string name="backup_export_password_confirm">再次输入口令</string>
-    <string name="backup_password_too_short">口令至少 8 位</string>
+    <string name="backup_password_invalid">口令至少 8 位且不能全为空格</string>
     <string name="backup_password_mismatch">两次输入的口令不一致</string>
     <string name="backup_export_start">选择保存位置</string>
     <string name="backup_default_file_name">paperread-backup-%1$s.zip</string>
 
     <string name="backup_import_dialog_title">恢复备份</string>
     <string name="backup_import_summary">备份创建于 %1$s\n书籍 %2$d 本 · 阅读进度 %3$d 条 · 书签 %4$d 条</string>
+    <!-- AC-14.8：预览副标题同时交代「备份格式版本」与「字体引用清单」（P3-1） -->
+    <string name="backup_import_meta">备份格式 v%1$d · 字体：%2$s</string>
+    <string name="backup_import_meta_fonts_missing">备份格式 v%1$d · 字体：%2$s（缺失：%3$s，将回退默认字体）</string>
+    <string name="backup_import_meta_fonts_none">备份格式 v%1$d · 字体：无（备份不含字体文件）</string>
     <string name="backup_import_books">包含：%1$s</string>
     <string name="backup_import_locked">该备份已加密，请输入导出时设置的口令</string>
     <string name="backup_import_password">备份口令</string>
     <string name="backup_import_wrong_password">口令错误，请重试</string>
     <string name="backup_import_incomplete">警告：%1$d 个条目缺失，相关书籍会记入失败清单</string>
     <string name="backup_import_start">开始恢复</string>
-    <string name="backup_import_fonts_missing">缺少字体：%1$s（将回退默认字体）</string>
 
     <string name="backup_progress_exporting">正在导出备份…</string>
     <string name="backup_progress_opening">正在读取备份…</string>
