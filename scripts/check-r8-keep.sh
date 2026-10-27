@@ -43,9 +43,9 @@ set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 MAPPING="app/build/outputs/mapping/clientRelease/mapping.txt"
-# @Serializable 漂移守卫的扫描范围（T-010 拆模块后扩展）：app 与两个纯 JVM
-# 模块的 main 源码都会打进 APK，任何一处新增序列化类型都要被本守卫覆盖。
-SRC_ROOTS=(app/src/main core/domain/src/main core/reader/src/main)
+# @Serializable 漂移守卫的扫描范围（T-010 拆模块后扩展，T-013 增补 :core:data）：
+# app 与各 core 模块的 main 源码都会打进 APK，任何一处新增序列化类型都要被本守卫覆盖。
+SRC_ROOTS=(app/src/main core/domain/src/main core/reader/src/main core/data/src/main)
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

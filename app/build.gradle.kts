@@ -3,7 +3,6 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ksp)
     id("jacoco")
 }
 
@@ -162,14 +161,6 @@ kotlin {
     }
 }
 
-// Room schema 导出目录（`app/schemas/`，随代码入库）。
-// 作用：每次编译把当前 schema 写成 JSON，字段变更在 PR diff 里可见，
-// 也是 Room 编译期「迁移缺失」校验的依据——v1.1 之前 exportSchema=false，
-// 加一个字段就会让升级用户崩在启动。
-ksp {
-    arg("room.schemaLocation", "$projectDir/schemas")
-}
-
 // JaCoCo 覆盖率：`./gradlew jacocoTestReport` → build/reports/jacoco/jacocoTestReport
 //
 // 两个非默认项的原因（都有实测依据，勿随意删除）：
@@ -194,16 +185,23 @@ tasks.withType<Test>().configureEach {
 
 // ---- 覆盖率分母口径（report 与 verification 共用同一组 val，改一处即两处生效）----
 //
-// 模块拆分带来的口径变化（T-010 / R-12，务必知情）：
-// 阅读引擎（`:core:reader`）与领域模型（`:core:domain`）已迁出本模块，
-// 它们的 class 不再落在 `tmp/kotlin-classes/clientDebug` 下，因此**不在下面这组
-// 分母里**——本模块的门禁从此只度量 app 侧代码（UI / ViewModel / Room / DataStore /
-// Android 实现）。副作用有两面：
-//   1) 引擎那 99 例纯 JVM 单测不再为 app 侧覆盖率贡献分子（它们测的代码已不在此）；
-//   2) 迁移出的代码本身覆盖率较高（CI 口径实测约 95%），搬走后剩余分母的比率会
-//      **下降**而非虚高——门禁阈值不变（≥ 80%），实测仍通过。
-// 跨模块聚合（把 core 的 exec 合并进同一个 bundle）留给 T-014；在聚合落地前，
-// 引擎侧的行覆盖率**没有门禁兜底**，这是本轮明确登记的空窗。
+// 三模块聚合口径（T-014 / R-12 收尾）：
+// T-010 拆出 `:core:reader`、T-013 拆出 `:core:data` 后，引擎与数据层的
+// class / 测试 exec 都不在本模块——若只度量 app 侧，那 99 例引擎测试与
+// 迁移后的 data 层测试（Room 迁移 / 仓储 / DataStore）将**没有任何覆盖率
+// 兜底**（T-010 曾登记为「已知空窗」，由本项消除）。现把两个 core 模块的
+// class 目录 + 测试 exec + 源码根一并纳入分母：
+//   - class：core/data 的 tmp/kotlin-classes/clientDebug（library 变体，
+//     与 :app 同 flavor 口径）+ core/reader 的 classes/kotlin/main（纯 JVM）；
+//   - exec：core/data/build/jacoco/testClientDebugUnitTest.exec +
+//     core/reader/build/jacoco/test.exec（jacoco 插件默认输出位置）；
+//   - dependsOn：verification / report 显式依赖两个 core 模块的测试任务，
+//     保证 exec 不是上一轮构建的陈旧产物。
+// 排除清单跨模块沿用（R / BuildConfig / 白名单渲染类）：`coverageExcludedRenderClasses`
+// 里的类全在 app（core 侧无 Compose 渲染树），对 core 的 class 目录套同一组
+// exclude 只是让 `**/R.class` / BuildConfig / 内部类排除规则继续生效。
+// CI 口径：`-PexcludeUiSmokeTests=true` 只过滤 app 的 ui.smoke 用例，core 模块
+// 的测试不受该属性影响，全部计入分子。
 //
 // 为什么要动分母（2026-10 第 0 阶段出口验收的阻塞项 P1）：
 // `28d70fc`（T-001 七作业拆分）把 `ui.smoke.*`（Robolectric Compose 渲染冒烟）
@@ -295,27 +293,55 @@ val coverageClassExcludes = listOf(
     "**/*\$*.class",
 ) + coverageExcludedRenderClasses
 
-val coverageClassDirectories = fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/clientDebug") {
-    exclude(coverageClassExcludes)
-}
+val coverageClassDirectories = files(
+    // :app——client 变体（唯一对外交付版，覆盖率门禁保护的口径）
+    fileTree("${layout.buildDirectory.get().asFile}/tmp/kotlin-classes/clientDebug") {
+        exclude(coverageClassExcludes)
+    },
+    // :core:data——Android library，clientDebug 变体的 Kotlin class 目录
+    fileTree("${rootProject.projectDir}/core/data/build/tmp/kotlin-classes/clientDebug") {
+        exclude(coverageClassExcludes)
+    },
+    // :core:reader——纯 JVM 模块，主源码 class 目录
+    fileTree("${rootProject.projectDir}/core/reader/build/classes/kotlin/main") {
+        exclude(coverageClassExcludes)
+    },
+)
+
+val coverageSourceDirectories = files(
+    "${projectDir}/src/main/java",
+    "${rootProject.projectDir}/core/data/src/main/java",
+    "${rootProject.projectDir}/core/reader/src/main/kotlin",
+)
+
+// 各模块的测试 exec 来源（与 classDirectories 一一对应）：
+//   app      → jacoco 插件默认输出 build/jacoco/testClientDebugUnitTest.exec
+//              （outputs/unit_test_code_coverage 为 AGP 单测覆盖率兼容路径，历史口径保留）
+//   core:data → jacoco 插件 + clientDebug 变体 → core/data/build/jacoco/testClientDebugUnitTest.exec
+//   core:reader → jacoco 插件 + JVM 模块 → core/reader/build/jacoco/test.exec
+// 只精确匹配变体对应文件名，不通配 *.exec（否则 dev 变体 / 历史残留 exec
+// 会混进本次度量）。
+val coverageExecutionData = files(
+    fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("testClientDebugUnitTest.exec") },
+    fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/testClientDebugUnitTest.exec") },
+    fileTree("${rootProject.projectDir}/core/data/build/jacoco") { include("testClientDebugUnitTest.exec") },
+    fileTree("${rootProject.projectDir}/core/reader/build/jacoco") { include("test.exec") },
+)
 
 tasks.register<JacocoReport>("jacocoTestReport") {
     group = "verification"
-    description = "生成单元测试覆盖率报告（XML + HTML）"
+    description = "生成单元测试覆盖率报告（XML + HTML，app + :core:data + :core:reader 三模块聚合）"
     dependsOn("testClientDebugUnitTest")
+    // 各模块测试任务必须先进图，否则 core 侧 exec 可能是上一轮构建的陈旧产物
+    dependsOn(":core:data:testClientDebugUnitTest")
+    dependsOn(":core:reader:test")
     reports {
         xml.required.set(true)
         html.required.set(true)
     }
-    sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
+    sourceDirectories.setFrom(coverageSourceDirectories)
     classDirectories.setFrom(coverageClassDirectories)
-    // 只取 client 变体的 exec：build/jacoco 下同时存在 dev 变体（以及历史变体
-    // 残留）的 exec 文件，通配 *.exec 会误吃 testDevDebugUnitTest 的输出——
-    // 既触发 Gradle 隐式依赖校验失败，又会把旧变体数据混进本次度量。
-    executionData.setFrom(
-        fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("testClientDebugUnitTest.exec") },
-        fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/testClientDebugUnitTest.exec") },
-    )
+    executionData.setFrom(coverageExecutionData)
 }
 
 // 覆盖率门禁：`./gradlew jacocoTestCoverageVerification`。
@@ -324,19 +350,18 @@ tasks.register<JacocoReport>("jacocoTestReport") {
 // 描述的 worker 崩溃问题。
 //
 // 口径声明（与 README / docs/TASKS.md / CONTRIBUTING.md 表述一致）：
-// 「行覆盖率 ≥ 80%：经登记的零覆盖纯渲染类不计入分母（当前 7 个，见上方
+// 「行覆盖率 ≥ 80%：聚合口径为 app + :core:data + :core:reader 三模块；
+// 经登记的零覆盖纯渲染类不计入分母（当前 7 个，见上方
 // `coverageExcludedRenderClasses` 清单，新增需登记并说明理由）；其余所有类
 // 一律计入分母。UI 行为由 robolectric-ui 作业的行为冒烟承载」。CI `unit` 作业以
 // `-PexcludeUiSmokeTests=true` 口径校验本门禁——两个作业口径互补，不重叠。
-//
-// 阈值口径：行覆盖率（与 ROADMAP / README 口径一致）。取 0.80 作为防回归
-// 底线：既挡住明显退化，又给新增代码留足余量；随覆盖率提升可逐步上调
-// （ratchet）。文档不写死实测值（口径统一为「以 jacocoTestReport 实际 XML
-// 报告为准」），修改阈值前先跑 jacocoTestReport 看真实值，切勿拍脑袋设高。
 tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     group = "verification"
-    description = "校验单元测试行覆盖率不低于阈值，防止覆盖率回归"
+    description = "校验单元测试行覆盖率不低于阈值（三模块聚合口径），防止覆盖率回归"
     dependsOn("testClientDebugUnitTest")
+    // 各模块测试任务必须先进图，否则 core 侧 exec 可能是上一轮构建的陈旧产物
+    dependsOn(":core:data:testClientDebugUnitTest")
+    dependsOn(":core:reader:test")
     violationRules {
         rule {
             element = "BUNDLE"
@@ -347,25 +372,20 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
             }
         }
     }
-    sourceDirectories.setFrom(files("${projectDir}/src/main/java"))
+    sourceDirectories.setFrom(coverageSourceDirectories)
     classDirectories.setFrom(coverageClassDirectories)
-    // 只取 client 变体的 exec：build/jacoco 下同时存在 dev 变体（以及历史变体
-    // 残留）的 exec 文件，通配 *.exec 会误吃 testDevDebugUnitTest 的输出——
-    // 既触发 Gradle 隐式依赖校验失败，又会把旧变体数据混进本次度量。
-    executionData.setFrom(
-        fileTree("${layout.buildDirectory.get().asFile}/jacoco") { include("testClientDebugUnitTest.exec") },
-        fileTree("${layout.buildDirectory.get().asFile}/outputs/unit_test_code_coverage") { include("**/testClientDebugUnitTest.exec") },
-    )
+    executionData.setFrom(coverageExecutionData)
 }
 
 dependencies {
-    // 多模块拆分（T-010 / R-12）：领域模型与阅读引擎已迁出为纯 JVM 模块。
-    // 两者包名与拆分前一致，因此源码侧 import 零改动；这里只需声明依赖。
-    // - :core:domain 纯领域模型 + 仓储接口
-    // - :core:reader 纯 JVM 阅读引擎（api 依赖 :core:domain，故会自动带出）
-    // 仍留在本模块的 reader 相关实现：FileBookTextStore（需 Context.filesDir）、
-    // AndroidXmlParser / XmlParsers（需 android.util.Xml），见 T-013。
-    implementation(project(":core:domain"))
+    // 多模块拆分（T-010 / R-12，T-013 增补 :core:data）：
+    // - :core:data 数据层（Room / DataStore / 导入流水线），api 依赖 domain
+    //   会把领域模型传递进来，故这里不再显式声明 :core:domain；
+    // - :core:reader 纯 JVM 阅读引擎（api 依赖 :core:domain）。
+    // 仍留在本模块的 reader 相关实现：FileBookTextStore（需 Context.filesDir）。
+    // AndroidXmlParser / XmlParsers 随其唯一生产消费方（data 层的 EPUB 解析器）
+    // 落在 :core:data（T-013）。
+    implementation(project(":core:data"))
     implementation(project(":core:reader"))
 
     implementation(libs.androidx.core.ktx)
@@ -382,16 +402,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.androidx.datastore.preferences)
-
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
-    // Room 迁移测试基建（T-006 · R-06 / G6）：MigrationTestHelper 建指定
-    // 版本库 → 灌存量数据 → runMigrationsAndValidate 走真实迁移链路。
-    // 唯一 test 侧新增坐标（P-2 唯一例外口径），不进 release 包。
-    testImplementation(libs.androidx.room.testing)
-
     implementation(libs.androidx.window)
 
     implementation(libs.kotlinx.coroutines.android)

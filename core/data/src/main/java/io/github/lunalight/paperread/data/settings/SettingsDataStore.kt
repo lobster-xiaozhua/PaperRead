@@ -43,8 +43,12 @@ import kotlinx.coroutines.SupervisorJob
  * （`filesDir/datastore/reader_settings.preferences_pb`）。因此升级用户的既有偏好
  * 文件被原样读到，不存在「换了个空文件、设置全丢」的风险；
  * `SettingsDataStoreProviderTest` 以「预置旧路径文件 → 新实现读到」的断言把该契约锁死。
+ *
+ * 可见性：原为 `:app` 模块内 `internal`；T-013 随数据层迁入 `:core:data` 后，
+ * 实例化方 `AppContainer` 在 `:app`，跨模块可见性提升为 public（纯可见性变更，
+ * 实例仍由 AppContainer 唯一持有，不引入单例）。
  */
-internal class SettingsDataStoreProvider(context: Context) {
+class SettingsDataStoreProvider(context: Context) {
 
     /**
      * 应用级 Context：DataStore 的生命周期与 Application 对齐，持有 Activity 会泄漏。
@@ -75,7 +79,7 @@ internal class SettingsDataStoreProvider(context: Context) {
             produceFile = { file },
         )
 
-    internal companion object {
+    companion object {
 
         /** 与旧 `preferencesDataStore(name = ...)` 的 name 完全一致。 */
         const val DATA_STORE_NAME = "reader_settings"

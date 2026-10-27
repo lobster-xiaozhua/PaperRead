@@ -6,7 +6,7 @@ import io.github.lunalight.paperread.reader.xml.XmlParser
 import java.io.InputStream
 
 /**
- * 解析器工厂：Android 运行端传 `:app` 的 `XmlParsers::android`（XmlPullParser），
+ * 解析器工厂：Android 运行端传 `:core:data` 的 `XmlParsers::android`（XmlPullParser），
  * JVM 端缺省用 [JvmXmlParser]（JDK SAX）。
  */
 typealias ParserFactory = (InputStream) -> XmlParser

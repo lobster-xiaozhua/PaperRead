@@ -13,6 +13,10 @@
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    // JaCoCo（T-014 聚合口径）：本模块测试的 exec（build/jacoco/test.exec）
+    // 由 :app 的 jacocoTestReport / jacocoTestCoverageVerification 聚合消费，
+    // 引擎的 99 例从此有覆盖率门禁兜底（T-010 登记的空窗由此消除）。
+    id("jacoco")
 }
 
 // 与 :app 的 jvmTarget 对齐（compileOptions 17 + kotlin JVM_17）。
@@ -43,4 +47,9 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     systemProperty("file.encoding", "UTF-8")
+    // 插桩范围收紧到本项目类（与 :app 同款 includes 白名单）：既让聚合报告
+    // 只含本仓库代码，也避免 JaCoCo agent 碰 JDK / 测试框架内部类。
+    extensions.configure(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class.java) {
+        includes = listOf("io.github.lunalight.paperread.*")
+    }
 }

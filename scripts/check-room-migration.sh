@@ -16,7 +16,7 @@
 #      覆盖 () / From(vararg) / (dropAllTables) 三种入口；
 #   5. 迁移测试夹具（src/debug/assets/<数据库类全名>/ 下的 schema JSON，
 #      Robolectric 的 MigrationTestHelper 只读变体合并 assets，故测试
-#      夹具不能放 src/test/assets）与 app/schemas/ 导出一一一致，防止
+#      夹具不能放 src/test/assets）与 core/data/schemas/ 导出一一一致，防止
 #      只改 schema 忘了同步夹具、迁移测试空跑；
 #   6. version >= 2 时，src/test 下必须存在同时使用 MigrationTestHelper 与
 #      runMigrationsAndValidate 的迁移测试文件（删掉**全部**迁移测试文件不能
@@ -28,9 +28,9 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-DB_FILE="app/src/main/java/io/github/lunalight/paperread/data/local/AppDatabase.kt"
-SCHEMA_DIR="app/schemas/io.github.lunalight.paperread.data.local.AppDatabase"
-FIXTURE_DIR="app/src/debug/assets/io.github.lunalight.paperread.data.local.AppDatabase"
+DB_FILE="core/data/src/main/java/io/github/lunalight/paperread/data/local/AppDatabase.kt"
+SCHEMA_DIR="core/data/schemas/io.github.lunalight.paperread.data.local.AppDatabase"
+FIXTURE_DIR="core/data/src/debug/assets/io.github.lunalight.paperread.data.local.AppDatabase"
 
 fail=0
 
@@ -128,7 +128,7 @@ fi
 # AppDatabase.kt 的 KDoc 里正文明写「不启用 fallbackToDestructiveMigration()」，
 # 那不是调用。
 
-fallback_hits="$(grep -rn "fallbackToDestructiveMigration" app/src/main --include="*.kt" 2>/dev/null \
+fallback_hits="$(grep -rn "fallbackToDestructiveMigration" app/src/main core/data/src/main --include="*.kt" 2>/dev/null \
   | sed -E 's#//.*$##' \
   | grep "fallbackToDestructiveMigration" \
   | grep -vE ':[0-9]+:[[:space:]]*(/\*|\*)' || true)"
@@ -163,11 +163,11 @@ else
     fi
   done
   if [ -n "$drift" ]; then
-    echo "✗ 迁移测试夹具与 app/schemas 导出一致性检查失败：$drift" >&2
-    echo "  请重新拷贝：cp app/schemas/.../<db>/*.json $FIXTURE_DIR/" >&2
+    echo "✗ 迁移测试夹具与 core/data/schemas 导出一致性检查失败：$drift" >&2
+    echo "  请重新拷贝：cp core/data/schemas/.../<db>/*.json $FIXTURE_DIR/" >&2
     fail=1
   else
-    echo "✓ 迁移测试夹具与 app/schemas 导出一致（$schema_files 份）"
+    echo "✓ 迁移测试夹具与 core/data/schemas 导出一致（$schema_files 份）"
   fi
 fi
 
@@ -197,7 +197,7 @@ if [ "$version" -ge 2 ]; then
       break
     fi
   done <<EOF
-$(grep -rl "MigrationTestHelper" app/src/test --include="*.kt" 2>/dev/null || true)
+$(grep -rl "MigrationTestHelper" core/data/src/test --include="*.kt" 2>/dev/null || true)
 EOF
 
   if [ -z "$migration_test_file" ]; then

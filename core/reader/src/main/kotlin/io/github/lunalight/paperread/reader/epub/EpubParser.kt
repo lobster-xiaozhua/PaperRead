@@ -24,7 +24,7 @@ import java.util.zip.ZipFile
  *
  * @param parserFactory XML 解析器工厂。**缺省为 JVM 端 SAX 实现** [JvmXmlParser]
  *   ——`:core:reader` 是纯 JVM 模块，不得反向依赖 Android 侧的 XmlPullParser 工厂；
- *   Android 运行时由 `:app` 的 `BookImporter` 显式传入 `XmlParsers::android`。
+ *   Android 运行时由数据层（`:core:data` 的 `EpubBookParser`）显式传入 `XmlParsers::android`。
  */
 class EpubParser(
     private val parserFactory: ParserFactory = ::JvmXmlParser,

@@ -16,8 +16,8 @@ import java.io.File
  * 本文件在 `:core:reader` 内，**零 Android 依赖**（只用 `java.io.File` 与
  * `:core:domain` 模型）：T-010 的教训是 `XmlParsers::jvm` 依赖
  * `app` 侧实现导致的循环引用——因此契约层只声明「读什么文件、写什么文件」，
- * 需要 Android API 的实现（EPUB 的 XmlPullParser 工厂）由 `:app` 的
- * `EpubBookParser` 通过构造参数注入，**不得**在本模块反向引用 `:app`。
+ * 需要 Android API 的实现（EPUB 的 XmlPullParser 工厂）由 `:core:data` 的
+ * `EpubBookParser` 显式传入，**不得**在本模块反向依赖 Android。
  *
  * 线程语义：实现是**阻塞**函数（大文件流式 IO），调用方负责放进
  * `Dispatchers.IO`；取消经 [ParseContext.shouldContinue] 逐块检查，

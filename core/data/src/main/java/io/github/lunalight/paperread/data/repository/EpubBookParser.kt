@@ -20,9 +20,9 @@ import java.io.FileOutputStream
  * 与 TXT 的契约差异（有意）：忽略 [ParseContext.strategy] 与
  * [ParseContext.charsetOverride]——EPUB 的章节结构与编码都由包内元数据决定。
  *
- * XML 解析器工厂在此注入**:app** 的 [XmlParsers.android]（`android.util.Xml` +
- * XmlPullParser）：`:core:reader` 的 [EpubParser] 缺省用纯 JVM 的 SAX 实现，
- * 契约层不得反向依赖 Android（T-010 的循环依赖教训）。
+ * XML 解析器工厂 [XmlParsers.android]（`android.util.Xml` + XmlPullParser）
+ * 与本解析器同住 `:core:data`（T-013）：`:core:reader` 的 [EpubParser] 缺省用
+ * 纯 JVM 的 SAX 实现，契约层不得反向依赖 Android（T-010 的循环依赖教训）。
  */
 class EpubBookParser : BookParser {
 

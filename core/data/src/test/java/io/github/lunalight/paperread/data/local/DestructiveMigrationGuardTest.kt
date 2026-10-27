@@ -41,8 +41,12 @@ class DestructiveMigrationGuardTest {
 
     @Test
     fun `主源码不得启用任何 destructive fallback 变体`() {
-        val mainSources = File(repoRoot(), "app/src/main").walkTopDown()
-            .filter { it.isFile && it.extension == "kt" }
+        // T-013 拆模块后主源码分布在 app 与 core/data 两处，一并扫描——
+        // 否则把 AppDatabase 搬进 :core:data 就能让本断言扫描范围凭空缩小。
+        val mainSourceRoots = listOf("app/src/main", "core/data/src/main")
+        val mainSources = mainSourceRoots
+            .map { root -> File(repoRoot(), root) }
+            .flatMap { root -> root.walkTopDown().filter { it.isFile && it.extension == "kt" } }
             .toList()
         assertTrue("QA-迁移门禁：未扫描到主源码，检查逻辑失效", mainSources.isNotEmpty())
 
@@ -64,7 +68,7 @@ class DestructiveMigrationGuardTest {
         val root = repoRoot()
         val dbFile = File(
             root,
-            "app/src/main/java/io/github/lunalight/paperread/data/local/AppDatabase.kt",
+            "core/data/src/main/java/io/github/lunalight/paperread/data/local/AppDatabase.kt",
         )
         assertTrue("QA-迁移门禁：找不到 AppDatabase.kt", dbFile.isFile)
         val version = Regex("""version\s*=\s*(\d+)""")
@@ -73,14 +77,15 @@ class DestructiveMigrationGuardTest {
 
         val schemaDir = File(
             root,
-            "app/schemas/io.github.lunalight.paperread.data.local.AppDatabase",
+            "core/data/schemas/io.github.lunalight.paperread.data.local.AppDatabase",
         )
         val fixtureDir = File(
             root,
-            "app/src/debug/assets/io.github.lunalight.paperread.data.local.AppDatabase",
+            "core/data/src/debug/assets/io.github.lunalight.paperread.data.local.AppDatabase",
         )
-        // 夹具放 src/debug/assets：Robolectric 的 MigrationTestHelper 只读变体
-        // 合并后的 assets，src/test/assets 不进合并结果（放了等于空跑）。
+        // 夹具放 core/data/src/debug/assets：Robolectric 的 MigrationTestHelper
+        // 只读变体合并后的 assets，src/test/assets 不进合并结果（放了等于空跑）。
+        // 迁移测试（与夹具）随数据层住在 :core:data（T-013）。
         assertTrue("QA-迁移门禁：迁移测试夹具目录缺失 $fixtureDir", fixtureDir.isDirectory)
 
         val missing = (1..version).filter { !File(schemaDir, "$it.json").isFile }
@@ -102,7 +107,7 @@ class DestructiveMigrationGuardTest {
         }
         assertEquals(
             "QA-迁移门禁：迁移夹具与 schema 导出一致性失败——夹具漂移会让迁移测试" +
-                "校验的不是当前 schema，等于空跑。请重新拷贝 app/schemas → src/debug/assets",
+                "校验的不是当前 schema，等于空跑。请重新拷贝 core/data/schemas → src/debug/assets",
             emptyList<String>(),
             drifted,
         )

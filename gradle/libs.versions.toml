@@ -52,6 +52,8 @@ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+# 数据层 Android library（T-013 抽出 :core:data），与 application 同一 AGP 版本
+android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 # 纯 JVM 模块（:core:domain / :core:reader）用，与 kotlin-android 同一 Kotlin 版本
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

@@ -41,14 +41,15 @@ concurrency:
 # room-migration 与 network-audit 为纯脚本作业（checkout 后直接跑 bash，
 # 无构建配置成本）。
 jobs:
-  # 门禁一：单元测试 + 覆盖率（client 变体口径）。
+  # 门禁一：单元测试 + 覆盖率（client 变体口径，三模块聚合）。
   # ui/smoke 冒烟在内存受限 runner 上存在 Robolectric 渲染超时抖动（已知基线
   # 现象，非回归），经 -PexcludeUiSmokeTests=true 移交 robolectric-ui 作业，
-  # 不阻塞本门禁；本地构建不传该属性，全量照跑。
-  # 覆盖率口径：行覆盖率 ≥ 80%。分母默认包含所有类，仅 app/build.gradle.kts 的
-  # coverageExcludedRenderClasses 中显式登记的「CI 口径 0% 且无测试调用其逻辑成员」
-  # 的零覆盖纯渲染类不计入分母（当前 4 个），新增文件默认进分母。
-  # 登记条件与维护约定见该处注释。
+  # 不阻塞本门禁；本地构建不传该属性，全量照跑。注意：该属性只过滤 :app 的
+  # ui.smoke 用例，core 模块测试不受影响、全部计入覆盖率分子（T-014 聚合口径）。
+  # 覆盖率口径：行覆盖率 ≥ 80%，分母为 app + :core:data + :core:reader 聚合；
+  # 仅 app/build.gradle.kts 的 coverageExcludedRenderClasses 中显式登记的
+  # 「CI 口径 0% 且无测试调用其逻辑成员」的零覆盖纯渲染类不计入分母（当前 7 个），
+  # 新增文件默认进分母。登记条件与维护约定见该处注释。
   unit:
     runs-on: ubuntu-latest
     steps:
@@ -103,10 +104,15 @@ jobs:
       # Release 门禁保留：R8 混淆 + 资源压缩只在发布路径生效，由 assemble
       # 作业的 assembleRelease 覆盖（混淆规则缺失 / keep 漏写要等到发版前才暴露；
       # 不配置签名，keystore 不入库，产出未签名 APK，仅验证能正常打包）。
-      # 模块口径（T-010 拆模块）：:core:domain / :core:reader 是纯 JVM 模块，
-      # 测试任务名是 test（不是 testClientDebugUnitTest），必须显式列出——
-      # 阅读引擎用例已从 app 迁到 :core:reader，漏掉这两个任务 = 99 例引擎测试
-      # 在 CI 里静默不跑（本地 ./gradlew test 兜不住，因为 app 侧已无这些类）。
+      # 模块口径（T-010 拆模块，T-013 增补 :core:data）：各 core 模块测试任务
+      # 必须显式列出——阅读引擎用例在 :core:reader（任务名 test，纯 JVM），
+      # 数据层用例（Room 迁移 / 仓储 / 注册表）在 :core:data（Android library，
+      # 与 :app 同 distribution 维度，任务名变体化为 testClientDebugUnitTest）。
+      # 漏掉任何一个任务 = 对应测试在 CI 里静默不跑（本地 ./gradlew test 兜不住，
+      # 因为这些用例已不在 :app）。覆盖率口径（T-014）：jacocoTestReport /
+      # jacocoTestCoverageVerification 已聚合三模块的 class + exec，经 dependsOn
+      # 拉起 :core:data:testClientDebugUnitTest 与 :core:reader:test，
+      # 引擎与数据层覆盖率从此有门禁兜底。
       - name: Unit tests + coverage (excl. UI smoke)
         run: >
           ./gradlew
@@ -114,6 +120,7 @@ jobs:
           testDevDebugUnitTest
           :core:domain:test
           :core:reader:test
+          :core:data:testClientDebugUnitTest
           jacocoTestReport
           jacocoTestCoverageVerification
           -PexcludeUiSmokeTests=true

@@ -15,8 +15,9 @@
 5. **分层纪律**：
    - `reader/` 引擎保持零 Android 依赖（XML 解析只依赖 `XmlParser` 接口，由外层装配）；
      该纪律自 T-010 起由 Gradle 模块边界强制：`:core:reader` / `:core:domain` 是纯 JVM
-     模块（只应用 `kotlin("jvm")`），Android 相关实现（`FileBookTextStore` /
-     `AndroidXmlParser` / `XmlParsers`）留在 `:app`；
+     模块（只应用 `kotlin("jvm")`）；数据层（Room / DataStore / 导入流水线）自 T-013 起
+     住在 `:core:data`（Android library）；Android 相关实现 `FileBookTextStore` 留在
+     `:app`，`AndroidXmlParser` / `XmlParsers` 随其唯一生产消费方落 `:core:data`；
    - UI 层禁止直接访问 Room / 文件系统；
    - `data/` 实现类型不得向上泄漏。
 6. **最小权限**：`AndroidManifest.xml` 只声明两组权限（2026-10-18 / 2026-10-19 用户拍板）：① `INTERNET`——仅可用于同一局域网内的设备发现与书籍 / 状态传输（传书 / 迁移 / 同步），**不得访问公网**；② 朗读前台服务三件套（`FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK` / `POST_NOTIFICATIONS`）——仅用于 TTS 朗读后台常驻播放与通知控制（语音本机离线合成，不联网）。除此之外新增任何其他权限都需单独说明理由并经人类审查。

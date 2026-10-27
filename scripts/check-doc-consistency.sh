@@ -14,8 +14,9 @@
 #      gradle/libs.versions.toml；
 #   4. 单测总数单一来源：README / docs/ROADMAP.md / docs/TASKS.md「质量基线」
 #      里的「N 单测」必须等于**全部测试源码目录**下 @Test 用例数
-#      （app/src/test + core/*/src/test，T-010 拆模块后口径随之扩展：单测总数
-#      仍是「整个仓库能跑的 JVM 单测」，只是其中的阅读引擎用例搬到了 :core:reader）。
+#      （app/src/test + core/*/src/test，T-010 拆模块后口径随之扩展；T-013
+#      抽出 :core:data 后同样沿用：单测总数仍是「整个仓库能跑的 JVM 单测」，
+#      只是其中的数据层用例搬到了 :core:data）。
 #      单一来源取**代码**而非某份文档：2026-10 批次 4 收尾时三份文档同时停在
 #      v1.2.0 的 382，即漂移是「彼此一致地过期」，只做文档互比拦不住。
 #      TASKS.md 内已完成工单里如实记录的当时数字（如「244 单测全绿」）属历史
@@ -110,7 +111,7 @@ fi
 # 文档侧写法要求：精确数字（「530 单测」），不写「约 500」「500+」——后两者
 # 既不可断言，也会让断言被绕过。
 
-TEST_DIRS=(app/src/test core/domain/src/test core/reader/src/test)
+TEST_DIRS=(app/src/test core/domain/src/test core/reader/src/test core/data/src/test)
 TEST_DIR_LABEL="app/src/test + core/*/src/test"
 TEST_CLAIM_RE='[0-9]{2,}[ ]*个?[ ]*(单测|单元测试)'
 

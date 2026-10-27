@@ -48,11 +48,11 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# 运行时源码根目录（T-010 拆模块后扩展）：app 与两个纯 JVM 模块的 main 源码
-# 全部属于「会打进 APK 的代码」，断言口径必须覆盖三处，否则把代码搬出 app
-# 就能让本脚本的扫描范围凭空缩小（等于开了个后门）。
-SRC_ROOTS=(app/src/main/java core/reader/src/main/kotlin core/domain/src/main/kotlin)
-BUILD_FILES=(app/build.gradle.kts build.gradle.kts settings.gradle.kts gradle/libs.versions.toml core/domain/build.gradle.kts core/reader/build.gradle.kts)
+# 运行时源码根目录（T-010 拆模块后扩展，T-013 增补 :core:data）：app 与各
+# core 模块的 main 源码全部属于「会打进 APK 的代码」，断言口径必须覆盖全部，
+# 否则把代码搬出 app 就能让本脚本的扫描范围凭空缩小（等于开了个后门）。
+SRC_ROOTS=(app/src/main/java core/reader/src/main/kotlin core/domain/src/main/kotlin core/data/src/main/java)
+BUILD_FILES=(app/build.gradle.kts build.gradle.kts settings.gradle.kts gradle/libs.versions.toml core/domain/build.gradle.kts core/reader/build.gradle.kts core/data/build.gradle.kts)
 MANIFEST="app/src/main/AndroidManifest.xml"
 
 fail=0
