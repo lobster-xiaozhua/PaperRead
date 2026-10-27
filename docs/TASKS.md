@@ -161,7 +161,7 @@
   - `core:data` 新增 `BookImportGateway` / `AndroidBookImportGateway` / `BookStateWriter`：迁移与备份共用同一条导入流水线（AC-9.5 / AC-14.4），迁移侧改为委托、行为逐行不变
   - `ui/settings/BackupSection.kt` + `BackupViewModel`：备份与恢复区块、预览 / 口令 / 进度 / 失败明细 / 字体回退对话框（新增文案全部进 `strings.xml`）
   - 测试：`BackupExporterTest` 7 + `BackupCryptoTest` 12 + `BackupImporterTest` 14 + `BackupCoordinatorTest` 4 + `BackupEndToEndTest` 1 + `AndroidBookImportGatewayTest` 7 + `SettingsScreenTest` +2 + `BackupPrivacyTest` 2 = 49 例新增；其中端到端用例跑真实 Room / 导入流水线 / FileProvider：导出 → 删库 → 恢复 → 书籍 / 进度 / 书签逐字段比对
-- 约束达成：零网络（`check-network-behavior.sh` 通过，backup 包无 URL / 无 `java.net`）；不导出 `book.txt`（派生文件，恢复时由流水线重建）与字体文件（只记引用）；新代码全部进覆盖率分母（backup 包行覆盖率 88.7%，聚合 84.01% ≥ 80% 门禁）
+- 约束达成：零网络（`check-network-behavior.sh` 通过，backup 包无 URL / 无 `java.net`）；不导出 `book.txt`（派生文件，恢复时由流水线重建）与字体文件（只记引用）；新代码全部进覆盖率分母（backup 包行覆盖率 88.4%，聚合 83.97% ≥ 80% 门禁）
 - 已知边界：迁移导入的书名仍按显示名推导（T-015 抽取时保持逐字节不变）；备份恢复通过 `ImportHints` 保留原始书名 / 作者，不改变迁移行为
 
 ## 待办 / 未决项
