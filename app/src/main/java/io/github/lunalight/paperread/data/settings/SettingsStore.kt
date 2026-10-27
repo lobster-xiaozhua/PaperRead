@@ -1,6 +1,5 @@
 package io.github.lunalight.paperread.data.settings
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -8,11 +7,8 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-
-private val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "reader_settings")
 
 /**
  * 阅读设置存储（UI 层只依赖本接口，单测以 fake 替代）。
@@ -27,11 +23,18 @@ interface SettingsStore {
 /**
  * [SettingsStore] 的 DataStore Preferences 实现。
  *
- * 单例语义：同一进程内共享同一 DataStore 实例（by 委托绑定 Context）。
+ * 接收已装配好的 [DataStore]（由 [SettingsDataStoreProvider] 按 Application 托管），
+ * 本类只负责「Preferences ↔ [ReaderSettings]」的映射。
+ *
+ * 曾经这里是 `PreferencesSettingsStore(context: Context)` + 文件级
+ * `by preferencesDataStore(...)` 委托：委托对象把实例缓存为进程级单例并忽略后续
+ * Context，导致 Robolectric 每个测试类的独立 Application 共用第一个测试类的
+ * 已销毁目录 / 作用域，`settings` 流不再发射。改为构造注入后，实例生命周期
+ * 由持有者（`AppContainer`，随 Application 创建）决定，真机行为等价单例。
  */
-class PreferencesSettingsStore(context: Context) : SettingsStore {
-
-    private val dataStore = context.applicationContext.settingsDataStore
+class PreferencesSettingsStore(
+    private val dataStore: DataStore<Preferences>,
+) : SettingsStore {
 
     override val settings: Flow<ReaderSettings> = dataStore.data.map { prefs ->
         val defaults = ReaderSettings()

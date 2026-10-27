@@ -9,6 +9,7 @@ import io.github.lunalight.paperread.data.repository.BookImporter
 import io.github.lunalight.paperread.data.repository.BookRepositoryImpl
 import io.github.lunalight.paperread.data.repository.DefaultBookImporter
 import io.github.lunalight.paperread.data.settings.PreferencesSettingsStore
+import io.github.lunalight.paperread.data.settings.SettingsDataStoreProvider
 import io.github.lunalight.paperread.data.settings.SettingsStore
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
@@ -52,7 +53,22 @@ class AppContainer(context: Context) {
 
     val bookTextStore: BookTextStore by lazy { FileBookTextStore(applicationContext) }
 
-    val settingsStore: SettingsStore by lazy { PreferencesSettingsStore(applicationContext) }
+    /**
+     * 阅读设置 DataStore（每个 Application 一份，随容器创建、懒初始化）。
+     *
+     * 这里显式持有实例，替代此前的文件级 `Context.settingsDataStore by
+     * preferencesDataStore(...)` 委托：该委托把 DataStore 缓存成进程级单例并
+     * 忽略后续 Context，Robolectric 下会让后续测试类的独立 Application 复用
+     * 第一个测试类已销毁的目录 / 作用域（UI 冒烟「正文永不渲染」抖动的根因）。
+     * 交给容器托管后，实例生命周期 = Application 生命周期：真机仍是单例（等价），
+     * 测试里各 Application 天然隔离。落盘路径与旧实现完全一致（见
+     * [SettingsDataStoreProvider] 注释），升级用户数据不受影响。
+     */
+    private val settingsDataStore: SettingsDataStoreProvider by lazy {
+        SettingsDataStoreProvider(applicationContext)
+    }
+
+    val settingsStore: SettingsStore by lazy { PreferencesSettingsStore(settingsDataStore.instance) }
 
     /**
      * 语音朗读控制器（进程单例）。

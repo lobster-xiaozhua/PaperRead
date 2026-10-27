@@ -1,6 +1,7 @@
 package io.github.lunalight.paperread.data.settings
 
 import androidx.test.core.app.ApplicationProvider
+import io.github.lunalight.paperread.PaperReadApp
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
@@ -15,16 +16,24 @@ import org.robolectric.annotation.Config
 
 /**
  * SettingsStore 单测（Robolectric：DataStore 需要 Android Context）。
+ *
+ * store 一律取自 `PaperReadApp.container`（生产装配路径），不再自己 new：
+ * 这样本类同时守住「DataStore 由 Application 托管」的装配契约——若有人改回
+ * 「每次 new 一个 DataStore」，同一文件上会出现两个实例，DataStore 会在首读时
+ * 直接抛 `IllegalStateException`（进程级 activeFiles 互斥），用例立刻红。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class SettingsStoreTest {
 
-    private fun store() = PreferencesSettingsStore(ApplicationProvider.getApplicationContext())
+    private lateinit var app: PaperReadApp
+
+    private fun store() = app.container.settingsStore
 
     @Before
     fun setUp() {
-        // DataStore 文件在 Robolectric 单 Application 生命周期内跨用例保留，
+        app = ApplicationProvider.getApplicationContext()
+        // DataStore 文件在 Application 生命周期内跨用例保留，
         // 先全量复位到默认值，保证「默认值」用例与用例执行顺序无关。
         runBlocking { store().update { ReaderSettings() } }
     }
