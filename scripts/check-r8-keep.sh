@@ -160,6 +160,14 @@ CONTRACT_TYPES=(
   "io.github.lunalight.paperread.transfer.BookmarkSnapshot"
   "io.github.lunalight.paperread.transfer.BookStateSnapshot"
   "io.github.lunalight.paperread.transfer.MigrationManifest"
+  # 本地备份（US-14 / T-015 / T-016）：manifest / 状态 / 加密参数都是持久化契约，
+  # 被裁掉会让备份恢复在 R8 产物上失配（写入时正常、读取时 SerializationException）
+  "io.github.lunalight.paperread.backup.BackupManifest"
+  "io.github.lunalight.paperread.backup.BackupBookEntry"
+  "io.github.lunalight.paperread.backup.BackupBookState"
+  "io.github.lunalight.paperread.backup.BackupBookmark"
+  "io.github.lunalight.paperread.backup.BackupFontReference"
+  "io.github.lunalight.paperread.backup.BackupCryptoParams"
   # 发现服务元数据（private @Serializable，同样走生成的序列化器）
   "io.github.lunalight.paperread.transfer.ServerMeta"
   # 类型安全导航路由
@@ -218,6 +226,8 @@ SERIALIZER_TYPES=(
   "io.github.lunalight.paperread.transfer.BookStateSnapshot"
   "io.github.lunalight.paperread.transfer.MigrationManifest"
   "io.github.lunalight.paperread.transfer.ServerMeta"
+  "io.github.lunalight.paperread.backup.BackupManifest"
+  "io.github.lunalight.paperread.backup.BackupBookState"
   "io.github.lunalight.paperread.ui.nav.ReaderRoute"
   "io.github.lunalight.paperread.ui.nav.TransferRoute"
 )

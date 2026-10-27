@@ -2,6 +2,7 @@ package io.github.lunalight.paperread.ui.settings
 
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasProgressBarRangeInfo
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -146,5 +147,41 @@ class SettingsScreenTest {
         composeRule.onNodeWithText("关于").performClick()
         composeRule.waitForIdle()
         assertTrue("点击关于入口应跳转关于页", aboutOpened)
+    }
+
+    // ---- 备份与恢复入口（T-015 / US-14） ----
+
+    @Test
+    fun `设置页展示备份与恢复入口`() {
+        composeRule.setContent {
+            PaperReadTheme {
+                SettingsScreen(onBack = {}, onOpenAbout = {})
+            }
+        }
+        composeRule.waitUntilAtLeastOneExists(hasText("备份与恢复"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("备份与恢复").performScrollTo().assertRendered()
+        composeRule.onNodeWithText("导出备份").performScrollTo().assertRendered()
+        composeRule.onNodeWithText("从备份恢复").performScrollTo().assertRendered()
+    }
+
+    @Test
+    fun `点击导出备份先展示预览摘要`() {
+        composeRule.setContent {
+            PaperReadTheme {
+                SettingsScreen(onBack = {}, onOpenAbout = {})
+            }
+        }
+        composeRule.waitUntilAtLeastOneExists(hasText("导出备份"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("导出备份").performScrollTo()
+        composeRule.onNodeWithText("导出备份").performClick()
+
+        // 真实 AppContainer 的空书架：预览应给出「无书可备份」并禁用确认
+        composeRule.waitUntilAtLeastOneExists(
+            hasText("书架为空，没有可备份的书籍"),
+            timeoutMillis = 30_000,
+        )
+        composeRule.onNodeWithText("选择保存位置").assertIsNotEnabled()
+        composeRule.onNodeWithText("取消").performClick()
+        composeRule.waitForIdle()
     }
 }

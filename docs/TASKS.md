@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **main 未发布变更**：无（干净发布点）
-- **质量基线**：544 单测全绿（其中 2 例门控 / skipped；app 419 + `:core:data` 26 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
+- **质量基线**：586 单测全绿（其中 2 例门控 / skipped；app 461 + `:core:data` 26 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
 
 ## 当前能力（已完成）
 
@@ -57,6 +57,7 @@
 
 ### 备份与测试
 - 备份策略（方案甲-B）：云备份排除书库目录（`books/`），换机（D2D）保留整库；双 XML 规则覆盖 Android 11–12+
+- **本地备份 / 恢复（US-14，T-015 / T-016）**：设置页可导出 zip（书籍源文件 + 进度 + 书签，可选 AES-256-GCM 口令加密），并从备份恢复；恢复复用导入流水线与 SHA-256 去重，单本失败不中断、结束给失败明细；备份不含 `book.txt`（派生）与字体文件（只记引用）
 - 测试：JVM 单测 + Turbine ViewModel 测试 + Robolectric Compose UI 冒烟 + JaCoCo 覆盖率度量
 
 ## 未发布技术债（v2.0 前跟踪）
@@ -147,6 +148,21 @@
 - 人工把关项备案（已向用户说明并获批准）：① 权限变更——前台服务三件套，理由：用户拍板「后台常驻播放」，系统要求前台服务必须声明，POST_NOTIFICATIONS 为用户拒绝时仍可播放仅通知不可见；② 并发——合成线程 UtteranceProgressListener 回调与主线程变更共用单一锁，对外状态只经 StateFlow 原子发布，onFinished 锁外回调；③ 数据模型——朗读设置三字段新增（默认值即开箱可听，缺 key 回退保证升级兼容）
 - 验收：SPEC AC-12.1 – AC-12.8 全部达成；门禁三件套全绿（lint 0 error、新增代码 0 warning）
 - 已知边界：暂停后恢复从当前段开头重读（系统 TTS 无 pause API，AC-12.2 明示）；系统无中文语音数据时置不可用原因并提示安装；通知按钮在暂停态以「暂停位」为锚点步进（发布态保留暂停位置）；翻页模式下朗读高亮与自动翻页跟随已一并适配（变基合入 T5 翻页模式时补齐）
+
+### T-015 / T-016 本地备份与恢复（US-14，R-13）✅ 已完成（本次交付）
+
+- 涉及：设置页备份入口 / 导出（明文 + 可选口令加密）/ SAF 导入 / 恢复编排 / 共享导入网关抽取
+- 交付物：
+  - `backup/BackupManifest.kt`：备份格式 v1 契约（manifest / 书目结构 / 阅读状态 / 字体引用 / 内容摘要），`ignoreUnknownKeys = true` 保证 v2 包在 v2.1 打开时前向兼容
+  - `backup/BackupCrypto.kt`：PBKDF2-HMAC-SHA256（100,000 迭代 / 256 bit / 16B 随机 salt）+ 条目级 AES-256-GCM（每条目独立 12B nonce）+ `crypto.json` 中的 verifier 口令校验（错误口令可重试，AC-14.7）
+  - `backup/BackupArchive.kt`：zip 条目命名、manifest 自检（版本 / 计数 / 内容摘要）、源文件流式解出与 SHA-256 校验
+  - `backup/BackupExporter.kt` / `BackupImporter.kt`：导出（进度 + 取消 + 失败不留半成品）/ 恢复（版本门控、包完整性、逐本导入、失败清单、WriteBackDecider 回写、字体缺失回退提示）
+  - `backup/BackupCoordinator.kt`：SAF Uri ↔ 缓存临时文件搬运 + 状态流转 + 口令生命周期（用完 zero-fill）
+  - `core:data` 新增 `BookImportGateway` / `AndroidBookImportGateway` / `BookStateWriter`：迁移与备份共用同一条导入流水线（AC-9.5 / AC-14.4），迁移侧改为委托、行为逐行不变
+  - `ui/settings/BackupSection.kt` + `BackupViewModel`：备份与恢复区块、预览 / 口令 / 进度 / 失败明细 / 字体回退对话框（新增文案全部进 `strings.xml`）
+  - 测试：`BackupExporterTest` 7 + `BackupCryptoTest` 12 + `BackupImporterTest` 14 + `BackupCoordinatorTest` 4 + `BackupEndToEndTest` 1 + `AndroidBookImportGatewayTest` 7 + `SettingsScreenTest` +2 + `BackupPrivacyTest` 2 = 49 例新增；其中端到端用例跑真实 Room / 导入流水线 / FileProvider：导出 → 删库 → 恢复 → 书籍 / 进度 / 书签逐字段比对
+- 约束达成：零网络（`check-network-behavior.sh` 通过，backup 包无 URL / 无 `java.net`）；不导出 `book.txt`（派生文件，恢复时由流水线重建）与字体文件（只记引用）；新代码全部进覆盖率分母（backup 包行覆盖率 88.7%，聚合 84.01% ≥ 80% 门禁）
+- 已知边界：迁移导入的书名仍按显示名推导（T-015 抽取时保持逐字节不变）；备份恢复通过 `ImportHints` 保留原始书名 / 作者，不改变迁移行为
 
 ## 待办 / 未决项
 

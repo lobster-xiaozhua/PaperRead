@@ -11,7 +11,7 @@
 - **本地导入 TXT / EPUB**：智能章节解析，5 套预设阅读主题，段级进度记忆
 - **零二进制素材**：封面程序化生成，图标为矢量图，安装包干净可审查
 
-> 状态：**v1.2.0**（体验增强版：TTS 语音朗读 / 局域网传书·迁移·进度同步 / 设置页与关于页 / 仿真翻页 / 平板双页跨页，544 单测全绿 / lint 0·0 / 行覆盖率以 `jacocoTestReport` 报告为准（门禁 ≥ 80%，三模块聚合口径：app + :core:data + :core:reader；经登记的零覆盖纯渲染类不计入分母，清单见 `app/build.gradle.kts`））。
+> 状态：**v1.2.0**（体验增强版：TTS 语音朗读 / 局域网传书·迁移·进度同步 / 设置页与关于页 / 仿真翻页 / 平板双页跨页，586 单测全绿 / lint 0·0 / 行覆盖率以 `jacocoTestReport` 报告为准（门禁 ≥ 80%，三模块聚合口径：app + :core:data + :core:reader；经登记的零覆盖纯渲染类不计入分母，清单见 `app/build.gradle.kts`））。
 > `main` 含未发布变更：Kotlin 工具链升级（版本以 `gradle/libs.versions.toml` 为单一来源）、TTS 语音朗读（系统 TTS 离线朗读 + 后台常驻播放）。未来规划见 [ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能
@@ -37,8 +37,9 @@
 | 换机迁移（整库打包为单一 zip、逐本导入、进度书签 last-write-wins 回写） | ✅ |
 | 进度同步（双向交换阅读位置与书签、last-write-wins 冲突、书签只增不删） | ✅ |
 | TTS 语音朗读（系统 TTS 离线合成 / 段级高亮跟随 / 语速音调 / 章尾自动续读 / 后台常驻播放） | ✅ |
+| 本地备份 / 恢复（zip 导出导入、可选口令加密 AES-256-GCM、幂等恢复、失败明细） | ✅ |
 
-Roadmap：备份恢复、仿真翻页、自定义字体、平板适配、国际化（见 [ROADMAP.md](docs/ROADMAP.md)）。
+Roadmap：自定义字体、平板适配、国际化（见 [ROADMAP.md](docs/ROADMAP.md)）。
 
 ## 构建
 

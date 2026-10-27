@@ -5,4 +5,7 @@
 -->
 <paths>
     <cache-path name="received" path="transfer/" />
+    <!-- 本地备份恢复（T-016）：解包出的源文件暂存 cacheDir/backup/，
+         经 FileProvider 转 content Uri 后走同一条导入流水线（AC-14.4）。 -->
+    <cache-path name="backup" path="backup/" />
 </paths>

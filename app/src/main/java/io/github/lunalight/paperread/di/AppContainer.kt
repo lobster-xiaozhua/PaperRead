@@ -1,12 +1,21 @@
 package io.github.lunalight.paperread.di
 
 import android.content.Context
+import io.github.lunalight.paperread.BuildConfig
+import io.github.lunalight.paperread.backup.BackupCoordinator
+import io.github.lunalight.paperread.backup.BackupExporter
+import io.github.lunalight.paperread.backup.BackupFontReference
+import io.github.lunalight.paperread.backup.BackupImporter
+import io.github.lunalight.paperread.backup.FontAvailability
 import io.github.lunalight.paperread.data.local.AppDatabase
 import io.github.lunalight.paperread.data.local.BookDao
 import io.github.lunalight.paperread.data.local.BookmarkDao
 import io.github.lunalight.paperread.data.local.ChapterDao
+import io.github.lunalight.paperread.data.repository.AndroidBookImportGateway
+import io.github.lunalight.paperread.data.repository.BookImportGateway
 import io.github.lunalight.paperread.data.repository.BookImporter
 import io.github.lunalight.paperread.data.repository.BookRepositoryImpl
+import io.github.lunalight.paperread.data.repository.BookStateWriter
 import io.github.lunalight.paperread.data.repository.DefaultBookImporter
 import io.github.lunalight.paperread.data.settings.PreferencesSettingsStore
 import io.github.lunalight.paperread.data.settings.SettingsDataStoreProvider
@@ -22,6 +31,7 @@ import io.github.lunalight.paperread.transfer.LanTransferManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
 
 /**
  * 手动依赖容器（服务定位器）。
@@ -84,6 +94,58 @@ class AppContainer(context: Context) {
 
     val bookImporter: BookImporter by lazy {
         DefaultBookImporter(applicationContext, bookRepository, bookTextStore)
+    }
+
+    /**
+     * 共享导入网关（T-015 / AC-9.5 / AC-14.4）：备份恢复复用与传书 / 迁移
+     * 完全相同的导入流水线（`prepare → confirm`），不存在第二条导入逻辑。
+     */
+    val bookImportGateway: BookImportGateway by lazy {
+        AndroidBookImportGateway(applicationContext, bookImporter, bookRepository)
+    }
+
+    /** 阅读状态回写（迁移与备份共用，T-015）。 */
+    private val bookStateWriter: BookStateWriter by lazy { BookStateWriter(bookRepository) }
+
+    /**
+     * 本地备份导出器（US-14）。
+     *
+     * 字体引用取自当前阅读设置（AC-14.9：只记录引用名，不打包字体文件）。
+     */
+    private val backupExporter: BackupExporter by lazy {
+        BackupExporter(
+            bookRepository = bookRepository,
+            bookTextStore = bookTextStore,
+            fontReferencesProvider = {
+                val family = settingsStore.settings.first().fontFamily
+                listOf(
+                    BackupFontReference(
+                        name = family,
+                        displayName = family,
+                        builtIn = family in FontAvailability.BUILT_IN_FONT_NAMES,
+                    ),
+                )
+            },
+            appVersion = { BuildConfig.VERSION_NAME },
+        )
+    }
+
+    /**
+     * 本地备份恢复器：临时文件落 cacheDir/backup/（FileProvider 已登记该路径，
+     * 解包出的源文件才能转 content Uri 交给导入流水线）。
+     */
+    private val backupImporter: BackupImporter by lazy {
+        BackupImporter(
+            bookRepository = bookRepository,
+            gateway = bookImportGateway,
+            stateWriter = bookStateWriter,
+            workDir = java.io.File(applicationContext.cacheDir, "backup/work"),
+        )
+    }
+
+    /** 备份 / 恢复编排（设置页唯一入口，生命周期随 Application）。 */
+    val backupCoordinator: BackupCoordinator by lazy {
+        BackupCoordinator(applicationContext, backupExporter, backupImporter, appScope)
     }
 
     /**

@@ -47,4 +47,62 @@
     <!-- 关于页隐私入口（T-009） -->
     <string name="about_privacy_entry_title">隐私说明</string>
     <string name="about_privacy_entry_subtitle">权限清单、网络行为与数据边界</string>
+
+    <!-- 本地备份与恢复（T-015 / T-016 · US-14）：全部新增文案资源化（T-022 纪律） -->
+    <string name="settings_backup_section">备份与恢复</string>
+    <string name="settings_backup_export_title">导出备份</string>
+    <string name="settings_backup_export_subtitle">把书架、阅读进度与书签打包为本地 zip 文件</string>
+    <string name="settings_backup_import_title">从备份恢复</string>
+    <string name="settings_backup_import_subtitle">从本地 zip 备份恢复书籍与阅读记录</string>
+
+    <string name="backup_export_dialog_title">导出备份</string>
+    <string name="backup_export_summary">书籍 %1$d 本 · 阅读进度 %2$d 条 · 书签 %3$d 条</string>
+    <string name="backup_export_fonts">字体引用：%1$s（字体文件不包含在备份中）</string>
+    <string name="backup_export_fonts_none">字体引用：无（字体文件不包含在备份中）</string>
+    <string name="backup_export_empty">书架为空，没有可备份的书籍</string>
+    <string name="backup_export_encrypt">使用口令加密（AES-256-GCM）</string>
+    <string name="backup_export_password">备份口令（至少 8 位）</string>
+    <string name="backup_export_password_confirm">再次输入口令</string>
+    <string name="backup_password_too_short">口令至少 8 位</string>
+    <string name="backup_password_mismatch">两次输入的口令不一致</string>
+    <string name="backup_export_start">选择保存位置</string>
+    <string name="backup_default_file_name">paperread-backup-%1$s.zip</string>
+
+    <string name="backup_import_dialog_title">恢复备份</string>
+    <string name="backup_import_summary">备份创建于 %1$s\n书籍 %2$d 本 · 阅读进度 %3$d 条 · 书签 %4$d 条</string>
+    <string name="backup_import_books">包含：%1$s</string>
+    <string name="backup_import_locked">该备份已加密，请输入导出时设置的口令</string>
+    <string name="backup_import_password">备份口令</string>
+    <string name="backup_import_wrong_password">口令错误，请重试</string>
+    <string name="backup_import_incomplete">警告：%1$d 个条目缺失，相关书籍会记入失败清单</string>
+    <string name="backup_import_start">开始恢复</string>
+    <string name="backup_import_fonts_missing">缺少字体：%1$s（将回退默认字体）</string>
+
+    <string name="backup_progress_exporting">正在导出备份…</string>
+    <string name="backup_progress_opening">正在读取备份…</string>
+    <string name="backup_progress_restoring">正在恢复…</string>
+    <string name="backup_progress_books">%1$d / %2$d</string>
+    <string name="backup_action_cancel">取消</string>
+    <string name="backup_action_close">关闭</string>
+    <string name="backup_action_confirm">确定</string>
+
+    <string name="backup_phase_collecting">正在收集书库…</string>
+    <string name="backup_phase_exporting">正在导出备份…</string>
+    <string name="backup_phase_restoring">正在恢复…</string>
+    <string name="backup_error_read_library">无法读取书架：%1$s</string>
+    <string name="backup_export_done">备份已导出</string>
+    <string name="backup_export_canceled">已取消导出</string>
+    <string name="backup_export_failed">备份导出失败：%1$s</string>
+    <string name="backup_import_canceled">已取消恢复</string>
+    <string name="backup_import_failed">恢复失败：%1$s</string>
+    <string name="backup_error_not_a_backup">所选文件不是纸阅备份</string>
+    <string name="backup_error_corrupt">备份文件已损坏</string>
+    <string name="backup_error_version_too_new">备份版本过新，请先升级纸阅再恢复</string>
+
+    <string name="backup_report_title">恢复完成</string>
+    <string name="backup_report_summary">新导入 %1$d 本 · 已存在 %2$d 本 · 回写阅读记录 %3$d 本</string>
+    <string name="backup_report_failed_title">失败 %1$d 本</string>
+    <string name="backup_report_failed_item">%1$s：%2$s</string>
+    <string name="backup_report_fonts">字体缺失：%1$s（已回退默认字体）</string>
+    <string name="backup_report_empty">备份里没有可恢复的书籍</string>
 </resources>
