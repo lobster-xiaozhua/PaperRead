@@ -54,7 +54,7 @@ test(epub): 补充无 NCX 目录的解析用例
 `scripts/check-doc-consistency.sh`（CI `lint` 作业执行）五项断言：
 
 1. 权限清单：`CONTRIBUTING.md` 声明的权限与 `AndroidManifest.xml` 实际声明逐一一致；
-2. 覆盖率：文档不写死行覆盖率实测数字，统一以 `jacocoTestReport` 实际 XML 报告为准（门禁阈值除外）；门禁口径为「行覆盖率 ≥ 80%」——分母默认包含所有类，仅 `app/build.gradle.kts` 中 `coverageExcludedRenderClasses` 显式登记的「经核实 CI 口径 0% 且无测试调用其逻辑成员」的零覆盖纯渲染类不计入分母（当前 4 个；新增需登记并说明理由），UI 行为由 `robolectric-ui` 作业的冒烟承载；
+2. 覆盖率：文档不写死行覆盖率实测数字，统一以 `jacocoTestReport` 实际 XML 报告为准（门禁阈值除外）；门禁口径为「行覆盖率 ≥ 80%」——分母默认包含所有类，仅 `app/build.gradle.kts` 中 `coverageExcludedRenderClasses` 显式登记的「经核实 CI 口径 0% 且无测试调用其逻辑成员」的零覆盖纯渲染类不计入分母（当前 7 个；新增需登记并说明理由），UI 行为由 `robolectric-ui` 作业的冒烟承载；
 3. Kotlin 版本：文档不硬编码版本号，单一来源为 `gradle/libs.versions.toml`；
 4. 单测总数：`README.md` / `docs/ROADMAP.md` / `docs/TASKS.md` 质量基线中的「N 单测」必须等于**全部测试源码目录**（`app/src/test` + `core/*/src/test`）下 `@Test` 用例数（代码为单一来源，写精确数字，不写「约」「N+」）；
 5. CI 作业数：文档中「N 门禁 / N 个作业」必须等于 `.github/workflows/android.yml` 的作业数，且每个作业名都要在 `README.md` 以反引号形式登记。

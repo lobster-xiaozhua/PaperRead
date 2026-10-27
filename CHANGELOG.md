@@ -23,6 +23,14 @@
 - **401 语义映射**：对端未配对 / 配对失效时，发送侧提示「对端未配对或配对已失效，请重新配对」而非笼统网络错误
 
 ### 基础设施
+- **阅读器 God File 拆分（T-011 / R-11）**：`ui/reader/ReaderScreen.kt`（1326 行 / JaCoCo 645 行）拆成六个文件，**行为零变更**
+  - `ReaderScreen.kt`：编排层（状态收集 + 一次性事件分发 + 部件组合），268 行
+  - `ReaderContent.kt`：正文渲染（连续滚动）+ 字体应用 `readerTextStyle` + 朗读高亮槽 `paragraphHighlight` + `ChapterFooter` / `ReaderError`
+  - `ReaderPager.kt`：翻页（`HorizontalPager`）与双页跨页，收拢原 `PaginatedSpread.kt`（该文件删除）
+  - `ReaderChrome.kt`：顶栏 / 底栏 / 目录与书签弹层，收拢原 `ReaderSettingsSheet.kt` 的 `TocSheet`
+  - `ReaderEffects.kt`：系统效果（亮度 / 常亮 / 沉浸 / 系统栏图标 / 朗读前台服务生命周期）
+  - `SpeechControlBar.kt`：朗读控制条 + 通知权限场景化对话框
+  - 覆盖率口径：六个新类**逐个**按「CI 口径 0% + 无 CI 测试引用其逻辑成员」重新登记白名单（与拆分前同一批渲染行，仅按类重新归属）；**系统效果那 50 行刻意不登记**、并入分母度量，`ReaderScreenKt` 由 645 行降到 134 行后仍满足登记条件（保留）；白名单条目 4 → 7，行数合计 1414 → 1373
 - **模块拆分（T-010 / R-12）**：抽出 `:core:domain`（领域模型 + 仓储接口）与 `:core:reader`（阅读引擎）两个**纯 JVM 模块**（只应用 `kotlin("jvm")`，JDK 17 与 app 的 jvmTarget 对齐），`:core:reader` 以 `api` 依赖 `:core:domain`、`:app` 反向依赖两者
   - 分层纪律从「口头约定」变为**编译期强制**：在 `domain.*` / `reader.*` 里写 `import android.*` 直接编译失败
   - **包名保持不变**（`io.github.lunalight.paperread.domain.*` / `.reader.*`），拆分对调用方透明——全仓 import 零改动

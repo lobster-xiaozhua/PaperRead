@@ -134,7 +134,7 @@ Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlP
 - [SECURITY.md](SECURITY.md)：安全漏洞报告政策
 - [CHANGELOG.md](CHANGELOG.md)：版本变更记录
 - CI 门禁：七个作业独立并行，全绿方可合并 —— `unit`（双 flavor 单测 + 覆盖率门禁）、`robolectric-ui`（Robolectric UI 冒烟，失败重试 ≤ 1）、`lint`（Android lint + 文档口径一致性）、`room-migration`（Room 迁移登记 + destructive fallback 禁用）、`network-audit`（不访问公网 / 无三方网络 SDK）、`assemble`（双 flavor 装配，含 R8 release）、`r8-smoke`（R8 mapping keep 断言 + release 变体序列化 round-trip）。拆成独立作业的理由：**失败定位清晰**（哪道门禁红一目了然）+ **flaky 隔离**（Robolectric 渲染抖动被隔离在 `robolectric-ui`，不拖累 `unit`）
-- 覆盖率门禁口径：行覆盖率 ≥ 80%。分母默认包含**所有**类；仅**经登记的零覆盖纯渲染类**不计入分母（当前 4 个，显式类名清单见 `app/build.gradle.kts` 的 `coverageExcludedRenderClasses`，新增需登记并说明理由——登记条件为「CI 口径下该类 0% 且无测试调用其逻辑成员」）。之所以不再用 `*ScreenKt` 之类的通配：通配会让新增的 `FooScreen.kt` 自动脱离度量、给「往 Screen.kt 里加逻辑」开后门；改为白名单后新增文件默认进分母，覆盖率掉了就会被门禁拦住。UI 行为由 `robolectric-ui` 作业的行为冒烟承载
+- 覆盖率门禁口径：行覆盖率 ≥ 80%。分母默认包含**所有**类；仅**经登记的零覆盖纯渲染类**不计入分母（当前 7 个，显式类名清单见 `app/build.gradle.kts` 的 `coverageExcludedRenderClasses`，新增需登记并说明理由——登记条件为「CI 口径下该类 0% 且无测试调用其逻辑成员」）。之所以不再用 `*ScreenKt` 之类的通配：通配会让新增的 `FooScreen.kt` 自动脱离度量、给「往 Screen.kt 里加逻辑」开后门；改为白名单后新增文件默认进分母，覆盖率掉了就会被门禁拦住。UI 行为由 `robolectric-ui` 作业的行为冒烟承载
 
 ## 发布
 
