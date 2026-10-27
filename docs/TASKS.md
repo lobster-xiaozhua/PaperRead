@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **main 未发布变更**：无（干净发布点）
-- **质量基线**：670 单测全绿（其中 2 例门控 / skipped；app 517 + `:core:data` 54 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
+- **质量基线**：700 单测全绿（其中 2 例门控 / skipped；app 547 + `:core:data` 54 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
 
 ## 当前能力（已完成）
 
@@ -185,6 +185,20 @@
 - 约束达成：零网络（`check-network-behavior.sh` 通过，搜索代码无 URL / 无 `java.net`）；新文案全部进 `strings.xml`；`ReaderChromeKt` 仍在既有渲染白名单内（未新增白名单条目），搜索面板与高亮逻辑作为**新类进分母**并由纯 JVM 用例覆盖
 - 已知边界：AC-15.6 的三条时延只能在真机（API 34 中端机）验收，沙箱仅记录 JVM 近似值（`docs/PERFORMANCE_BASELINE.md` §1.3）
 
+### T-019 书签备注 / 按章分组（US-17，R-18）✅ 已完成
+
+- 涉及：书签备注领域校验 / 书签面板按章分组与编辑 / 同步与迁移快照的新字段兼容 / 合并规则（备注较新者胜）
+- 交付物：
+  - `domain/model/Bookmark.kt`：`Note` 上限收敛到领域层（`NOTE_MAX_LENGTH = 500` / `clampNote` 输入裁剪 / `normalizeNote` 落库规范化）+ `hasNote`
+  - `ReaderChrome.kt`：书签列表按章分组（组头 = 章名 + 条数），条目 = 备注摘要（无备注回落摘录）+ 位置（「第 N 段」+ 时间），尾部铅笔进入编辑、垃圾桶删除、点条目跳转（AC-6.2/6.3 不回归）；`BookmarkNoteDialog` 常驻 `n/500` 计数
+  - `ReaderViewModel`：`bookmarkEditor` 编辑态 + `editBookmarkNote` / `onBookmarkNoteChange` / `saveBookmarkNote` / `cancelBookmarkNoteEdit`；添加书签后自动进入备注编辑（AC-17.1「添加时允许输入备注」），取消不删书签
+  - `ProgressSync.kt`：`SyncBookmark` 增 `note` / `updatedAt`（**默认 null**，AC-17.5/17.6）+ `BookMergeResult.updateNotes`（就地改列，不与新增混用）+ `SyncReport.localNotesUpdated`；去重键 `章节:段落:字符偏移` 不变（AC-17.7）
+  - `MigrationBundle.kt`：`BookmarkSnapshot` 增 `note` / `updatedAt`（默认 null）+ `toSnapshot` 映射；`TransferMigrationController` 回写时透传
+  - `ProgressSyncCoordinator`：`LocalSyncGateway.updateNotes` 新通道；`TransferSyncController` 在 `/sync/apply` 落地时区分「缺的补插」与「备注更新的改列」
+  - 测试：`BookmarkCompatTest` 19 例（v2.0 → v1.2 旧数据类解析未知字段被忽略 / v1.2 → v2.0 默认值接纳 / 关闭 `ignoreUnknownKeys` 必抛的负向对照 / 备注较新者胜 / 时间相同不互踩 / 只增不删不变 / 打包往返保留备注）+ `ReaderBookmarkNoteViewModelTest` 11 例 = 30 例新增
+- 约束达成：AC-17.4 的 schema 与迁移测试沿用 T-006 成果（本任务未改 schema，`check-room-migration.sh` 通过）；三个 JSON 解析点（`syncSnapshotJson` / `bundleJson` / `backupJson`）均显式 `ignoreUnknownKeys = true`，并各自有未知字段容错用例
+- 已知边界：备注冲突裁决依赖设备时钟（`updatedAt`），与进度同步的 `lastReadAt` 同一口径；时钟严重漂移的设备可能与既有冲突规则产生同样的偏差
+
 ## 待办 / 未决项
 
 ### 真机验收（非阻塞，代码已合入）
@@ -194,10 +208,21 @@
 ### v1.2 体验增强（范围待定）
 > 见 ROADMAP C 段，下列为候选，隐私红线（零网络权限）不变更
 
-- C1 全书搜索（关键词 + 定位到段）· C3 自定义字体（导入 ttf/otf）
-- C4 书签备注 + 按章分组 · C5 本地备份/恢复（zip 导出导入）· C6 平板双栏/横屏优化
+- ~~C1 全书搜索（关键词 + 定位到段）~~（**已交付：当前书流式搜索 + 结果定位高亮，见 T-017**）
+- C3 自定义字体（导入 ttf/otf）
+- ~~C4 书签备注 + 按章分组~~（**已交付：按章分组 + ≤ 500 字备注 + 跨版本兼容，见 T-019**）
+- ~~C5 本地备份/恢复（zip 导出导入）~~（**已交付，见 T-015 / T-016**）· C6 平板双栏/横屏优化
 - C7 仿真翻页动效 · C8 国际化（英文）· C9 Wi-Fi 传书（**已拍板：最小权限 + client/dev 双 flavor，见 T 系列工单**）
 - ~~C2 TTS 朗读~~（**已交付：系统 TTS 离线朗读 + 后台常驻播放，见 T6**）
+
+### 技术债（非阻塞）
+- `ReaderViewModel` 已 1077 行（加载/进度 · 朗读 · 书签 · 搜索 四块职责）。搜索的
+  扫描编排（防抖 / 轮次令牌 / 取消回位）是下一个该抽出去的协作类（`ReaderSearchController`），
+  抽出后 VM 回到千行以内，且该逻辑可从 VM 单测里独立出来；本轮不抽是为了不在
+  T-017 / T-019 同改一个文件时引入大范围改动
+- `ui/reader/search/BookSearchPanel.kt` 是纯 Compose 渲染树（CI 口径 101 行 0%），
+  按仓库既定口径进分母且**不登记白名单**（白名单只收「既有 0% + 无测试引用」的类，
+  新增文件默认进分母）。行为冒烟归 `robolectric-ui` 作业
 
 ### v2.0 方向（待需求验证）
 - Markdown / HTML 单文件导入 · 阅读统计（全本地）· 无障碍（TalkBack / 动态字号）· 桌面端可行性

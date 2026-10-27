@@ -121,4 +121,17 @@
     <string name="reader_search_empty">未找到相关内容</string>
     <string name="reader_search_hint">点击结果可跳转到命中段落</string>
     <string name="reader_search_cancel">取消</string>
+
+    <!-- 书签备注 / 分组（T-019 · R-18 / US-17）：分组头 / 条目 / 备注编辑（AC-17.1 ~ AC-17.3） -->
+    <string name="reader_bookmark_empty">还没有书签</string>
+    <string name="reader_bookmark_empty_hint">阅读时点击工具栏星标即可添加</string>
+    <string name="reader_bookmark_group_count">%1$d 条</string>
+    <string name="reader_bookmark_position">第 %1$d 段</string>
+    <string name="reader_bookmark_edit_note">编辑备注</string>
+    <string name="reader_bookmark_note_title_new">写备注</string>
+    <string name="reader_bookmark_note_title_edit">编辑备注</string>
+    <string name="reader_bookmark_note_hint">记录这一段的精彩之处（可留空）</string>
+    <string name="reader_bookmark_note_counter">%1$d/%2$d</string>
+    <string name="reader_bookmark_note_save">保存</string>
+    <string name="reader_bookmark_note_cancel">取消</string>
 </resources>

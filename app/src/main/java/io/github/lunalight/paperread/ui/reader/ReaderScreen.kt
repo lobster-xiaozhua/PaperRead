@@ -248,6 +248,7 @@ fun ReaderScreen(
             onBookmarkSelect = viewModel::goToBookmark,
             onBookmarkDelete = viewModel::deleteBookmark,
             onDismiss = viewModel::hideToc,
+            onBookmarkEditNote = viewModel::editBookmarkNote,
         )
     }
 
@@ -262,6 +263,18 @@ fun ReaderScreen(
             onSelect = viewModel::selectSearchHit,
             onCancel = viewModel::cancelSearch,
             onDismiss = viewModel::dismissSearch,
+        )
+    }
+
+    // 书签备注编辑（AC-17.1 / AC-17.3）
+    val bookmarkEditor = state.bookmarkEditor
+    if (bookmarkEditor != null) {
+        BookmarkNoteDialog(
+            editor = bookmarkEditor,
+            theme = readerTheme,
+            onNoteChange = viewModel::onBookmarkNoteChange,
+            onSave = viewModel::saveBookmarkNote,
+            onCancel = viewModel::cancelBookmarkNoteEdit,
         )
     }
 

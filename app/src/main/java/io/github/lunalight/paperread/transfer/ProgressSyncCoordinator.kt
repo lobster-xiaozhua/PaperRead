@@ -17,6 +17,14 @@ interface LocalSyncGateway {
 
     /** 追加对端独有的书签（AC-11.3：只增不删）。 */
     suspend fun addBookmarks(state: BookSyncState, bookmarks: List<SyncBookmark>)
+
+    /**
+     * 就地更新已存在书签的备注（AC-17.7：「备注冲突按更新时间较新者胜」）。
+     *
+     * 与 [addBookmarks] 分开的理由：新增要插行（会撞主键 / 产生重复），
+     * 备注更新只改列；两者混用会让「只增不删」语义被重复条目污染。
+     */
+    suspend fun updateNotes(state: BookSyncState, bookmarks: List<SyncBookmark>)
 }
 
 /** 对端状态交换（HTTP `/sync/state` 与 `/sync/apply`）。 */
@@ -66,6 +74,9 @@ class ProgressSyncCoordinator(
                 }
                 if (merge.result.addBookmarks.isNotEmpty()) {
                     local.addBookmarks(merge.state, merge.result.addBookmarks)
+                }
+                if (merge.result.updateNotes.isNotEmpty()) {
+                    local.updateNotes(merge.state, merge.result.updateNotes)
                 }
             }
             // 2) 把本地较新的部分回推对端（空则不请求）

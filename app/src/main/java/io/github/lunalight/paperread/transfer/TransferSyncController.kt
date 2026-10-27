@@ -34,10 +34,8 @@ internal class TransferSyncController(
 
     private var syncJob: Job? = null
 
-    private val syncJson = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
+    /** 共享的同步快照 JSON 策略（AC-17.8，定义见 `ProgressSync.kt` 的 [syncSnapshotJson]）。 */
+    private val syncJson: Json = syncSnapshotJson
 
     /**
      * 本机阅读状态网关：快照走仓储，写回只做「进度 / 书签」两类，
@@ -99,7 +97,27 @@ internal class TransferSyncController(
                         charOffset = mark.charOffset,
                         excerpt = mark.excerpt,
                         createdAt = mark.createdAt,
+                        // 备注随书签一并落地（AC-17.6：旧版对端没带 → 空备注 + 时间 0）
+                        note = mark.noteOrEmpty,
+                        updatedAt = mark.updatedAt ?: 0L,
                     ),
+                )
+            }
+        }
+
+        override suspend fun updateNotes(state: BookSyncState, bookmarks: List<SyncBookmark>) {
+            val book = bookRepository.findBySha256(state.sha256) ?: return
+            // 按去重键（章节 + 段落 + 字符偏移）找到本地同一条书签再改列：
+            // 找不到说明两侧不一致（本地刚被删 / 章节重解析），跳过即可，不新增行。
+            val local = bookRepository.observeBookmarks(book.id).first()
+                .associateBy { SyncBookmark.from(it).positionKey }
+            bookmarks.forEach { mark ->
+                val target = local[mark.positionKey] ?: return@forEach
+                if (mark.noteTimestamp <= target.updatedAt) return@forEach
+                bookRepository.updateBookmarkNote(
+                    id = target.id,
+                    note = mark.noteOrEmpty,
+                    updatedAt = mark.noteTimestamp,
                 )
             }
         }
@@ -172,14 +190,21 @@ internal class TransferSyncController(
         envelope.books.forEach { state ->
             localSyncGateway.applyProgress(state)
             if (state.bookmarks.isNotEmpty()) {
-                // 只补本地缺的书签（去重，避免重复条目）
+                // 只补本地缺的书签（去重，避免重复条目）；同一条书签若对端备注更新，
+                // 走 updateNotes 就地改列（AC-17.7：较新者胜，不产生重复条目）
                 val book = bookRepository.findBySha256(state.sha256) ?: return@forEach
                 val existing = bookRepository.observeBookmarks(book.id).first()
-                    .map { SyncBookmark.from(it).positionKey }
-                    .toSet()
-                val missing = state.bookmarks.filter { it.positionKey !in existing }
+                val existingByKey = existing.associateBy { SyncBookmark.from(it).positionKey }
+                val missing = state.bookmarks.filter { it.positionKey !in existingByKey }
+                val noteUpdates = state.bookmarks.mapNotNull { remote ->
+                    val local = existingByKey[remote.positionKey] ?: return@mapNotNull null
+                    remote.takeIf { it.noteTimestamp > local.updatedAt }
+                }
                 if (missing.isNotEmpty()) {
                     localSyncGateway.addBookmarks(state, missing)
+                }
+                if (noteUpdates.isNotEmpty()) {
+                    localSyncGateway.updateNotes(state, noteUpdates)
                 }
             }
         }

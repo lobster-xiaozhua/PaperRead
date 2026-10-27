@@ -22,7 +22,13 @@ const val MIGRATION_BUNDLE_VERSION: Int = 1
 private const val MANIFEST_ENTRY = "manifest.json"
 private const val SOURCES_PREFIX = "sources/"
 
-/** 书签快照（不含 id / bookId：回写时按目标书籍重新分配）。 */
+/**
+ * 书签快照（不含 id / bookId：回写时按目标书籍重新分配）。
+ *
+ * 备注字段（AC-17.5 / AC-17.6）：[note] / [updatedAt] **必须带默认值**——
+ * v1.2 生成的迁移包没有这两个字段，新版本解析时必须落到默认值而不是失败；
+ * 反向（v2.0 生成的包给 v1.2 读）由解析点的 `ignoreUnknownKeys = true` 兜住。
+ */
 @Serializable
 data class BookmarkSnapshot(
     val chapterIndex: Int,
@@ -30,6 +36,10 @@ data class BookmarkSnapshot(
     val charOffset: Int,
     val excerpt: String,
     val createdAt: Long,
+    /** 备注正文；null = 旧版本迁移包未携带（AC-17.6）。 */
+    val note: String? = null,
+    /** 备注最后修改时间；null = 从未编辑（AC-17.5）。 */
+    val updatedAt: Long? = null,
 )
 
 /**
@@ -72,13 +82,24 @@ data class UnpackedBundle(
     val sources: Map<String, File>,
 )
 
+/**
+ * 迁移包 JSON 策略（AC-17.8 的三个解析点之一）。
+ *
+ * - `ignoreUnknownKeys = true`：v2.0 清单里的备注字段（note / updatedAt）
+ *   到了 v1.2 的设备上必须被忽略而不是整包解析失败（AC-17.5）；
+ * - `encodeDefaults = true`：默认值也写盘，清单自解释；
+ * - 提到 object 外的 `internal val`：测试要**直接**用这份配置验证新旧字段互通
+ *   （复制一份 Json 配置去测，测的就不是线上那份了）。
+ */
+internal val bundleJson: Json = Json {
+    ignoreUnknownKeys = true // 前向兼容：对端高版本清单不阻塞旧版解析
+    encodeDefaults = true
+}
+
 /** 迁移包编解码（zip + JSON，零第三方依赖）。 */
 object MigrationBundleCodec {
 
-    private val json = Json {
-        ignoreUnknownKeys = true // 前向兼容：对端高版本清单不阻塞旧版解析
-        encodeDefaults = true
-    }
+    private val json: Json = bundleJson
 
     /**
      * 打包写入 [out]。
@@ -212,6 +233,8 @@ fun Book.toSnapshot(bookmarks: List<io.github.lunalight.paperread.domain.model.B
                 charOffset = bookmark.charOffset,
                 excerpt = bookmark.excerpt,
                 createdAt = bookmark.createdAt,
+                note = bookmark.note.ifBlank { null },
+                updatedAt = bookmark.updatedAt.takeIf { it > 0L },
             )
         },
     )

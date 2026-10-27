@@ -120,6 +120,8 @@ data class ReaderUiState(    val loading: Boolean = true,
      * 决定给哪一段上色、上哪个词的颜色。
      */
     val searchHighlight: SearchHighlightTarget? = null,
+    /** 书签备注编辑态（null = 未编辑；AC-17.1 / AC-17.3）。 */
+    val bookmarkEditor: BookmarkEditorState? = null,
 ) {
     val chapterTitle: String get() = chapters.getOrNull(chapterIndex)?.title ?: ""
     val chapterPosition: String
@@ -132,6 +134,25 @@ data class SearchHighlightTarget(
     val paragraphIndex: Int,
     val query: String,
 )
+
+/**
+ * 书签备注编辑态（AC-17.1 / AC-17.3）。
+ *
+ * @param bookmarkId 正在编辑的书签 id（新增书签时即刚插入的 id）
+ * @param draft 输入框原文（[Bookmark.clampNote] 已裁剪到上限，计数器不会超过 500/500）
+ * @param isNew true = 刚添加书签后的首次备注输入（取消不应删除书签本身）
+ */
+data class BookmarkEditorState(
+    val bookmarkId: Long,
+    val draft: String,
+    val isNew: Boolean = false,
+) {
+    /** 还剩多少字可输入（UI 计数提示「n/500」的另一半）。 */
+    val remaining: Int get() = Bookmark.NOTE_MAX_LENGTH - draft.length
+
+    /** 长度是否仍在 AC-17.1 的上限内（超限时保存按钮置灰）。 */
+    val canSave: Boolean get() = draft.length <= Bookmark.NOTE_MAX_LENGTH
+}
 
 /**
  * 阅读器 ViewModel：加载书籍/章节、ReaderPosition 恢复、防抖进度保存、
@@ -898,7 +919,12 @@ class ReaderViewModel(
 
     // ---- 书签 ----
 
-    /** 在当前首个可见段落处添加书签（含摘录）。 */
+    /**
+     * 在当前首个可见段落处添加书签（含摘录；AC-6.2）。
+     *
+     * 添加成功后立刻打开备注编辑态（AC-17.1「添加书签时应允许输入备注」）：
+     * 书签本身已经落库，用户直接「取消」不删书签，只是不写备注。
+     */
     fun addBookmark() {
         val state = _uiState.value
         val book = state.book ?: return
@@ -907,7 +933,7 @@ class ReaderViewModel(
         val excerpt = state.paragraphs[paragraphIndex].take(EXCERPT_MAX_CHARS)
         val charOffset = ReaderProgress.chapterCharOffset(state.paragraphStarts, paragraphIndex)
         viewModelScope.launch {
-            bookRepository.addBookmark(
+            val id = bookRepository.addBookmark(
                 Bookmark(
                     bookId = bookId,
                     chapterIndex = state.chapterIndex,
@@ -917,17 +943,82 @@ class ReaderViewModel(
                     createdAt = System.currentTimeMillis(),
                 ),
             )
-            _uiState.update { it.copy(message = "已添加书签") }
+            _uiState.update {
+                it.copy(
+                    message = "已添加书签",
+                    // id = 0 表示仓储没回 id（异常实现）：不打开编辑器，避免保存到无处
+                    bookmarkEditor = if (id > 0) {
+                        BookmarkEditorState(bookmarkId = id, draft = "", isNew = true)
+                    } else {
+                        it.bookmarkEditor
+                    },
+                )
+            }
         }
     }
 
+    /** 删除书签；若正在编辑同一条，一并关闭编辑态。 */
     fun deleteBookmark(id: Long) {
+        _uiState.update { state ->
+            if (state.bookmarkEditor?.bookmarkId == id) state.copy(bookmarkEditor = null) else state
+        }
         viewModelScope.launch { bookRepository.deleteBookmark(id) }
     }
 
     /** 跳转到书签位置（章节 + 段级）。 */
     fun goToBookmark(bookmark: Bookmark) =
         goToChapter(bookmark.chapterIndex, bookmark.paragraphIndex)
+
+    // ---- 书签备注（US-17） ----
+
+    /** 进入备注编辑态（AC-17.3：编辑已有书签的备注）。 */
+    fun editBookmarkNote(bookmark: Bookmark) {
+        _uiState.update {
+            it.copy(
+                bookmarkEditor = BookmarkEditorState(
+                    bookmarkId = bookmark.id,
+                    draft = bookmark.note,
+                    isNew = false,
+                ),
+            )
+        }
+    }
+
+    /**
+     * 备注输入变化：只做上限裁剪（AC-17.1 ≤ 500 字），不做 trim。
+     *
+     * 输入过程中 trim 会把用户刚敲的空格吃掉；落库时才规范化（见 [saveBookmarkNote]）。
+     */
+    fun onBookmarkNoteChange(text: String) {
+        _uiState.update { state ->
+            val editor = state.bookmarkEditor ?: return@update state
+            state.copy(bookmarkEditor = editor.copy(draft = Bookmark.clampNote(text)))
+        }
+    }
+
+    /**
+     * 保存备注（AC-17.1 / AC-17.3）：领域层规范化后落库，`updatedAt` 取当前时间
+     * （跨设备合并的「较新者胜」依据，AC-17.7）。
+     *
+     * 空备注合法：写空串等价于「清除备注」，列表随之回落到摘录展示。
+     */
+    fun saveBookmarkNote() {
+        val editor = _uiState.value.bookmarkEditor ?: return
+        if (!editor.canSave) return
+        val note = Bookmark.normalizeNote(editor.draft)
+        _uiState.update { it.copy(bookmarkEditor = null, message = "备注已保存") }
+        viewModelScope.launch {
+            bookRepository.updateBookmarkNote(
+                id = editor.bookmarkId,
+                note = note,
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    /** 放弃本次备注编辑（新增场景下书签本身保留，AC-17.1「备注可空」）。 */
+    fun cancelBookmarkNoteEdit() = _uiState.update { it.copy(bookmarkEditor = null) }
+
     fun dismissMessage() = _uiState.update { it.copy(message = null) }
 
     /** 一次搜索的起点快照（取消回位用，AC-15.5）。 */

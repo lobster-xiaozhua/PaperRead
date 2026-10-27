@@ -89,6 +89,9 @@ internal class TransferMigrationController(
                         charOffset = mark.charOffset,
                         excerpt = mark.excerpt,
                         createdAt = mark.createdAt,
+                        // 备注随迁移包保真（AC-17.6：旧包无该字段 → 空备注 + 时间 0）
+                        note = mark.note.orEmpty(),
+                        updatedAt = mark.updatedAt ?: 0L,
                     )
                 },
             )

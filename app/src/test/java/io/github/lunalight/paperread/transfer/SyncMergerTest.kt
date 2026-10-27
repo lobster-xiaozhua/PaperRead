@@ -177,6 +177,7 @@ class SyncMergerTest {
         private val envelope = initial
         val applied = mutableListOf<String>()
         val added = mutableListOf<Pair<String, Int>>()
+        val notes = mutableListOf<Pair<String, String>>()
         var failSnapshot = false
 
         override suspend fun snapshot(deviceId: String): SyncEnvelope {
@@ -190,6 +191,10 @@ class SyncMergerTest {
 
         override suspend fun addBookmarks(state: BookSyncState, bookmarks: List<SyncBookmark>) {
             bookmarks.forEach { added += state.sha256 to it.chapterIndex }
+        }
+
+        override suspend fun updateNotes(state: BookSyncState, bookmarks: List<SyncBookmark>) {
+            bookmarks.forEach { notes += state.sha256 to it.positionKey }
         }
     }
 
@@ -302,6 +307,8 @@ class SyncMergerTest {
             }
 
             override suspend fun addBookmarks(state: BookSyncState, bookmarks: List<SyncBookmark>) = Unit
+
+            override suspend fun updateNotes(state: BookSyncState, bookmarks: List<SyncBookmark>) = Unit
         }
         val remote = FakeRemote(
             SyncEnvelope(deviceId = "peer", books = listOf(state("a", lastReadAt = 300L))),
