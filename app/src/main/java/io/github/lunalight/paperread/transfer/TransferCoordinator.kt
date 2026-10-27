@@ -1,6 +1,8 @@
 package io.github.lunalight.paperread.transfer
 
 import android.content.Context
+import io.github.lunalight.paperread.data.repository.AndroidBookImportGateway
+import io.github.lunalight.paperread.data.repository.BookImportGateway
 import io.github.lunalight.paperread.data.repository.BookImporter
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
@@ -100,9 +102,17 @@ internal class TransferCoordinator(
 
     val receiveController = TransferReceiveController(context, bookImporter, scope, _receiveState)
 
+    /**
+     * 共享导入网关（T-015 / AC-9.5 / AC-14.4）：迁移接收与备份恢复的唯一入口。
+     *
+     * 只在本模块装配一次；迁移 / 备份各自持有的是同一接口，不是同一段复制逻辑。
+     */
+    private val bookImportGateway: BookImportGateway =
+        AndroidBookImportGateway(context, bookImporter, bookRepository)
+
     val migrationController = TransferMigrationController(
         context = context,
-        bookImporter = bookImporter,
+        bookImportGateway = bookImportGateway,
         bookRepository = bookRepository,
         bookTextStore = bookTextStore,
         transferClient = transferClient,

@@ -1,5 +1,6 @@
 package io.github.lunalight.paperread.transfer
 
+import io.github.lunalight.paperread.data.repository.ImportOutcome
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.domain.model.BookFormat
 import java.io.File

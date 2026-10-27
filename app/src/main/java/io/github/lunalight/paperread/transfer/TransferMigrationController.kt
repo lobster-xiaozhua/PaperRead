@@ -1,11 +1,11 @@
 package io.github.lunalight.paperread.transfer
 
 import android.content.Context
-import io.github.lunalight.paperread.data.repository.BookImporter
-import io.github.lunalight.paperread.data.repository.PrepareResult
+import io.github.lunalight.paperread.data.repository.BookImportGateway
+import io.github.lunalight.paperread.data.repository.BookStateWriter
+import io.github.lunalight.paperread.data.repository.ImportOutcome
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.domain.model.Bookmark
-import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import java.io.File
@@ -28,12 +28,13 @@ import kotlinx.coroutines.launch
  * 接收请求让位（`busy`），落盘进度也不再改写状态——否则会把 SEND 踩成 RECEIVE，
  * 既错乱 UI，又让 busy 拒绝永远不生效。
  *
- * 导入与回写复用既有能力：[MigrationImportGateway] 走 [BookImporter] /
- * [BookRepository]，不出现第二条导入逻辑（AC-10.2）。
+ * 导入与回写复用既有能力（T-015 起为**共享实现**）：导入走
+ * [BookImportGateway]（`prepare → confirm` 全流水线，与备份恢复同一入口，
+ * AC-10.2 / AC-14.4），回写走 [BookStateWriter]；本类不再内联任何导入逻辑。
  */
 internal class TransferMigrationController(
     private val context: Context,
-    private val bookImporter: BookImporter,
+    private val bookImportGateway: BookImportGateway,
     private val bookRepository: BookRepository,
     private val bookTextStore: BookTextStore,
     private val transferClient: TransferClient,
@@ -43,57 +44,41 @@ internal class TransferMigrationController(
 
     private var migrationJob: Job? = null
 
-    /** 迁移导入网关（FileProvider → 导入流水线 → 仓储回写）。 */
+    /** 阅读状态回写（迁移与备份共用，AC-10.4）。 */
+    private val stateWriter = BookStateWriter(bookRepository)
+
+    /**
+     * 迁移导入网关（FileProvider → 导入流水线 → 仓储回写）。
+     *
+     * T-015 重构：导入一步委托共享的 [BookImportGateway]，回写一步委托
+     * [BookStateWriter]——两条流程（迁移 / 备份）不再各持一份实现。
+     * `hints` 传 null，保持抽取前「书名由显示名推导」的行为逐字节不变。
+     */
     private val migrationGateway = object : MigrationImportGateway {
 
         override suspend fun importFromSource(
             sourceFile: File,
             snapshot: BookStateSnapshot,
-        ): ImportOutcome {
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                sourceFile,
-            )
-            return when (val result = bookImporter.prepare(uri)) {
-                is PrepareResult.Success -> {
-                    val bookId = bookImporter.confirm(result.pending)
-                    val book = bookRepository.getBook(bookId)
-                    if (book != null) {
-                        ImportOutcome.Imported(book)
-                    } else {
-                        ImportOutcome.Skipped("入库成功但读取失败")
-                    }
-                }
-
-                is PrepareResult.Duplicate -> ImportOutcome.Skipped("内容已存在于书架")
-
-                is PrepareResult.Unsupported -> ImportOutcome.Skipped(result.error.userMessage)
-
-                is PrepareResult.Failure -> ImportOutcome.Skipped(result.error.userMessage)
-            }
-        }
+        ): ImportOutcome = bookImportGateway.importFromFile(sourceFile)
 
         override suspend fun findBySha256(sha256: String): Book? =
             bookRepository.findBySha256(sha256)
 
         override suspend fun writeProgress(book: Book, snapshot: BookStateSnapshot) {
-            bookRepository.saveReaderPosition(
+            stateWriter.writeProgress(
                 bookId = book.id,
-                position = ReaderPosition(
-                    chapterIndex = snapshot.lastChapterIndex,
-                    paragraphIndex = snapshot.lastParagraphIndex,
-                    scrollOffset = snapshot.lastScrollOffset,
-                    charOffset = snapshot.lastCharOffset,
-                ),
+                chapterIndex = snapshot.lastChapterIndex,
+                paragraphIndex = snapshot.lastParagraphIndex,
+                scrollOffset = snapshot.lastScrollOffset,
+                charOffset = snapshot.lastCharOffset,
                 progressPercent = snapshot.progressPercent,
             )
         }
 
         override suspend fun writeBookmarks(book: Book, snapshot: BookStateSnapshot) {
-            bookRepository.deleteBookmarksByBook(book.id)
-            snapshot.bookmarks.forEach { mark ->
-                bookRepository.addBookmark(
+            stateWriter.writeBookmarks(
+                bookId = book.id,
+                bookmarks = snapshot.bookmarks.map { mark ->
                     Bookmark(
                         bookId = book.id,
                         chapterIndex = mark.chapterIndex,
@@ -101,9 +86,9 @@ internal class TransferMigrationController(
                         charOffset = mark.charOffset,
                         excerpt = mark.excerpt,
                         createdAt = mark.createdAt,
-                    ),
-                )
-            }
+                    )
+                },
+            )
         }
     }
 

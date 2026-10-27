@@ -1,18 +1,8 @@
 package io.github.lunalight.paperread.transfer
 
+import io.github.lunalight.paperread.data.repository.ImportOutcome
 import io.github.lunalight.paperread.domain.model.Book
 import java.io.File
-
-/**
- * 单本导入结局（AC-10.3：失败记入清单，不中断整体迁移）。
- */
-sealed interface ImportOutcome {
-    /** 导入成功（已入库）。 */
-    data class Imported(val book: Book) : ImportOutcome
-
-    /** 未能导入（携带可展示原因）。 */
-    data class Skipped(val reason: String) : ImportOutcome
-}
 
 /** 迁移失败清单条目。 */
 data class FailedEntry(val title: String, val reason: String)
@@ -37,6 +27,9 @@ data class MigrationReport(
  * 迁移导入网关（Android 侧实现：FileProvider → BookImporter → BookRepository）。
  *
  * 抽出接口使编排逻辑（[MigrationProcessor]）保持纯 JVM 可测。
+ *
+ * T-015 起 `importFromSource` 的实现委托 [io.github.lunalight.paperread.data.repository.BookImportGateway]，
+ * 与备份恢复共用同一条导入流水线（AC-14.4 / AC-9.5）。
  */
 interface MigrationImportGateway {
 
