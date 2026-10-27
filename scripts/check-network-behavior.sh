@@ -12,8 +12,10 @@
 #      「无第三方依赖、无远程接口调用」，必须可验证）；
 #   2. URL 字面量白名单：全部 main 源码下所有 http(s):// 字面量
 #      必须落在白名单文件内，且形状符合该文件的口径——
-#        - transfer/TransferHttpServer.kt：仅 http://$host:$port 形式的
+#        - transfer/TransferClient.kt：仅 http://$host:$port 形式的
 #          局域网对端地址（host 来自 UDP 广播发现的同网段设备）；
+#          T-012 起客户端自 TransferHttpServer.kt 拆出——白名单跟着「谁发
+#          请求」走，服务端帧层不构造任何 URL；
 #        - reader/epub/EpubParser.kt：仅 startsWith("http(s)://") 形式的
 #          外链拒绝守卫（检测到即返回 null，不发起任何连接）；
 #        - ui/about/AboutScreen.kt：仅 AboutLinks 两项目页外链
@@ -98,13 +100,13 @@ fi
 # ---- 2) URL 字面量白名单 ----
 #
 # 白名单文件及其口径（新增网络行为必须先过隐私评审再进本清单）：
-#   WL_LAN   transfer/TransferHttpServer.kt    局域网对端，仅 $host:$port 插值
+#   WL_LAN   transfer/TransferClient.kt        局域网对端，仅 $host:$port 插值
 #   WL_GUARD reader/epub/EpubParser.kt         外链拒绝守卫，仅 startsWith 检测
 #   WL_LINKS ui/about/AboutScreen.kt           用户主动点击的项目外链（固定两项目）
 #
 # 白名单外的任何 http(s):// 字面量都是「未登记的运行时 endpoint」，零容忍。
 
-WL_LAN="transfer/TransferHttpServer.kt"
+WL_LAN="transfer/TransferClient.kt"
 WL_GUARD="reader/epub/EpubParser.kt"
 WL_LINKS="ui/about/AboutScreen.kt"
 
@@ -128,7 +130,7 @@ fi
 #       不得出现字面量域名 / 公网 IP。
 lan_file="$(find_src_file "$WL_LAN" || true)"
 if [ -z "$lan_file" ]; then
-  echo "✗ 白名单文件缺失：io/github/lunalight/paperread/$WL_LAN（TransferHttpServer 是局域网传输的唯一实现）" >&2
+  echo "✗ 白名单文件缺失：io/github/lunalight/paperread/$WL_LAN（TransferClient 是局域网传输的唯一客户端实现）" >&2
   fail=1
 else
   lan_urls="$(grep -oE 'https?://[^"'"'"']*' "$lan_file" || true)"

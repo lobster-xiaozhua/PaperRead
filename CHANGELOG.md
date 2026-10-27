@@ -23,7 +23,17 @@
 - **401 语义映射**：对端未配对 / 配对失效时，发送侧提示「对端未配对或配对已失效，请重新配对」而非笼统网络错误
 
 ### 基础设施
-- **阅读器 God File 拆分（T-011 / R-11）**：`ui/reader/ReaderScreen.kt`（1326 行 / JaCoCo 645 行）拆成六个文件，**行为零变更**
+- **传输 / 导入域 God File 拆分（T-012 / R-11 第二批）**：三个千行级文件按职责拆分，**行为零变更**（并发语义 / 错误话术 / 状态机转移逐行搬迁）
+  - `transfer/LanTransferManager.kt`（1131 行）→ 200 行：`LanTransferManager` 接口 + `DefaultLanTransferManager` 门面（构造签名逐字未变，DI / UI / fake 零改动）
+    - `TransferCoordinator.kt`：五条状态流 + 配对状态的唯一持有者、服务生命周期（WiFi 地址 → HTTP 服务 → UDP 发现）、配对门、四个流程的装配
+    - `TransferSendController.kt` / `TransferReceiveController.kt` / `TransferMigrationController.kt` / `TransferSyncController.kt`：传书发送 / 接收（单槽语义 + 后台解析）/ 换机迁移 / 进度同步各自成类，各自持有作业与状态写入
+    - `TransferStates.kt`（状态数据模型）/ `TransferFileNames.kt`（`sanitizeFileName` 纯函数）：同包移动，类名不变
+  - `transfer/TransferHttpServer.kt`（725 行）→ 三个文件：帧层 `TransferHttpServer`（accept / 派发 / `TransferHttpConnection` 请求解析与响应写回，~200 行）+ 语义层 `TransferServer`（鉴权中间件 → 五端点路由 → spill 落盘 + 摘要核对）+ 客户端 `TransferClient`（含 `UploadResult` / `PairingProbeResult`）
+  - `data/repository/BookImporter.kt`（716 行）→ 125 行门面 + `PreparePipeline`（预检 / 拷贝 / 去重 / 解析编排 / 错误翻译）+ `ImportSource`（唯一接触 SAF 的一层）+ `ImportModels.kt`（数据契约同包移动）
+  - **BookParser 注册表（`:core:reader` 契约）**：`reader/BookParser.kt` 定义 `BookParser` / `ParseContext` / `ParseResult` / `ParsePhase` / `BookDecodeException`（零 Android 依赖，不反向引用 `:app`）；`BookParserRegistry` 按 `BookFormat` 分发，`TxtBookParser` / `EpubBookParser` 各自实现——**新增格式 = 实现接口 + 在 `defaults()` 注册一行**，流水线里再无 `if (format == EPUB)` 分支
+  - 覆盖率口径（CI `-PexcludeUiSmokeTests=true`）：**分母 4096 → 4290 行，无一类新增白名单**（新类全部计量），分母扩大而 missed 仅 660 → 672（新增 missed 全在既有错误路径上换了个归属类），比率不降反升，门禁 ≥ 80% 通过
+  - 测试：app 435 → 438 例（新增 `BookParserRegistryTest` 3 例锁住「注册一行」契约），**既有 534 例零改动、零删除、零放宽**；core 99 例不变
+：`ui/reader/ReaderScreen.kt`（1326 行 / JaCoCo 645 行）拆成六个文件，**行为零变更**
   - `ReaderScreen.kt`：编排层（状态收集 + 一次性事件分发 + 部件组合），268 行
   - `ReaderContent.kt`：正文渲染（连续滚动）+ 字体应用 `readerTextStyle` + 朗读高亮槽 `paragraphHighlight` + `ChapterFooter` / `ReaderError`
   - `ReaderPager.kt`：翻页（`HorizontalPager`）与双页跨页，收拢原 `PaginatedSpread.kt`（该文件删除）

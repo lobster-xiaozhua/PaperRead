@@ -21,7 +21,7 @@
 | # | 行为 | 实现位置 | 范围 | 触发方式 |
 |---|------|---------|------|---------|
 | 1 | 局域网设备发现 | `transfer/LanDiscovery.kt`、`transfer/LanAddresses.kt` | 同一网段 UDP 广播 / 多播 | 用户进入传书页主动触发 |
-| 2 | 局域网传书 / 迁移 / 同步 | `transfer/TransferHttpServer.kt`、`transfer/LanTransferManager.kt` | HTTP over 局域网（`http://$host:$port`，host 来自 #1 的发现结果） | 用户在传书页确认后发起 |
+| 2 | 局域网传书 / 迁移 / 同步 | `transfer/TransferClient.kt`（客户端）、`transfer/TransferHttpServer.kt` + `transfer/TransferServer.kt`（服务端）、`transfer/LanTransferManager.kt`（门面） | HTTP over 局域网（`http://$host:$port`，host 来自 #1 的发现结果） | 用户在传书页确认后发起 |
 | 3 | 外链拒绝守卫 | `reader/epub/EpubParser.kt` | 无网络行为——解析到 `http(s)://` 外链资源即整体拒绝导入 | 导入 EPUB 时 |
 | 4 | 项目主页 / 问题反馈外链 | `ui/about/AboutScreen.kt`（AboutLinks） | 交系统浏览器（ACTION_VIEW）打开，离开应用后由浏览器承担 | 用户在关于页主动点击 |
 
