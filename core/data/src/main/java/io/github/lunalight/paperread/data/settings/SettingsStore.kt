@@ -41,6 +41,7 @@ class PreferencesSettingsStore(
         ReaderSettings(
             themeId = prefs[KEY_THEME] ?: defaults.themeId,
             fontFamily = prefs[KEY_FONT_FAMILY] ?: defaults.fontFamily,
+            customFontId = prefs[KEY_CUSTOM_FONT],
             fontSizeSp = prefs[KEY_FONT_SIZE] ?: defaults.fontSizeSp,
             lineHeightRatio = prefs[KEY_LINE_HEIGHT] ?: defaults.lineHeightRatio,
             paragraphSpacingDp = prefs[KEY_PARAGRAPH_SPACING] ?: defaults.paragraphSpacingDp,
@@ -62,6 +63,7 @@ class PreferencesSettingsStore(
             val current = ReaderSettings(
                 themeId = prefs[KEY_THEME] ?: ReaderSettings().themeId,
                 fontFamily = prefs[KEY_FONT_FAMILY] ?: ReaderSettings().fontFamily,
+                customFontId = prefs[KEY_CUSTOM_FONT],
                 fontSizeSp = prefs[KEY_FONT_SIZE] ?: ReaderSettings().fontSizeSp,
                 lineHeightRatio = prefs[KEY_LINE_HEIGHT] ?: ReaderSettings().lineHeightRatio,
                 paragraphSpacingDp = prefs[KEY_PARAGRAPH_SPACING] ?: ReaderSettings().paragraphSpacingDp,
@@ -79,6 +81,13 @@ class PreferencesSettingsStore(
             val next = transform(current)
             prefs[KEY_THEME] = next.themeId
             prefs[KEY_FONT_FAMILY] = next.fontFamily
+            // 自定义字体 id 为 null 时必须**移除键**而不是写空串：
+            // 「没有这个键」是 AC-16.6 回退内置字族的唯一判据
+            if (next.customFontId != null) {
+                prefs[KEY_CUSTOM_FONT] = next.customFontId
+            } else {
+                prefs.remove(KEY_CUSTOM_FONT)
+            }
             prefs[KEY_FONT_SIZE] = next.fontSizeSp
             prefs[KEY_LINE_HEIGHT] = next.lineHeightRatio
             prefs[KEY_PARAGRAPH_SPACING] = next.paragraphSpacingDp
@@ -98,6 +107,7 @@ class PreferencesSettingsStore(
     private companion object {
         val KEY_THEME = stringPreferencesKey("theme_id")
         val KEY_FONT_FAMILY = stringPreferencesKey("font_family")
+        val KEY_CUSTOM_FONT = stringPreferencesKey("custom_font_id")
         val KEY_FONT_SIZE = intPreferencesKey("font_size_sp")
         val KEY_LINE_HEIGHT = floatPreferencesKey("line_height_ratio")
         val KEY_PARAGRAPH_SPACING = intPreferencesKey("paragraph_spacing_dp")

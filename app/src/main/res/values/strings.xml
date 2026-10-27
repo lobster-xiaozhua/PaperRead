@@ -134,4 +134,21 @@
     <string name="reader_bookmark_note_counter">%1$d/%2$d</string>
     <string name="reader_bookmark_note_save">保存</string>
     <string name="reader_bookmark_note_cancel">取消</string>
+
+    <!-- 自定义字体（T-018 · US-16）：导入 / 选用 / 删除 / 失败提示（AC-16.1 ~ AC-16.7） -->
+    <string name="settings_font_builtin_serif">衬线</string>
+    <string name="settings_font_builtin_sans">黑体</string>
+    <string name="settings_font_empty">还没有导入自定义字体</string>
+    <string name="settings_font_source">来源文件：%1$s</string>
+    <string name="settings_font_apply">选用</string>
+    <string name="settings_font_in_use">使用中</string>
+    <string name="settings_font_delete">删除字体 %1$s</string>
+    <string name="settings_font_import">导入字体文件</string>
+    <string name="settings_font_import_hint">支持 TTF / OTF，文件只保存在本机（上限 %1$d MB）</string>
+    <string name="settings_font_imported">已导入并选用「%1$s」</string>
+    <string name="settings_font_deleted">已删除「%1$s」</string>
+    <string name="settings_font_deleted_in_use">已删除「%1$s」，正文已回退默认字体</string>
+    <string name="settings_font_error_unsupported">该文件不是有效的 TTF / OTF 字体</string>
+    <string name="settings_font_error_too_large">字体文件超过 %1$d MB，无法导入</string>
+    <string name="settings_font_error_unreadable">无法读取所选文件，请重试</string>
 </resources>

@@ -55,19 +55,10 @@ fun ReadingPreferencesPanel(
         SettingsDivider()
 
         // ---- 字体 ----
+        // 内置字族 + 自定义字体库（T-018 / US-16）。整块自带数据源，见
+        // CustomFontSection 的注释：设置页与阅读器弹层共用同一套控件与数据。
         SettingsLabel("字体")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(
-                selected = settings.fontFamily == "serif",
-                onClick = { onUpdate { it.copy(fontFamily = "serif") } },
-                label = { Text("衬线") },
-            )
-            FilterChip(
-                selected = settings.fontFamily == "sans",
-                onClick = { onUpdate { it.copy(fontFamily = "sans") } },
-                label = { Text("黑体") },
-            )
-        }
+        CustomFontSection(settings = settings, onUpdate = onUpdate)
 
         SettingsDivider()
 

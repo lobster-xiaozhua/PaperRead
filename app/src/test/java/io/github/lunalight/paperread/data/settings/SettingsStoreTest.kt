@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -113,5 +114,24 @@ class SettingsStoreTest {
         assertTrue(store.settings.first().twoPageSpread)
         store.update { it.copy(twoPageSpread = false) }
         assertFalse(store.settings.first().twoPageSpread)
+    }
+
+    // ---- 自定义字体（T-018 · AC-16.4 / AC-16.5） ----
+
+    @Test
+    fun `自定义字体 id 默认为空`() = runTest {
+        assertNull(store().settings.first().customFontId)
+    }
+
+    @Test
+    fun `自定义字体 id 可持久化并清除`() = runTest {
+        val store = store()
+        store.update { it.copy(customFontId = "font-1") }
+        assertEquals("font-1", store.settings.first().customFontId)
+
+        // AC-16.5：删除正在使用的字体后清 null，必须真的落成「无该键」，
+        // 否则下次读到空串会指向不存在的字体
+        store.update { it.copy(customFontId = null) }
+        assertNull(store.settings.first().customFontId)
     }
 }

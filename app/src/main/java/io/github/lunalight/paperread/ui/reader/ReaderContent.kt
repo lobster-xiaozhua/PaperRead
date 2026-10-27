@@ -76,9 +76,15 @@ import io.github.lunalight.paperread.ui.theme.ReaderTheme
  *
  * @param settings 当前阅读设置（字号 / 行距 / 字族来源）
  * @param theme 当前阅读主题（正文色来源）
+ * @param fontFamily 已解析好的字族（自定义字体 / 内置字族，见
+ *   [rememberReaderFontFamily]）；null = 按 settings.fontFamily 取内置
  */
-internal fun readerTextStyle(settings: ReaderSettings, theme: ReaderTheme): TextStyle = TextStyle(
-    fontFamily = if (settings.fontFamily == "serif") FontFamily.Serif else FontFamily.SansSerif,
+internal fun readerTextStyle(
+    settings: ReaderSettings,
+    theme: ReaderTheme,
+    fontFamily: FontFamily? = null,
+): TextStyle = TextStyle(
+    fontFamily = fontFamily ?: builtInFontFamily(settings.fontFamily),
     fontSize = settings.fontSizeSp.sp,
     lineHeight = (settings.fontSizeSp * settings.lineHeightRatio).sp,
     color = theme.onBackground,
@@ -161,7 +167,7 @@ internal fun ReaderContent(
         }
     }
 
-    val textStyle = readerTextStyle(state.settings, theme)
+    val textStyle = readerTextStyle(state.settings, theme, rememberReaderFontFamily(state.settings))
 
     // 双页跨页：仅 Expanded 大屏（平板/横屏）且开关开启时启用；
     // 否则走下方单栏连续滚动（与 Compact/Medium 行为完全一致）。

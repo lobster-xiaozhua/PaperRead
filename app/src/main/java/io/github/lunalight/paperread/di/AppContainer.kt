@@ -7,6 +7,7 @@ import io.github.lunalight.paperread.backup.BackupExporter
 import io.github.lunalight.paperread.backup.BackupFontReference
 import io.github.lunalight.paperread.backup.BackupImporter
 import io.github.lunalight.paperread.backup.FontAvailability
+import io.github.lunalight.paperread.data.font.CustomFontStore
 import io.github.lunalight.paperread.data.local.AppDatabase
 import io.github.lunalight.paperread.data.local.BookDao
 import io.github.lunalight.paperread.data.local.BookmarkDao
@@ -79,6 +80,18 @@ class AppContainer(context: Context) {
     }
 
     val settingsStore: SettingsStore by lazy { PreferencesSettingsStore(settingsDataStore.instance) }
+
+    /**
+     * 自定义字体库（T-018 / US-16）。
+     *
+     * 文件落 `filesDir/fonts/<id>.<ext>`，元数据落独立 DataStore（`custom_fonts`）。
+     * 与 reader_settings 分开：字体元数据是「用户资产」，阅读偏好是「设备偏好」，
+     * 混在一个文件里会让将来的导出 / 清理互相牵连。
+     *
+     * `create` 内部建 DataStore，**全进程只能调一次**（同一文件不允许两个存活
+     * 实例，见 PreferencesDataStoreProvider）——lazy 保证。
+     */
+    val customFontStore: CustomFontStore by lazy { CustomFontStore.create(applicationContext) }
 
     /**
      * 语音朗读控制器（进程单例）。

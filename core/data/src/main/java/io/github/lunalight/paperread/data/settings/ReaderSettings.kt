@@ -12,6 +12,15 @@ package io.github.lunalight.paperread.data.settings
 data class ReaderSettings(
     val themeId: String = "paper",
     val fontFamily: String = "serif",
+    /**
+     * 正在使用的自定义字体 id（T-018 / AC-16.4）。
+     *
+     * null = 用内置字族（[fontFamily] 的 serif / sans）；非 null 时以
+     * `CustomFontStore.resolve(id)` 拿到的文件为准，文件缺失即静默回退内置
+     * 字族（AC-16.6）。**默认值只能写在这里**——DataStore 映射层一律
+     * `prefs[KEY] ?: ReaderSettings().xxx`，不在两处各写一份默认值。
+     */
+    val customFontId: String? = null,
     val fontSizeSp: Int = 18,
     val lineHeightRatio: Float = 1.7f,
     val paragraphSpacingDp: Int = 12,

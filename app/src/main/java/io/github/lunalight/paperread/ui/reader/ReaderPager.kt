@@ -112,7 +112,7 @@ internal fun ReaderPagerContent(
     val layoutDirection = LocalLayoutDirection.current
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
 
-    val textStyle = readerTextStyle(state.settings, theme)
+    val textStyle = readerTextStyle(state.settings, theme, rememberReaderFontFamily(state.settings))
 
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
