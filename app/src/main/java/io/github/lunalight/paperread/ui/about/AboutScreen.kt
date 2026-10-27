@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -30,9 +33,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -40,8 +48,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.lunalight.paperread.BuildConfig
+import io.github.lunalight.paperread.PaperReadApp
 import io.github.lunalight.paperread.R
+import io.github.lunalight.paperread.diag.DiagnosticsExportCoordinator
+import io.github.lunalight.paperread.diag.DiagnosticsSummary
+import io.github.lunalight.paperread.diag.DiagnosticsUiState
 
 /**
  * 关于 / 信息页（S1）：应用信息、隐私承诺、开源许可、项目主页与反馈、
@@ -69,6 +82,37 @@ fun AboutScreen(
     onOpenPrivacy: () -> Unit,
 ) {
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val container = (context.applicationContext as? PaperReadApp)?.container
+    val diagnostics = remember(container) {
+        container?.let {
+            DiagnosticsExportCoordinator(context, it.diagnosticsExporter, it.appScope)
+        }
+    }
+    val diagnosticsState = diagnostics?.state?.collectAsStateWithLifecycle()?.value
+        ?: DiagnosticsUiState()
+
+    // 摘要对话框（AC-19.2）→ CreateDocument（AC-19.1）→ 导出
+    val createDocument = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        if (uri != null) {
+            // CreateDocument 返回的 Uri 恒为「本次新建」→ 失败 / 取消可清理（AC-19.6）
+            diagnostics?.export(uri, targetCreatedByThisExport = true)
+        }
+    }
+
+    LaunchedEffect(diagnosticsState.message) {
+        val message = diagnosticsState.message ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        diagnostics?.clearMessage()
+    }
+    LaunchedEffect(diagnosticsState.error) {
+        val error = diagnosticsState.error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(error)
+        diagnostics?.clearError()
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -83,6 +127,7 @@ fun AboutScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -160,6 +205,14 @@ fun AboutScreen(
                 onClick = { openUrl(context, AboutLinks.ISSUES) },
             )
 
+            // ---- 诊断信息导出（T-021 · AC-19.1：与 Issue 入口并列） ----
+            AboutEntryItem(
+                title = stringResource(R.string.about_diagnostics_title),
+                subtitle = stringResource(R.string.about_diagnostics_subtitle),
+                leadingIcon = Icons.Filled.Info,
+                onClick = { diagnostics?.loadSummary() },
+            )
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             // ---- 第三方依赖声明 ----
@@ -176,6 +229,74 @@ fun AboutScreen(
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    // AC-19.2：先展示摘要（条数 + 数据边界），用户确认后才选保存位置
+    diagnosticsState.summary?.let { summary ->
+        DiagnosticsSummaryDialog(
+            summary = summary,
+            onConfirm = {
+                createDocument.launch(defaultDiagnosticsFileName())
+                diagnostics?.dismissSummary()
+            },
+            onDismiss = { diagnostics?.dismissSummary() },
+        )
+    }
+}
+
+/**
+ * 诊断摘要对话框（AC-19.2）。
+ *
+ * 只展示「包里有什么」——版本 / 设备 / 崩溃条数 / 导入失败条数 + 数据边界声明；
+ * 不在这一步读日志正文（用户还没决定要不要导出）。
+ */
+@Composable
+private fun DiagnosticsSummaryDialog(
+    summary: DiagnosticsSummary,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.diagnostics_summary_title)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(
+                        R.string.diagnostics_summary_body,
+                        summary.appVersion,
+                        summary.versionCode,
+                        summary.device,
+                        summary.crashCount,
+                        summary.importErrorCount,
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.diagnostics_summary_privacy),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(stringResource(R.string.diagnostics_summary_export))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.diagnostics_summary_cancel))
+            }
+        },
+    )
+}
+
+/** 建议文件名：`paperread-diagnostics-20260501-1030.zip`（时间戳便于用户区分多次导出）。 */
+private fun defaultDiagnosticsFileName(): String {
+    val stamp = java.time.LocalDateTime.now()
+        .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmm"))
+    return "paperread-diagnostics-$stamp.zip"
 }
 
 @Composable

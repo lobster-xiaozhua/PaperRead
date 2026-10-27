@@ -23,6 +23,11 @@ import io.github.lunalight.paperread.data.settings.PreferencesSettingsStore
 import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.data.settings.SettingsDataStoreProvider
 import io.github.lunalight.paperread.data.settings.SettingsStore
+import io.github.lunalight.paperread.diag.CrashLogStore
+import io.github.lunalight.paperread.diag.DeviceInfo
+import io.github.lunalight.paperread.diag.DiagnosticsExportCoordinator
+import io.github.lunalight.paperread.diag.DiagnosticsExporter
+import io.github.lunalight.paperread.diag.ImportErrorLog
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.FileBookTextStore
@@ -137,7 +142,7 @@ class AppContainer(context: Context) {
         internal set
 
     val bookImporter: BookImporter by lazy {
-        DefaultBookImporter(applicationContext, bookRepository, bookTextStore)
+        DefaultBookImporter(applicationContext, bookRepository, bookTextStore, importErrorLog)
     }
 
     /**
@@ -208,6 +213,50 @@ class AppContainer(context: Context) {
             identityStore = DeviceIdentityStore(applicationContext),
             scope = appScope,
         )
+    }
+
+    // ---- 诊断（T-021 / US-19） ----
+
+    /** 诊断目录（`filesDir/diagnostics`）：崩溃日志与导入失败记录都落在这里。 */
+    private val diagnosticsDir: java.io.File by lazy {
+        java.io.File(applicationContext.filesDir, CrashLogStore.DIR_NAME)
+    }
+
+    /**
+     * 崩溃日志环形存储（AC-19.4：10 份）。
+     *
+     * 由 [io.github.lunalight.paperread.PaperReadApp.onCreate] 安装成默认
+     * 崩溃处理器（链式调用原处理器，见 CrashLogStore 的类注释）。
+     */
+    val crashLogStore: CrashLogStore by lazy {
+        CrashLogStore(
+            dir = diagnosticsDir,
+            device = DeviceInfo.current(),
+            appVersion = BuildConfig.VERSION_NAME,
+            versionCode = BuildConfig.VERSION_CODE,
+        )
+    }
+
+    /** 最近导入失败（AC-19.4：5 条），同时是导入流水线的 [ImportErrorRecorder]。 */
+    val importErrorLog: ImportErrorLog by lazy {
+        ImportErrorLog(java.io.File(diagnosticsDir, ImportErrorLog.FILE_NAME))
+    }
+
+    /** 诊断包组装（白名单条目 + 脱敏，AC-19.5）。 */
+    val diagnosticsExporter: DiagnosticsExporter by lazy {
+        DiagnosticsExporter(
+            crashLogs = crashLogStore,
+            importErrors = importErrorLog,
+            device = DeviceInfo.current(),
+            appVersion = BuildConfig.VERSION_NAME,
+            versionCode = BuildConfig.VERSION_CODE,
+            filesDir = applicationContext.filesDir,
+        )
+    }
+
+    /** 诊断导出的 SAF 门面（关于页唯一入口）。 */
+    val diagnosticsCoordinator: DiagnosticsExportCoordinator by lazy {
+        DiagnosticsExportCoordinator(applicationContext, diagnosticsExporter, appScope)
     }
 
     /**

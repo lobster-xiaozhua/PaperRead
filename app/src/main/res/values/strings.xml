@@ -170,4 +170,16 @@
     <string name="bookshelf_empty_body">导入本地 TXT / EPUB 开始阅读\n书只保存在本机，不联网</string>
     <string name="bookshelf_empty_import">导入书籍</string>
     <string name="bookshelf_empty_transfer">局域网传书</string>
+
+    <!-- 反馈 / 诊断导出（T-021 · US-19）：入口 + 摘要对话 + 结果提示（AC-19.1 ~ AC-19.7） -->
+    <string name="about_diagnostics_title">导出诊断信息</string>
+    <string name="about_diagnostics_subtitle">崩溃日志与导入失败摘要（不含书籍正文）</string>
+    <string name="diagnostics_summary_title">诊断信息</string>
+    <string name="diagnostics_summary_body">应用版本：%1$s（%2$d）\n设备：%3$s\n崩溃记录：%4$d 条\n导入失败：%5$d 条</string>
+    <string name="diagnostics_summary_privacy">诊断包只包含上述信息与错误堆栈，不含书籍正文、书源、书签内容或书名。导出后由你自己决定如何分享。</string>
+    <string name="diagnostics_summary_export">选择保存位置</string>
+    <string name="diagnostics_summary_cancel">取消</string>
+    <string name="diagnostics_export_done">诊断信息已导出</string>
+    <string name="diagnostics_export_canceled">已取消导出</string>
+    <string name="diagnostics_export_failed">诊断信息导出失败：%1$s</string>
 </resources>

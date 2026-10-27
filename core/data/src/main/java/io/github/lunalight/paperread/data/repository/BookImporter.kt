@@ -76,6 +76,13 @@ class DefaultBookImporter(
     context: Context,
     private val bookRepository: BookRepository,
     private val textStore: BookTextStore,
+    /**
+     * 导入失败外报（T-021 · AC-19.4）。
+     *
+     * 默认空实现——既有调用方（测试 / fake / 传书链路）的构造签名保持不变；
+     * 生产由 `AppContainer` 注入 `ImportErrorLog`，诊断包才有「最近导入失败」。
+     */
+    importErrorRecorder: ImportErrorRecorder = ImportErrorRecorder.NONE,
 ) : BookImporter {
 
     private val pipeline = PreparePipeline(
@@ -83,6 +90,7 @@ class DefaultBookImporter(
         textStore = textStore,
         source = ImportSource(context),
         parsers = BookParserRegistry.defaults(),
+        errorRecorder = importErrorRecorder,
     )
 
     override suspend fun prepare(

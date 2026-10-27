@@ -45,6 +45,12 @@ class PreparePipeline(
     private val textStore: BookTextStore,
     private val source: ImportSource,
     private val parsers: BookParserRegistry,
+    /**
+     * 失败外报（T-021 · AC-19.4）：每次产出 [ImportError] 都在这里登记一条，
+     * 供「设置 → 关于 → 导出诊断信息」回溯最近几次导入为什么失败。
+     * 默认空实现，不影响任何既有调用方。
+     */
+    private val errorRecorder: ImportErrorRecorder = ImportErrorRecorder.NONE,
 ) {
 
     /**
@@ -59,22 +65,20 @@ class PreparePipeline(
     ): PrepareResult = withContext(Dispatchers.IO) {
         onProgress(ImportProgress(ImportStage.PRECHECK, 0f))
         val meta = source.queryMeta(uri)
-            ?: return@withContext PrepareResult.Failure(ImportError.ReadFailed("无法查询文件信息"))
+            ?: return@withContext fail(ImportError.ReadFailed("无法查询文件信息"))
         val extension = meta.displayName.substringAfterLast('.', "")
         val format = BookFormat.fromExtension(extension)
-            ?: return@withContext PrepareResult.Unsupported(
+            ?: return@withContext unsupported(
                 ImportError.UnsupportedFormat(extension.ifBlank { "(无扩展名)" }),
             )
         if (!source.precheckDisk(meta.sizeBytes)) {
-            return@withContext PrepareResult.Failure(ImportError.InsufficientSpace)
+            return@withContext fail(ImportError.InsufficientSpace)
         }
 
         val dirName = UUID.randomUUID().toString()
         val bookDir = textStore.bookDir(dirName)
         if (!bookDir.mkdirs()) {
-            return@withContext PrepareResult.Failure(
-                ImportError.DirCreateFailed("mkdirs 失败：${bookDir.path}"),
-            )
+            return@withContext fail(ImportError.DirCreateFailed("mkdirs 失败：${bookDir.path}"))
         }
         try {
             // 阶段间响应取消（AC-1.4：导入保持可取消）
@@ -92,7 +96,7 @@ class PreparePipeline(
                 throw e // 取消照常传播，由外层统一清理目录
             } catch (e: Exception) {
                 bookDir.deleteRecursively()
-                return@withContext PrepareResult.Failure(ImportError.ReadFailed(e.message))
+                return@withContext fail(ImportError.ReadFailed(e.message))
             }
 
             // 2. 去重
@@ -143,14 +147,14 @@ class PreparePipeline(
             throw e
         } catch (e: BookDecodeException) {
             bookDir.deleteRecursively()
-            PrepareResult.Failure(ImportError.DecodeFailed(e.encoding))
+            fail(ImportError.DecodeFailed(e.encoding))
         } catch (e: EpubEncryptedException) {
             bookDir.deleteRecursively()
-            PrepareResult.Failure(ImportError.DrmEncrypted(e.message))
+            fail(ImportError.DrmEncrypted(e.message))
         } catch (e: Exception) {
             // 解析期失败（结构非法 / IO 异常 / 断言失败）统一归为解析失败
             bookDir.deleteRecursively()
-            PrepareResult.Failure(ImportError.ParseFailed(e.message))
+            fail(ImportError.ParseFailed(e.message))
         }
     }
 
@@ -214,7 +218,9 @@ class PreparePipeline(
                     "source.${book.format.extension}",
                 )
                 if (!sourceFile.exists()) {
-                    return@withContext ImportError.SourceMissing(book.dirName)
+                    return@withContext ImportError.SourceMissing(book.dirName).also {
+                        errorRecorder.record(it)
+                    }
                 }
                 val isTxt = book.format == BookFormat.TXT
                 val parsed = parse(
@@ -236,13 +242,25 @@ class PreparePipeline(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: EpubEncryptedException) {
-                ImportError.DrmEncrypted(e.message)
+                ImportError.DrmEncrypted(e.message).also { errorRecorder.record(it) }
             } catch (e: Exception) {
-                ImportError.ParseFailed(e.message)
+                ImportError.ParseFailed(e.message).also { errorRecorder.record(it) }
             }
         }
 
     // ---- 内部 ----
+
+    /** 产出失败结果并登记（AC-19.4）：所有失败出口都必须经过它，避免漏记。 */
+    private fun fail(error: ImportError): PrepareResult {
+        errorRecorder.record(error)
+        return PrepareResult.Failure(error)
+    }
+
+    /** 格式不支持也是「导入失败」的一种（诊断包里要给用户看到这条）。 */
+    private fun unsupported(error: ImportError.UnsupportedFormat): PrepareResult {
+        errorRecorder.record(error)
+        return PrepareResult.Unsupported(error)
+    }
 
     /** 组装 [ParseContext] 并按格式取解析器（注册表未命中即编程错误，fail fast）。 */
     private fun parse(

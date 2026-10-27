@@ -6,6 +6,9 @@ import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
 import android.net.Uri
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -299,4 +302,43 @@ class AboutScreenTest {
         composeRule.waitForIdle()
         assertTrue("点击隐私说明入口应跳转隐私说明页", privacyOpened)
     }
+
+    // ---- 反馈 / 诊断导出（T-021 · AC-19.1 / AC-19.2 / AC-19.7） ----
+
+    @Test
+    fun `诊断导出入口与问题反馈并列`() {
+        composeRule.setContent {
+            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}, onOpenPrivacy = {}) }
+        }
+        // AC-19.1：诊断入口与 GitHub Issue 入口同在「项目与反馈」区
+        composeRule.onNodeWithText("问题反馈").scrollToAndAssertRendered()
+        composeRule.onNodeWithText("导出诊断信息").scrollToAndAssertRendered()
+        composeRule.onNodeWithText("崩溃日志与导入失败摘要（不含书籍正文）")
+            .scrollToAndAssertRendered()
+    }
+
+    @Test
+    fun `点击导出诊断先展示摘要再让用户选保存位置`() {
+        composeRule.setContent {
+            PaperReadTheme { AboutScreen(onBack = {}, onOpenLicense = {}, onOpenPrivacy = {}) }
+        }
+        composeRule.onNodeWithText("导出诊断信息").performScrollTo()
+        composeRule.onNodeWithText("导出诊断信息").performClick()
+
+        // AC-19.2：先展示「包里有什么」+ 数据边界声明，用户确认后才落盘
+        composeRule.waitUntilAtLeastOneExists(hasText("诊断信息"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("诊断信息").assertRendered()
+        composeRule.onNodeWithText("选择保存位置").assertRendered()
+        composeRule.onNodeWithText("条", substring = true).assertRendered()
+        // 用完整短语定位：入口副标题里也有「不含书籍正文」四个字
+        composeRule.onNodeWithText("不含书籍正文、书源", substring = true).assertRendered()
+
+        // 取消：对话框关闭，且不产生任何文件 / 页面跳转
+        composeRule.onNodeWithText("取消").performClick()
+        composeRule.waitForIdle()
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            composeRule.onAllNodesWithText("选择保存位置").fetchSemanticsNodes().isEmpty()
+        }
+    }
+
 }
