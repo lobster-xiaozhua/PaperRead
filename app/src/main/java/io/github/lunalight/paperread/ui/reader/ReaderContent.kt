@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.ui.adaptive.LocalWindowWidthClass
 import io.github.lunalight.paperread.ui.adaptive.WindowWidthClass
+import io.github.lunalight.paperread.ui.reader.search.SearchHighlighter
 import io.github.lunalight.paperread.ui.theme.ReaderTheme
 
 /**
@@ -241,8 +242,13 @@ internal fun ReaderContent(
             key = { index, _ -> "p$index" },
         ) { index, paragraph ->
             val speaking = state.speech.isActive && index == state.speech.speakingParagraph
+            // 搜索命中段的高亮（AC-15.3）：只给「当前高亮目标」那一段上色，
+            // 其余段落零开销（annotate 直接返回原文 AnnotatedString，无 span）
+            val hitQuery = state.searchHighlight
+                ?.takeIf { it.chapterIndex == state.chapterIndex && it.paragraphIndex == index }
+                ?.query
             Text(
-                text = paragraph,
+                text = SearchHighlighter.annotate(paragraph, hitQuery, theme.accent),
                 style = textStyle,
                 textAlign = TextAlign.Justify,
                 modifier = Modifier.paragraphHighlight(

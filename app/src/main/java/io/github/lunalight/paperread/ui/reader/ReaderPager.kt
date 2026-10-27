@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import io.github.lunalight.paperread.reader.PageBound
 import io.github.lunalight.paperread.reader.pageIndexForStartParagraph
 import io.github.lunalight.paperread.reader.paginate
+import io.github.lunalight.paperread.ui.reader.search.SearchHighlighter
 import io.github.lunalight.paperread.ui.theme.ReaderTheme
 import kotlin.math.absoluteValue
 import kotlin.math.max
@@ -156,6 +157,8 @@ internal fun ReaderPagerContent(
             state = state,
             viewModel = viewModel,
             theme = theme,
+            // 搜索命中高亮只对当前章生效（跳到别章后旧命中不再上色）
+            highlight = state.searchHighlight?.takeIf { it.chapterIndex == state.chapterIndex },
             textStyle = textStyle,
             pages = pages,
             density = density,
@@ -177,6 +180,7 @@ private fun ReaderPagerScaffold(
     viewModel: ReaderViewModel,
     theme: ReaderTheme,
     textStyle: TextStyle,
+    highlight: SearchHighlightTarget?,
     pages: List<PageBound>,
     density: Density,
     contentWidthPx: Int,
@@ -323,6 +327,7 @@ private fun ReaderPagerScaffold(
                     showHeader = page == 0,
                     chapterTitle = state.chapterTitle,
                     speakingParagraph = state.speech.speakingParagraph,
+                    highlight = highlight,
                 )
             }
 
@@ -362,6 +367,8 @@ private fun PageContent(
     chapterTitle: String,
     /** 正在朗读的正文段下标（-1 = 未朗读；暂停态保留，与滚动模式高亮口径一致）。 */
     speakingParagraph: Int = -1,
+    /** 搜索命中高亮目标（AC-15.3；null = 本页无命中）。 */
+    highlight: SearchHighlightTarget? = null,
 ) {
     val start = pages[page].startParagraph
     val end = if (page + 1 < pages.size) pages[page + 1].startParagraph else paragraphs.size
@@ -398,8 +405,9 @@ private fun PageContent(
             pageParagraphs.forEachIndexed { i, para ->
                 // 高亮与滚动模式同一视觉（theme.accent 18% 圆角底），绝对段下标对齐
                 val speaking = start + i == speakingParagraph
+                val hitQuery = highlight?.takeIf { it.paragraphIndex == start + i }?.query
                 Text(
-                    text = para,
+                    text = SearchHighlighter.annotate(para, hitQuery, theme.accent),
                     style = textStyle,
                     textAlign = TextAlign.Justify,
                     modifier = Modifier.paragraphHighlight(
@@ -520,6 +528,9 @@ fun PaginatedSpread(
         val focusRequester = remember { FocusRequester() }
         LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
+        // 搜索命中高亮（AC-15.3）：双页跨页与单栏/翻页同一份 target
+        val highlight = state.searchHighlight?.takeIf { it.chapterIndex == state.chapterIndex }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -563,6 +574,7 @@ fun PaginatedSpread(
                     progressPercent = state.progressPercent,
                     chapterPosition = state.chapterPosition,
                     onNextChapter = viewModel::nextChapter,
+                    highlight = highlight,
                 )
                 if (showRightPage) {
                     Spacer(Modifier.width(gutterDp))
@@ -581,6 +593,7 @@ fun PaginatedSpread(
                         progressPercent = state.progressPercent,
                         chapterPosition = state.chapterPosition,
                         onNextChapter = viewModel::nextChapter,
+                        highlight = highlight,
                     )
                 }
             }
@@ -644,6 +657,8 @@ private fun PageColumn(
     progressPercent: Float = 0f,
     chapterPosition: String = "",
     onNextChapter: () -> Unit = {},
+    /** 搜索命中高亮目标（双页跨页路径；AC-15.3）。 */
+    highlight: SearchHighlightTarget? = null,
 ) {
     val start = pages.getOrNull(pageIndex)?.startParagraph ?: 0
     val end = pages.getOrNull(pageIndex + 1)?.startParagraph ?: paragraphs.size
@@ -664,8 +679,9 @@ private fun PageColumn(
             )
         }
         for (i in start until end) {
+            val hitQuery = highlight?.takeIf { it.paragraphIndex == i }?.query
             Text(
-                text = paragraphs[i],
+                text = SearchHighlighter.annotate(paragraphs[i], hitQuery, theme.accent),
                 style = textStyle,
                 textAlign = TextAlign.Justify,
                 modifier = Modifier.padding(bottom = paragraphSpacingDp.dp),

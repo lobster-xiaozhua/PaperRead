@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **main 未发布变更**：无（干净发布点）
-- **质量基线**：617 单测全绿（其中 2 例门控 / skipped；app 490 + `:core:data` 28 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
+- **质量基线**：670 单测全绿（其中 2 例门控 / skipped；app 517 + `:core:data` 54 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
 
 ## 当前能力（已完成）
 
@@ -170,6 +170,20 @@
   - P3-3 UI 口令判据收敛到领域层 `BackupCrypto.isValidPassword`（新增 `CharSequence` 重载，免得多留一份口令副本）：8 位全空格在 UI 即被拦下并提示「口令至少 8 位且不能全为空格」，不再拖到导出时抛 `IllegalArgumentException`
   - P3-4 `BackupEntries.isSafeDirName` 改为 ASCII 白名单（原 `Char.isLetterOrDigit()` 会放行中文 / emoji，与 KDoc 承诺的 `[A-Za-z0-9_-]+` 不符）；补边界用例（中文 / emoji / 全角 / 空格 / dot-dot / 超长）
   - 观察项落文档：条目级 GCM 无 AAD 绑定、明文备份无完整性认证 → `SECURITY.md` 新增「威胁模型：本地备份与恢复」的已知限制（当前口径为「防传输损坏与误操作」，不承诺「防主动篡改」）
+
+### T-017 全书搜索 · 当前书（US-15，R-14）✅ 已完成
+
+- 涉及：`:core:domain` 搜索契约 / `:core:data` 流式扫描实现 / 阅读器顶栏入口 / 搜索面板 / 正文命中高亮 / ViewModel 搜索状态与取消回位
+- 交付物：
+  - `core/domain/.../domain/search/BookSearchSource.kt`：`BookSearchSource.search(query): Flow<SearchHit>` + `SearchHit(bookId, chapterIndex, paragraphIndex, charOffset, chapterTitle, snippet, matchCount = 1)` + `SEARCH_MIN_QUERY_LENGTH` / `SEARCH_DEBOUNCE_MS` 契约常量。字段按 PRD §2.4.2 原样保留（含为 v2.1 书架级搜索预留的 `bookId`），`matchCount` 为 AC-15.2「命中次数」列追加（带默认值，不破坏 PRD 参数顺序）
+  - `core/data/.../data/search/CurrentBookSearchSource.kt`：逐章 `readChapter` → 段落级匹配 → 命中即 `emit`（AC-15.4）；每章入口与每条 emit 前后 `ensureActive()`（取消即停，AC-15.5 / AC-15.10，取消后一次 `readChapter` 都不会再发生）；单章处理完即弃引用，不整本载入（AC-15.6）
+  - `core/data/.../data/search/SearchText.kt`：匹配 / 计数 / 摘要窗口纯函数（忽略大小写、不重叠计数、越界补省略号、换行压空格），与协程和文件 IO 解耦后可逐条断言边界
+  - `ui/reader/search/BookSearchPanel.kt`：搜索框 + 状态行（搜索中 / N 条结果 / 至少 2 字 / 未找到）+ 结果列表（章名 + 摘要 + 命中次数）+ 取消；入口是 `ReaderChrome.kt` 顶栏搜索图标（AC-15.1）
+  - `ui/reader/search/SearchHighlight.kt`：`matchRanges` / `highlight` / `annotate` 纯函数（`AnnotatedString` 不依赖 Android 运行时，JVM 可测）；滚动、翻页、双页跨页三条渲染路径共用同一份高亮口径（AC-15.3）
+  - `ReaderViewModel`：`searchVisible` / `searchQuery` / `searchResults` / `searching` / `searchHighlight` 状态 + 300ms 防抖 + 轮次令牌（旧任务迟到 emit 一律丢弃）+ `suppressProgressSave`（搜索期间滚动上报被完全拦下，AC-15.5）+ 取消回位（只重建渲染状态与滚动票据，不 `persist`）
+  - 测试：`CurrentBookSearchSourceTest` 25 例（流式顺序 / `take(n)` 取消后不读下一章 / 无命中 / 空书 / 空章 / 首末章 / 大小写 / 中文 / 同段计数 / 摘要边界）+ `SearchPerformanceProbeTest` 1 例（20MB 级探针，见性能文档）+ `ReaderSearchViewModelTest` 17 + `SearchHighlighterTest` 10 = 53 例新增
+- 约束达成：零网络（`check-network-behavior.sh` 通过，搜索代码无 URL / 无 `java.net`）；新文案全部进 `strings.xml`；`ReaderChromeKt` 仍在既有渲染白名单内（未新增白名单条目），搜索面板与高亮逻辑作为**新类进分母**并由纯 JVM 用例覆盖
+- 已知边界：AC-15.6 的三条时延只能在真机（API 34 中端机）验收，沙箱仅记录 JVM 近似值（`docs/PERFORMANCE_BASELINE.md` §1.3）
 
 ## 待办 / 未决项
 

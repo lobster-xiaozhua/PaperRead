@@ -35,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lunalight.paperread.PaperReadApp
 import io.github.lunalight.paperread.speech.SpeechService
+import io.github.lunalight.paperread.ui.reader.search.BookSearchPanel
 import io.github.lunalight.paperread.ui.theme.ReaderThemes
 
 /**
@@ -185,6 +186,7 @@ fun ReaderScreen(
                 onBack = onBack,
                 onOpenToc = viewModel::showToc,
                 onAddBookmark = viewModel::addBookmark,
+                onOpenSearch = viewModel::openSearch,
                 onOpenSettings = viewModel::showSettings,
                 onToggleSpeech = {
                     if (state.speech.isActive) viewModel.stopSpeech() else viewModel.startSpeech()
@@ -246,6 +248,20 @@ fun ReaderScreen(
             onBookmarkSelect = viewModel::goToBookmark,
             onBookmarkDelete = viewModel::deleteBookmark,
             onDismiss = viewModel::hideToc,
+        )
+    }
+
+    // 本书搜索面板（AC-15.1）：入口在顶栏，面板自身独立文件（`search/BookSearchPanel.kt`）
+    if (state.searchVisible) {
+        BookSearchPanel(
+            query = state.searchQuery,
+            results = state.searchResults,
+            searching = state.searching,
+            theme = readerTheme,
+            onQueryChange = viewModel::onSearchQueryChange,
+            onSelect = viewModel::selectSearchHit,
+            onCancel = viewModel::cancelSearch,
+            onDismiss = viewModel::dismissSearch,
         )
     }
 

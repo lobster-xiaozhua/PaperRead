@@ -108,4 +108,17 @@
     <string name="backup_report_failed_item">%1$s：%2$s</string>
     <string name="backup_report_fonts">字体缺失：%1$s（已回退默认字体）</string>
     <string name="backup_report_empty">备份里没有可恢复的书籍</string>
+
+    <!-- 全书搜索（T-017 · R-14 / US-15）：顶栏入口 + 面板（AC-15.1 ~ AC-15.7） -->
+    <string name="reader_search_open">搜索本书</string>
+    <string name="reader_search_title">本书搜索</string>
+    <string name="reader_search_placeholder">输入关键词（至少 2 个字）</string>
+    <string name="reader_search_clear">清空关键词</string>
+    <string name="reader_search_running">搜索中…</string>
+    <string name="reader_search_min_length">至少输入 %1$d 个字</string>
+    <string name="reader_search_results">%1$d 条结果</string>
+    <string name="reader_search_hit_count">%1$d 处命中</string>
+    <string name="reader_search_empty">未找到相关内容</string>
+    <string name="reader_search_hint">点击结果可跳转到命中段落</string>
+    <string name="reader_search_cancel">取消</string>
 </resources>

@@ -78,6 +78,46 @@
 > JVM 数值只能证明「切分正确、无乱码、偏移自洽、无残留」，证明不了「不 OOM / 不 ANR /
 > PSS < 100MB」——那三项是运行时与系统内存行为，必须真机。
 
+### 1.3 全书搜索（AC-15.6）沙箱近似 + 真机待测
+
+AC-15.6 的三条时延（首批结果 ≤ 5s / 结果点击到定位 ≤ 1s / 取消 ≤ 500ms）是
+**API 34 中端机口径**，沙箱（无 KVM / 无模拟器 / 无真机）一条都测不了。
+能做的是：把「同一份实现」放进 JVM 探针，量出**与真机同向**的近似值，
+供改动前后横向自比，并如实标注不可换算。
+
+沙箱探针：`core/data/src/test/java/.../data/search/SearchPerformanceProbeTest.kt`
+（200 章 × 50,000 字 ≈ 1,000 万字，UTF-8 约 30MB 量级；关键字分别落在第 0 章与
+第 100 章。实现走真实的 `CurrentBookSearchSource` + `SearchText`，不是 mock）。
+
+| 指标 | 沙箱实测（2026-10，容器 JDK 20 / `-Xmx1536m`） | 真机（API 34 中端机）目标 | 状态 |
+|------|---------------------------------------------|--------------------------|------|
+| 10M 字正文首批结果耗时 | 30 ms | —（沙箱近似） | 已实测 |
+| 10M 字正文全量扫描耗时 | 255 ms | —（沙箱近似） | 已实测 |
+| 首批 / 全量之比 | ≈ 12%（第 0 章即命中） | — | 已实测，验证流式有效 |
+| 100MB TXT 首批结果 ≤ 5s | 不可测 | ≤ 5s | **待真机补测** |
+| 结果点击到段落定位 ≤ 1s | 不可测（无渲染与主线程） | ≤ 1s | **待真机补测** |
+| 取消响应 ≤ 500ms | 不可测（无 UI 事件链） | ≤ 500ms | **待真机补测** |
+| 搜索峰值内存不随书体积增长 | 逻辑保证：逐章读取 + 单章处理完即弃（`CurrentBookSearchSource` 注释） | 200MB 书 PSS < 100MB 红线内 | **待真机补测** |
+
+口径提醒：
+1. 表中 30ms / 255ms 是「同一进程内、数据已驻留堆」的纯 CPU + 字符串匹配耗时，
+   不含真机的磁盘 IO（`readChapter` 走 `RandomAccessFile` 定位 + 解码）、
+   主线程调度、Compose 重组与首帧绘制——真机首批结果必然比 30ms 慢，且慢多少
+   无法从 JVM 数值外推；
+2. 「不随书体积增长」是**实现结构**（逐章流式、无索引缓存）的性质，沙箱用「峰值
+   只与单章大小同阶」论证，PSS 仍需真机 `dumpsys meminfo` 取证；
+3. 取消响应包含「协程取消 → 停止读盘 → UI 状态回落」三段，沙箱只证明了第一二段
+   （`take(n)` 后不再 `readChapter`，见 `CurrentBookSearchSourceTest` 的取消用例）。
+
+复现命令（沙箱内，约 5s）：
+
+```bash
+./gradlew :core:data:testClientDebugUnitTest --tests "*SearchPerformanceProbeTest*" \
+  --console=plain --max-workers=1 \
+  -Dorg.gradle.jvmargs="-Xmx1536m -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8"
+# 数值在 build/test-results/testClientDebugUnitTest/TEST-*SearchPerformanceProbeTest.xml 的 system-out 里
+```
+
 ## 2. 口径差异（为什么 JVM 数字不能当 PSS 用）
 
 | 维度 | 沙箱 JVM（本文件 §1.1） | 真机 Android（§1.2） |

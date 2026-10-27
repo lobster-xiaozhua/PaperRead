@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,11 +60,12 @@ import java.util.Locale
  * 阅读器「外壳」部件：顶栏 / 底栏 / 目录与书签弹层。
  *
  * 归属索引：
- * - [ReaderTopBar]：返回 / 书名·章名 / 加书签 / 朗读开关 / 目录 / 设置
+ * - [ReaderTopBar]：返回 / 书名·章名 / 加书签 / 朗读开关 / 本书搜索 / 目录 / 设置
  * - [ReaderBottomBar]：上一章 / 已读进度 / 下一章
  * - [TocSheet]：目录 + 书签双 Tab 弹层（[ChapterList] / [BookmarkList]）
  *
- * 预留槽位：R-14 全书搜索入口进 [ReaderTopBar]；R-18 书签备注编辑进 [BookmarkList]。
+ * 搜索面板本身不在本文件（`ui/reader/search/BookSearchPanel.kt`），这里只放入口
+ * ——顶栏一个图标，避免外壳文件继续膨胀。
  * 本文件只做渲染：状态由 [ReaderUiState] 提供，动作全部由调用方以 lambda 传入。
  */
 
@@ -73,6 +76,7 @@ internal fun ReaderTopBar(
     onBack: () -> Unit,
     onOpenToc: () -> Unit,
     onAddBookmark: () -> Unit,
+    onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
     onToggleSpeech: () -> Unit,
 ) {
@@ -114,6 +118,13 @@ internal fun ReaderTopBar(
                     painter = painterResource(R.drawable.ic_speech),
                     contentDescription = if (state.speech.isActive) "停止朗读" else "开始朗读",
                     tint = if (state.speech.isActive) theme.accent else theme.onBackground,
+                )
+            }
+            // 本书搜索入口（AC-15.1：工具栏图标）
+            IconButton(onClick = onOpenSearch) {
+                Icon(
+                    Icons.Filled.Search,
+                    contentDescription = stringResource(R.string.reader_search_open),
                 )
             }
             IconButton(onClick = onOpenToc) {

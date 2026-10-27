@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import io.github.lunalight.paperread.data.search.CurrentBookSearchSource
 import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.data.settings.SettingsStore
 import io.github.lunalight.paperread.di.AppContainer
@@ -16,12 +17,17 @@ import io.github.lunalight.paperread.domain.model.Bookmark
 import io.github.lunalight.paperread.domain.model.Chapter
 import io.github.lunalight.paperread.domain.model.ReaderPosition
 import io.github.lunalight.paperread.domain.repository.BookRepository
+import io.github.lunalight.paperread.domain.search.BookSearchSource
+import io.github.lunalight.paperread.domain.search.SEARCH_DEBOUNCE_MS
+import io.github.lunalight.paperread.domain.search.SEARCH_MIN_QUERY_LENGTH
+import io.github.lunalight.paperread.domain.search.SearchHit
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.ReaderProgress
 import io.github.lunalight.paperread.speech.SpeechController
 import io.github.lunalight.paperread.speech.SpeechPhase
 import io.github.lunalight.paperread.speech.SpeechState
 import io.github.lunalight.paperread.speech.SpeechText
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,8 +56,7 @@ sealed interface SpeechPermissionEvent {
 }
 
 /** 阅读器 UI 状态。 */
-data class ReaderUiState(
-    val loading: Boolean = true,
+data class ReaderUiState(    val loading: Boolean = true,
     val book: Book? = null,
     val chapters: List<Chapter> = emptyList(),
     /** 当前章在 chapters 中的下标。 */
@@ -100,11 +105,33 @@ data class ReaderUiState(
      * 确认后转系统申请；拒绝 / 取消都不阻塞朗读本身。
      */
     val speechPermissionEvent: SpeechPermissionEvent? = null,
+    /** 搜索面板是否展开（AC-15.1 入口 → 面板）。 */
+    val searchVisible: Boolean = false,
+    /** 搜索关键词（受控：面板不自己存状态，旋转屏幕不丢输入）。 */
+    val searchQuery: String = "",
+    /** 已到达的命中（流式追加，先章先出，AC-15.4）。 */
+    val searchResults: List<SearchHit> = emptyList(),
+    /** 扫描进行中（面板据此显示进度条、抑制「未找到」空态，AC-15.7）。 */
+    val searching: Boolean = false,
+    /**
+     * 当前生效的正文高亮（AC-15.3）：点击结果后保留，直到下次搜索 / 取消。
+     *
+     * 只存「章节 + 段落 + 关键词」而不是整条 [SearchHit]：UI 侧只需要这三项
+     * 决定给哪一段上色、上哪个词的颜色。
+     */
+    val searchHighlight: SearchHighlightTarget? = null,
 ) {
     val chapterTitle: String get() = chapters.getOrNull(chapterIndex)?.title ?: ""
     val chapterPosition: String
         get() = if (chapters.isEmpty()) "" else "第 ${chapterIndex + 1}/${chapters.size} 章"
 }
+
+/** 正文命中高亮的定位信息（AC-15.3）：给哪一章的哪一段、上哪个词的颜色。 */
+data class SearchHighlightTarget(
+    val chapterIndex: Int,
+    val paragraphIndex: Int,
+    val query: String,
+)
 
 /**
  * 阅读器 ViewModel：加载书籍/章节、ReaderPosition 恢复、防抖进度保存、
@@ -134,6 +161,23 @@ class ReaderViewModel(
     private val speechController: SpeechController,
     private val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     private val hasNotificationPermission: () -> Boolean = { true },
+    /**
+     * 搜索源工厂（AC-15.8 的扩展点）。
+     *
+     * ViewModel 只依赖 [BookSearchSource] 接口；v2.0 由本默认实现提供「当前书」
+     * 搜索，v2.1 的书架级搜索只需把这个工厂换成 Room FTS 实现——UI / VM 协议
+     * 一行都不用改（PRD §2.4.2 决策 D4）。
+     */
+    private val searchSourceFactory: (Book, List<Chapter>) -> BookSearchSource = { book, chapters ->
+        CurrentBookSearchSource(
+            bookId = book.id,
+            chapters = chapters,
+            textStore = bookTextStore,
+            dirName = book.dirName,
+        )
+    },
+    /** 搜索扫描线程：逐章读盘 + 全文匹配不得占用主线程（AC-15.6）。 */
+    private val searchDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ReaderUiState())
@@ -161,6 +205,28 @@ class ReaderViewModel(
      * 不再出现「滑一下立刻退出，最后 500ms 位置丢失」。
      */
     private var pendingSave: PendingSave? = null
+
+    /**
+     * 搜索期间抑制进度落库（AC-15.5：搜索不得改动已保存进度）。
+     *
+     * 打开搜索面板时置 true：期间「点结果跳章」会触发列表滚动回调
+     * （[onScrollPosition]），若不拦住，临时跳转的位置会被 500ms 防抖写进
+     * `reader_positions`——取消搜索回原位时进度已经变了。取消（回原位）后置回
+     * false，之后的正常滚动照常落库。
+     */
+    private var suppressProgressSave = false
+
+    /** 发起搜索前的阅读位置（取消时回位用，AC-15.5）。 */
+    private var searchOrigin: SearchOrigin? = null
+
+    /** 防抖等待中的关键词任务（新输入到来即取消，AC-15.2 的 300ms 窗口）。 */
+    private var searchDebounceJob: Job? = null
+
+    /** 在途扫描任务（新搜索 / 取消 / 离开页面即取消，AC-15.5 / AC-15.10）。 */
+    private var searchJob: Job? = null
+
+    /** 搜索轮次令牌：只让最新一轮的扫描写状态（旧任务的迟到 emit 一律丢弃）。 */
+    private var searchToken: Long = 0L
 
     init {
         viewModelScope.launch {
@@ -287,6 +353,8 @@ class ReaderViewModel(
     fun onScrollPosition(firstVisibleParagraph: Int, pixelOffset: Int = 0) {
         val state = _uiState.value
         if (state.loading || state.book == null || state.paragraphs.isEmpty()) return
+        // 搜索期间的滚动是「临时浏览」：既不更新位置状态，也不排进防抖落库（AC-15.5）
+        if (suppressProgressSave) return
         val clamped = firstVisibleParagraph.coerceIn(0, state.paragraphs.lastIndex)
         if (clamped != state.currentParagraph) {
             _uiState.update { it.copy(currentParagraph = clamped) }
@@ -331,6 +399,7 @@ class ReaderViewModel(
     fun onPagePosition(startParagraph: Int) {
         val state = _uiState.value
         if (state.loading || state.book == null || state.paragraphs.isEmpty()) return
+        if (suppressProgressSave) return
         val clamped = startParagraph.coerceIn(0, state.paragraphs.lastIndex)
         if (clamped != state.currentParagraph) {
             _uiState.update { it.copy(currentParagraph = clamped) }
@@ -353,6 +422,13 @@ class ReaderViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        // AC-15.10：离开阅读器 / 页面销毁时取消在途扫描。viewModelScope 取消时
+        // 扫描协程本来也会停，但这里显式置 null + 作废令牌，保证「销毁后不再有
+        // 任何结果写状态」，也让 onCleared 的意图在代码里可见（不依赖隐式语义）。
+        searchDebounceJob?.cancel()
+        searchJob?.cancel()
+        searchJob = null
+        searchToken++
         // viewModelScope 此刻已取消，必须换作用域，否则最后一次位置静默丢失
         val pending = pendingSave ?: return
         pendingSave = null
@@ -605,6 +681,189 @@ class ReaderViewModel(
         }
     }
 
+    // ---- 全书搜索（US-15） ----
+
+    /**
+     * 打开搜索面板（AC-15.1）。
+     *
+     * 同时做三件事：
+     * 1. 记下发起搜索前的阅读位置（[SearchOrigin]）——取消时回位（AC-15.5）；
+     * 2. 打开进度抑制开关——搜索期间的临时跳转不得落库（AC-15.5）；
+     * 3. 清空上一轮的关键词 / 结果 / 高亮，面板从干净状态开始。
+     */
+    fun openSearch() {
+        val state = _uiState.value
+        if (state.loading || state.book == null || state.chapters.isEmpty()) return
+        searchOrigin = SearchOrigin(
+            chapterIndex = state.chapterIndex,
+            paragraphIndex = state.currentParagraph,
+            progressPercent = state.progressPercent,
+        )
+        suppressProgressSave = true
+        _uiState.update {
+            it.copy(
+                searchVisible = true,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searching = false,
+                searchHighlight = null,
+                chromeVisible = true,
+                tocVisible = false,
+            )
+        }
+    }
+
+    /**
+     * 关键词变化（AC-15.2）：内部 300ms 防抖 + 最短 2 字符门槛。
+     *
+     * 短于门槛时**立即**取消在途扫描并清空结果——否则用户删到 1 个字后，
+     * 上一轮的命中还挂在列表里，看起来像「1 个字也能搜」。
+     */
+    fun onSearchQueryChange(query: String) {
+        _uiState.update { it.copy(searchQuery = query) }
+        searchDebounceJob?.cancel()
+        val needle = query.trim()
+        if (needle.length < SEARCH_MIN_QUERY_LENGTH) {
+            searchJob?.cancel()
+            searchJob = null
+            _uiState.update { it.copy(searchResults = emptyList(), searching = false) }
+            return
+        }
+        searchDebounceJob = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            startSearch(needle)
+        }
+    }
+
+    /**
+     * 发起一次扫描（AC-15.4 流式 / AC-15.5 可取消 / AC-15.10 不泄漏协程）。
+     *
+     * 结果**逐条追加**到 [ReaderUiState.searchResults]：先命中的章节先出现在
+     * 列表里，用户不必等全书扫完。新搜索到来时旧任务被取消——扫描协程随即在
+     * 下一个 `ensureActive()` 处停止读盘（见 `CurrentBookSearchSource`）。
+     */
+    private fun startSearch(needle: String) {
+        val state = _uiState.value
+        val book = state.book ?: return
+        val source = searchSourceFactory(book, state.chapters)
+        searchJob?.cancel()
+        val token = ++searchToken
+        _uiState.update { it.copy(searchResults = emptyList(), searching = true) }
+        searchJob = viewModelScope.launch(searchDispatcher) {
+            try {
+                source.search(needle).collect { hit ->
+                    // 只接受「当前这一轮」的结果：被取消的旧任务即使晚一步恢复，
+                    // 其 token 已过期，不会把上一轮命中塞进新列表。
+                    if (token == searchToken) {
+                        _uiState.update { it.copy(searchResults = it.searchResults + hit) }
+                    }
+                }
+            } finally {
+                // 同样是「只由最新一轮收尾」：避免旧任务的 finally 把新一轮的
+                // searching=true 提前置 false（进度条一闪而过）。
+                if (token == searchToken) {
+                    _uiState.update { it.copy(searching = false) }
+                    searchJob = null
+                }
+            }
+        }
+    }
+
+    /**
+     * 点击搜索结果（AC-15.3）：跳章 + 定位段落 + 高亮命中词。
+     *
+     * 跳转走 [goToChapter]，会**立即落库**——这是用户主动选择的新位置，
+     * 与「取消搜索不改进度」不冲突（AC-15.5 约束的是取消路径）。
+     * 面板随之关闭，但高亮保留到下一次搜索 / 取消。
+     */
+    fun selectSearchHit(hit: SearchHit) {
+        val query = _uiState.value.searchQuery.trim()
+        searchDebounceJob?.cancel()
+        searchJob?.cancel()
+        searchJob = null
+        searchToken++ // 作废在途结果（取消与 emit 存在竞态窗口）
+        // 用户已确认落点：恢复正常进度保存，后续滚动照常记录
+        suppressProgressSave = false
+        searchOrigin = null
+        _uiState.update {
+            it.copy(
+                searchVisible = false,
+                searching = false,
+                searchHighlight = SearchHighlightTarget(
+                    chapterIndex = hit.chapterIndex,
+                    paragraphIndex = hit.paragraphIndex,
+                    query = query,
+                ),
+            )
+        }
+        goToChapter(hit.chapterIndex, hit.paragraphIndex)
+    }
+
+    /**
+     * 取消搜索（AC-15.5）：回到发起搜索前的阅读位置，且**不改动已保存进度**。
+     *
+     * 回位只重建阅读位置与滚动票据（`restoreSeq`），不调用 `persist`；
+     * 抑制开关在回位后打开，回位引发的滚动回调因此不会被防抖落库。
+     */
+    fun cancelSearch() {
+        searchDebounceJob?.cancel()
+        searchJob?.cancel()
+        searchJob = null
+        searchToken++ // 作废在途结果（取消与 emit 存在竞态窗口）
+        val origin = searchOrigin
+        searchOrigin = null
+        _uiState.update {
+            it.copy(
+                searchVisible = false,
+                searchQuery = "",
+                searchResults = emptyList(),
+                searching = false,
+                searchHighlight = null,
+            )
+        }
+        if (origin != null) {
+            restorePosition(origin)
+        } else {
+            suppressProgressSave = false
+        }
+    }
+
+    /** 下滑 / 点外部关闭面板：与取消同一语义（AC-15.5）。 */
+    fun dismissSearch() = cancelSearch()
+
+    /**
+     * 回到 [origin] 指向的位置（只重建渲染状态 + 滚动票据，不落库）。
+     *
+     * 与 [goToChapter] 的差别就在「不 persist」这一条——搜索取消绝不能写进度。
+     */
+    private fun restorePosition(origin: SearchOrigin) {
+        val state = _uiState.value
+        val book = state.book ?: run {
+            suppressProgressSave = false
+            return
+        }
+        val chapter = state.chapters.getOrNull(origin.chapterIndex) ?: run {
+            suppressProgressSave = false
+            return
+        }
+        val scan = paragraphsOf(book, chapter)
+        val paragraph = origin.paragraphIndex.coerceIn(0, maxOf(0, scan.texts.lastIndex))
+        _uiState.update {
+            it.copy(
+                chapterIndex = origin.chapterIndex,
+                paragraphs = scan.texts,
+                paragraphStarts = scan.starts,
+                initialParagraph = paragraph,
+                initialScrollOffset = 0,
+                restoreSeq = it.restoreSeq + 1,
+                currentParagraph = paragraph,
+                // 进度显示回到搜索前的数值：本次搜索没有真实推进阅读位置
+                progressPercent = origin.progressPercent,
+            )
+        }
+        suppressProgressSave = false
+    }
+
     // ---- 面板与工具栏 ----
 
     fun toggleChrome() = _uiState.update { it.copy(chromeVisible = !it.chromeVisible) }
@@ -669,8 +928,14 @@ class ReaderViewModel(
     /** 跳转到书签位置（章节 + 段级）。 */
     fun goToBookmark(bookmark: Bookmark) =
         goToChapter(bookmark.chapterIndex, bookmark.paragraphIndex)
-
     fun dismissMessage() = _uiState.update { it.copy(message = null) }
+
+    /** 一次搜索的起点快照（取消回位用，AC-15.5）。 */
+    private class SearchOrigin(
+        val chapterIndex: Int,
+        val paragraphIndex: Int,
+        val progressPercent: Float,
+    )
 
     companion object {
         private const val SAVE_DEBOUNCE_MS = 500L
