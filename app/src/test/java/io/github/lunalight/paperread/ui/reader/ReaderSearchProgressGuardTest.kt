@@ -11,9 +11,11 @@ import io.github.lunalight.paperread.fakes.FakeBookRepository
 import io.github.lunalight.paperread.fakes.FakeBookTextStore
 import io.github.lunalight.paperread.fakes.FakeSettingsStore
 import io.github.lunalight.paperread.fakes.FakeSpeechController
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -92,6 +94,20 @@ class ReaderSearchProgressGuardTest {
     /** 立刻吐完即结束的源：用于把「扫描生命周期」从断言里排除干净。 */
     private class InstantSource(private val hits: List<SearchHit>) : BookSearchSource {
         override fun search(query: String): Flow<SearchHit> = flow { hits.forEach { emit(it) } }
+    }
+
+    /** 挂起不结束的源：收集方取消时才退出，用于观察「在途扫描是否被取消」。 */
+    private class SuspendingSource : BookSearchSource {
+        var cancelled = false
+
+        override fun search(query: String): Flow<SearchHit> = flow {
+            try {
+                awaitCancellation()
+            } catch (e: CancellationException) {
+                cancelled = true
+                throw e
+            }
+        }
     }
 
     private var source: BookSearchSource = InstantSource(emptyList())
@@ -286,5 +302,28 @@ class ReaderSearchProgressGuardTest {
         assertEquals("回到发起前章节", 1, viewModel.uiState.value.chapterIndex)
         store.clear()
         advanceUntilIdle()
+    }
+
+    // ---- AC-15.10：离开页面取消在途扫描 ----
+
+    @Test
+    fun `离开阅读器取消在途扫描`() = runTest(dispatcher) {
+        val suspending = SuspendingSource()
+        source = suspending
+        val store = ViewModelStore()
+        val viewModel = ownedViewModel(store)
+        advanceUntilIdle()
+        viewModel.openSearch()
+        viewModel.onSearchQueryChange("灵剑")
+        advanceUntilIdle()
+        assertTrue("前提：扫描仍在进行中", viewModel.uiState.value.searching)
+
+        store.clear() // = 页面销毁（返回书架 / 旋转重建）
+        advanceUntilIdle()
+
+        assertTrue("AC-15.10：离开阅读器必须取消在途扫描，不得泄漏协程", suspending.cancelled)
+        // 刻意不断言 searching == false：onCleared 先 cancel 再 ++searchToken，
+        // 收集协程的 finally 因令牌已过期而不再写状态（「销毁后不再有任何结果写
+        // 状态」是设计意图，且此时已无观察者）。这里只钉住「协程确实被取消」。
     }
 }

@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **main 未发布变更**：无（干净发布点）
-- **质量基线**：714 单测全绿（其中 2 例门控 / skipped；app 559 + `:core:data` 56 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
+- **质量基线**：715 单测全绿（其中 2 例门控 / skipped；app 560 + `:core:data` 56 + `:core:reader` 99）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 七作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
 
 ## 当前能力（已完成）
 
@@ -198,8 +198,8 @@
   - 测试：`BookmarkCompatTest` 19 例（v2.0 → v1.2 旧数据类解析未知字段被忽略 / v1.2 → v2.0 默认值接纳 / 关闭 `ignoreUnknownKeys` 必抛的负向对照 / 备注较新者胜 / 时间相同不互踩 / 只增不删不变 / 打包往返保留备注）+ `ReaderBookmarkNoteViewModelTest` 11 例 = 30 例新增
 - 约束达成：AC-17.4 的 schema 与迁移测试沿用 T-006 成果（本任务未改 schema，`check-room-migration.sh` 通过）；三个 JSON 解析点（`syncSnapshotJson` / `bundleJson` / `backupJson`）均显式 `ignoreUnknownKeys = true`，并各自有未知字段容错用例
 - 已知边界：备注冲突裁决依赖设备时钟（`updatedAt`），与进度同步的 `lastReadAt` 同一口径；时钟严重漂移的设备可能与既有冲突规则产生同样的偏差
-- **批次 11 QA 验收（T-017 / T-019，补测 14 例，全仓 700 → 714）**：
-  - `ReaderSearchProgressGuardTest` 6 例：AC-15.5 的两条**绕过 `suppressProgressSave` 的出口**——①搜索中退出阅读器（`onCleared` 用 appScope 兜底写 `pendingSave`）、②搜索中进后台（`flushPendingSave` 连防抖都不等）。两者都不读抑制开关，安全性完全依赖「抑制期间 `pendingSave` 不被写入」这一不变量，原有用例未覆盖；另含正向对照（搜索前已排队的真实位置仍应落地）、取消后抑制必须复位、以及 AC-15.8 反向验证（注入「多书命中」`BookSearchSource` 实现，VM 零改动消费）
+- **批次 11 QA 验收（T-017 / T-019，补测 15 例，全仓 700 → 715）**：
+  - `ReaderSearchProgressGuardTest` 7 例：AC-15.5 的两条**绕过 `suppressProgressSave` 的出口**——①搜索中退出阅读器（`onCleared` 用 appScope 兜底写 `pendingSave`）、②搜索中进后台（`flushPendingSave` 连防抖都不等）。两者都不读抑制开关，安全性完全依赖「抑制期间 `pendingSave` 不被写入」这一不变量，原有用例未覆盖；另含正向对照（搜索前已排队的真实位置仍应落地）、取消后抑制必须复位、以及 AC-15.8 反向验证（注入「多书命中」`BookSearchSource` 实现，VM 零改动消费）
   - `SearchCancellationTest` 2 例（`:core:data`）：既有取消用例用 `take(n)`，而 `take` 在**下游 emit 处**抛 `AbortFlowException` 终止上游——变异实测把 `CurrentBookSearchSource` 的两处 `ensureActive()` 全删，25 例仍全绿。本用例让 `readChapter` 在**无命中**章节内取消收集方，把检查点压到唯一可行位置（删掉即读到第 1 章）。附带结论：emit 前的那次 `ensureActive()` 对已取消的收集方是冗余保险（`emit` 自身会抛），真正 load-bearing 的是章首检查点
   - `SyncNoteApplyTest` 5 例：合并结论 → `LocalSyncGateway.updateNotes` 的**落地一跳**（`SyncMergerTest` 的 `FakeLocal.notes` 只记录、从不断言），并验证「对端只有新书签时不得触碰备注更新」
   - `SyncFlowTest` +1 例：`/sync/apply` 同位置备注就地更新（真实双管理器 + HTTP）。变异实测：删掉 `applyRemote` 的 `noteUpdates` 分支，此前**只有这一例会红**（该行原本 0 覆盖，即「顺带修复的静默丢备注」无任何测试守护）
