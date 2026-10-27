@@ -196,6 +196,75 @@ class SyncFlowTest : TransferFlowTestBase() {
         assertEquals(0.8f, bSaved.progressPercent, 0.001f)
     }
 
+    /**
+     * AC-17.7 的**落地侧**回归：同位置书签备注较新者胜，且不得产生重复条目。
+     *
+     * 覆盖的正是「`/sync/apply` 曾静默丢对端备注」的那个分支——修复前
+     * `applyRemote` 只补本地缺的书签，同位置已有书签时对端的新备注被直接丢弃
+     * （本地列表看起来「什么都没发生」）。本用例的判定点是 A 的
+     * `updatedBookmarkNotes`：只有 noteUpdates 分支真正落地才会有记录。
+     *
+     * 方向：B 持较新备注并发起同步 → B 把自己的那条回推给 A（`POST /sync/apply`），
+     * A 走 applyRemote 的 updateNotes 分支就地改列。
+     */
+    @Test
+    fun `同位置备注较新者胜且不产生重复书签（sync apply 落地侧）`() {
+        val pair = startSyncPair(45477)
+        val xA = book(id = 1, title = "书N", sha256 = "note-x", lastReadAt = 100L)
+        val xB = book(id = 1, title = "书N", sha256 = "note-x", lastReadAt = 100L)
+        pair.repoA.emitBooks(listOf(xA))
+        pair.repoB.emitBooks(listOf(xB))
+        // 同一位置（章节 + 段落 + 字符偏移完全一致），只有备注与时间不同
+        pair.repoA.emitBookmarks(
+            listOf(
+                Bookmark(
+                    id = 11L,
+                    bookId = 1L,
+                    chapterIndex = 1,
+                    paragraphIndex = 4,
+                    charOffset = 12,
+                    excerpt = "同一段",
+                    createdAt = 50L,
+                    note = "旧备注",
+                    updatedAt = 100L,
+                ),
+            ),
+        )
+        pair.repoB.emitBookmarks(
+            listOf(
+                Bookmark(
+                    id = 21L,
+                    bookId = 1L,
+                    chapterIndex = 1,
+                    paragraphIndex = 4,
+                    charOffset = 12,
+                    excerpt = "同一段",
+                    createdAt = 50L,
+                    note = "对端新备注",
+                    updatedAt = 900L,
+                ),
+            ),
+        )
+
+        pair.managerB.startSync(
+            peerDevice(pair.managerA, pair.identityA.deviceId(), "设备A"),
+        )
+
+        waitUntil { pair.managerB.sync.value.report != null }
+        waitUntil { pair.repoA.updatedBookmarkNotes.isNotEmpty() }
+
+        val applied = pair.repoA.updatedBookmarkNotes.single()
+        assertEquals("落到本地原有那条书签上", 11L, applied.id)
+        assertEquals("对端新备注", applied.note)
+        assertEquals(900L, applied.updatedAt)
+        assertTrue(
+            "备注差异不得产生重复书签：${pair.repoA.addedBookmarks}",
+            pair.repoA.addedBookmarks.isEmpty(),
+        )
+        assertTrue("只增不删：不得删除任何书签", pair.repoA.deletedBookmarkIds.isEmpty())
+        assertTrue(pair.repoA.clearedBookmarkBookIds.isEmpty())
+    }
+
     @Test
     fun `同步对端不可达时失败并复位状态`() {
         val manager = createManager()
