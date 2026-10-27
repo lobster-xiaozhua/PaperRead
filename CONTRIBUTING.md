@@ -34,7 +34,8 @@ test(epub): 补充无 NCX 目录的解析用例
 ## 代码约定
 
 - Kotlin，`kotlin.code.style=official`
-- `reader/` 引擎保持零 Android 依赖（纯 Kotlin，可 JVM 单测）
+- `reader/` 引擎保持零 Android 依赖（纯 Kotlin，可 JVM 单测）——T-010 起由独立 Gradle 模块
+  `:core:reader` 编译期强制：该模块只应用 `kotlin("jvm")`，一旦出现 `import android.*` 直接编译失败
 - UI 层不直接访问 Room / 文件系统，一律经 Repository
 - **逻辑不写进 `*Screen.kt`**：页面文件只放 `@Composable` 渲染树，任何可测的状态 / 计算
   （分页、排序、格式化以外的业务判断、状态机）放独立文件（`XxxViewModel` / `XxxManager` /
@@ -55,7 +56,7 @@ test(epub): 补充无 NCX 目录的解析用例
 1. 权限清单：`CONTRIBUTING.md` 声明的权限与 `AndroidManifest.xml` 实际声明逐一一致；
 2. 覆盖率：文档不写死行覆盖率实测数字，统一以 `jacocoTestReport` 实际 XML 报告为准（门禁阈值除外）；门禁口径为「行覆盖率 ≥ 80%」——分母默认包含所有类，仅 `app/build.gradle.kts` 中 `coverageExcludedRenderClasses` 显式登记的「经核实 CI 口径 0% 且无测试调用其逻辑成员」的零覆盖纯渲染类不计入分母（当前 4 个；新增需登记并说明理由），UI 行为由 `robolectric-ui` 作业的冒烟承载；
 3. Kotlin 版本：文档不硬编码版本号，单一来源为 `gradle/libs.versions.toml`；
-4. 单测总数：`README.md` / `docs/ROADMAP.md` / `docs/TASKS.md` 质量基线中的「N 单测」必须等于 `app/src/test` 下 `@Test` 用例数（代码为单一来源，写精确数字，不写「约」「N+」）；
+4. 单测总数：`README.md` / `docs/ROADMAP.md` / `docs/TASKS.md` 质量基线中的「N 单测」必须等于**全部测试源码目录**（`app/src/test` + `core/*/src/test`）下 `@Test` 用例数（代码为单一来源，写精确数字，不写「约」「N+」）；
 5. CI 作业数：文档中「N 门禁 / N 个作业」必须等于 `.github/workflows/android.yml` 的作业数，且每个作业名都要在 `README.md` 以反引号形式登记。
 
 ## 人工审查重点

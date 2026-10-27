@@ -23,6 +23,13 @@
 - **401 语义映射**：对端未配对 / 配对失效时，发送侧提示「对端未配对或配对已失效，请重新配对」而非笼统网络错误
 
 ### 基础设施
+- **模块拆分（T-010 / R-12）**：抽出 `:core:domain`（领域模型 + 仓储接口）与 `:core:reader`（阅读引擎）两个**纯 JVM 模块**（只应用 `kotlin("jvm")`，JDK 17 与 app 的 jvmTarget 对齐），`:core:reader` 以 `api` 依赖 `:core:domain`、`:app` 反向依赖两者
+  - 分层纪律从「口头约定」变为**编译期强制**：在 `domain.*` / `reader.*` 里写 `import android.*` 直接编译失败
+  - **包名保持不变**（`io.github.lunalight.paperread.domain.*` / `.reader.*`），拆分对调用方透明——全仓 import 零改动
+  - `reader/BookTextStore.kt` 按依赖边界拆成两个文件：接口（只依赖 `java.io.File` + 领域模型）去 `:core:reader`，`FileBookTextStore`（依赖 `Context.filesDir`）留 `:app`，包名相同故调用方无感
+  - 仍留 `:app` 的 Android 相关实现：`FileBookTextStore` / `AndroidXmlParser` / `XmlParsers`（后者的 `android()` 直接构造 `android.util.Xml` 实现，是 `:core:reader` 无法承载的真实边界）；引擎内 XML 解析器缺省值改为 `::JvmXmlParser`，不再反向依赖 app 侧工厂
+  - **99 例阅读引擎单测**（Pagination / ReaderProgress / ChapterSplitter / CharsetDetector / ChapterIndexWriter / InlineChapterScanner / TxtChapterStream / EpubParser / XhtmlTextExtractor / JvmXmlParser）迁到 `core/reader/src/test/kotlin` 并**脱离 Robolectric**，在纯 JVM 上跑；CI `unit` 作业补 `:core:domain:test` / `:core:reader:test`（JVM 模块任务名是 `test`，漏写则引擎用例静默不跑）
+  - 质量脚本口径同步扩展（代码搬出 app 不等于脱离门禁）：`check-doc-consistency.sh` 的单测总数扫描改扫全部模块测试源码，`check-network-behavior.sh` 的源码扫描与白名单文件定位、`check-r8-keep.sh` 的 `@Serializable` 漂移守卫均覆盖 `core/*/src/main`
 - CI 结构调整为四 job：`unit`（双 flavor 单测 + 覆盖率门禁）、`robolectric-ui`（Robolectric UI 测试独立 job + 失败重试 ≤1 次，隔离内存抖动）、`lint`、`assemble`；Robolectric jar 缓存 key 增加 `libs.versions.toml` 哈希（依赖变更即失效）
 - 新增 `scripts/check-doc-consistency.sh`（权限清单比对 Manifest、覆盖率数字引用检查、禁文档硬编码 Kotlin 版本号）并纳入 CI
 - CONTRIBUTING / README 口径修正（flavor 命名约束、CI 结构、最小权限说明）

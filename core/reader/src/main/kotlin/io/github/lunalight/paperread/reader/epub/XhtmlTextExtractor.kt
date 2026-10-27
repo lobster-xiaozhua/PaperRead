@@ -1,11 +1,14 @@
 package io.github.lunalight.paperread.reader.epub
 
+import io.github.lunalight.paperread.reader.xml.JvmXmlParser
 import io.github.lunalight.paperread.reader.xml.XmlEvent
 import io.github.lunalight.paperread.reader.xml.XmlParser
-import io.github.lunalight.paperread.reader.xml.XmlParsers
 import java.io.InputStream
 
-/** 解析器工厂：Android 端传 [XmlParsers.android]，JVM 测试端传 [XmlParsers.jvm]。 */
+/**
+ * 解析器工厂：Android 运行端传 `:app` 的 `XmlParsers::android`（XmlPullParser），
+ * JVM 端缺省用 [JvmXmlParser]（JDK SAX）。
+ */
 typealias ParserFactory = (InputStream) -> XmlParser
 
 /**
@@ -16,7 +19,7 @@ typealias ParserFactory = (InputStream) -> XmlParser
  */
 class XhtmlTextExtractor {
 
-    fun extract(input: InputStream, parserFactory: ParserFactory = XmlParsers::jvm): String {
+    fun extract(input: InputStream, parserFactory: ParserFactory = ::JvmXmlParser): String {
         val parser = parserFactory(input)
         val paragraphs = ArrayList<String>()
         val buffer = StringBuilder()

@@ -13,7 +13,9 @@
 #   3. Kotlin 版本单一来源：文档不得硬编码 Kotlin 版本号，唯一来源是
 #      gradle/libs.versions.toml；
 #   4. 单测总数单一来源：README / docs/ROADMAP.md / docs/TASKS.md「质量基线」
-#      里的「N 单测」必须等于 app/src/test 下 @Test 用例数。
+#      里的「N 单测」必须等于**全部测试源码目录**下 @Test 用例数
+#      （app/src/test + core/*/src/test，T-010 拆模块后口径随之扩展：单测总数
+#      仍是「整个仓库能跑的 JVM 单测」，只是其中的阅读引擎用例搬到了 :core:reader）。
 #      单一来源取**代码**而非某份文档：2026-10 批次 4 收尾时三份文档同时停在
 #      v1.2.0 的 382，即漂移是「彼此一致地过期」，只做文档互比拦不住。
 #      TASKS.md 内已完成工单里如实记录的当时数字（如「244 单测全绿」）属历史
@@ -98,18 +100,29 @@ else
   echo "✓ 无硬编码 Kotlin 版本号"
 fi
 
-# ---- 4) 单测总数单一来源（app/src/test 的 @Test 用例数） ----
+# ---- 4) 单测总数单一来源（全部模块测试源码的 @Test 用例数） ----
 #
 # 计数口径：一个 @Test 注解 = 一例。本项目当前无参数化用例（@ParameterizedTest /
 # Parameterized runner，一个注解对应多例）；若将来引入，需同步调整本口径，
 # 否则断言会偏小。
+# 扫描范围：T-010 拆模块后单测分布在 app 与各纯 JVM 模块，三处都算「本仓库的单测」——
+# 总数不变（用例只是换了目录），故文档里的「N 单测」无需改写。新增模块时在此追加一行。
 # 文档侧写法要求：精确数字（「530 单测」），不写「约 500」「500+」——后两者
 # 既不可断言，也会让断言被绕过。
 
-TEST_DIR="app/src/test"
+TEST_DIRS=(app/src/test core/domain/src/test core/reader/src/test)
+TEST_DIR_LABEL="app/src/test + core/*/src/test"
 TEST_CLAIM_RE='[0-9]{2,}[ ]*个?[ ]*(单测|单元测试)'
 
-actual_tests="$(grep -rhoE '@Test\b' --include='*.kt' "$TEST_DIR" 2>/dev/null | wc -l | tr -d ' ')"
+# 只扫描**存在**的目录：:core:domain 目前无独立单测（领域模型由各消费方用例间接
+# 覆盖），`grep` 遇到不存在的目录会以非零退出，配合 set -e 会让整步假失败。
+# 计数口径不受影响——不存在即 0 例，与「目录存在但为空」等价。
+existing_test_dirs=()
+for test_dir in "${TEST_DIRS[@]}"; do
+  [ -d "$test_dir" ] && existing_test_dirs+=("$test_dir")
+done
+
+actual_tests="$(grep -rhoE '@Test\b' --include='*.kt' "${existing_test_dirs[@]}" 2>/dev/null | wc -l | tr -d ' ')"
 
 # 逐行比对某文件中「N 单测」的数字。$2 非空时只比对内容命中该正则的行
 # （用于把 TASKS.md 限定在「质量基线」段，历史工单行不参与）。
@@ -132,7 +145,7 @@ check_test_claims() {
     [ -z "$matched" ] && continue
     for n in $(printf '%s\n' "$matched" | grep -oE '[0-9]+' | sort -u); do
       if [ "$n" != "$actual_tests" ]; then
-        echo "✗ $file:$lineno 写「$n 单测」，而 $TEST_DIR 下 @Test 用例数为 $actual_tests" >&2
+        echo "✗ $file:$lineno 写「$n 单测」，而 $TEST_DIR_LABEL 下 @Test 用例数为 $actual_tests" >&2
         echo "  → 测试数变了就同步改文档；本仓库口径为精确数字（不写「约」「N+」）" >&2
         fail=1
       fi
@@ -141,7 +154,7 @@ check_test_claims() {
 }
 
 if [ "${actual_tests:-0}" -lt 1 ]; then
-  echo "✗ 无法统计 $TEST_DIR 下的 @Test 用例数（结果为 $actual_tests），请检查仓库完整性" >&2
+  echo "✗ 无法统计 $TEST_DIR_LABEL 下的 @Test 用例数（结果为 $actual_tests），请检查仓库完整性" >&2
   fail=1
 else
   fail_before_test="$fail"
@@ -149,7 +162,7 @@ else
   check_test_claims docs/ROADMAP.md
   check_test_claims docs/TASKS.md '\*\*质量基线\*\*'
   if [ "$fail" -eq "$fail_before_test" ]; then
-    echo "✓ 单测总数口径一致（$actual_tests 例，来源：$TEST_DIR 的 @Test 计数）"
+    echo "✓ 单测总数口径一致（$actual_tests 例，来源：$TEST_DIR_LABEL 的 @Test 计数）"
   fi
 fi
 

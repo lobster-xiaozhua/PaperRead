@@ -1,9 +1,9 @@
 package io.github.lunalight.paperread.reader.epub
 
 import io.github.lunalight.paperread.reader.txt.ChapterRef
+import io.github.lunalight.paperread.reader.xml.JvmXmlParser
 import io.github.lunalight.paperread.reader.xml.XmlEvent
 import io.github.lunalight.paperread.reader.xml.XmlParser
-import io.github.lunalight.paperread.reader.xml.XmlParsers
 import java.io.File
 import java.nio.charset.Charset
 import java.util.zip.ZipEntry
@@ -21,9 +21,13 @@ import java.util.zip.ZipFile
  *
  * 产出 [EpubContent] 与 TXT 路径对齐，交给 ChapterIndexWriter 生成双偏移索引。
  * 纯 JVM 可测（依赖 [XmlParser] 接口而非 Android API）。
+ *
+ * @param parserFactory XML 解析器工厂。**缺省为 JVM 端 SAX 实现** [JvmXmlParser]
+ *   ——`:core:reader` 是纯 JVM 模块，不得反向依赖 Android 侧的 XmlPullParser 工厂；
+ *   Android 运行时由 `:app` 的 `BookImporter` 显式传入 `XmlParsers::android`。
  */
 class EpubParser(
-    private val parserFactory: ParserFactory = XmlParsers::jvm,
+    private val parserFactory: ParserFactory = ::JvmXmlParser,
 ) {
 
     /** @param epubFile 已落盘的 EPUB 文件（ZipFile 随机访问，不全量进内存）。 */

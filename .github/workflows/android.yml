@@ -103,11 +103,17 @@ jobs:
       # Release 门禁保留：R8 混淆 + 资源压缩只在发布路径生效，由 assemble
       # 作业的 assembleRelease 覆盖（混淆规则缺失 / keep 漏写要等到发版前才暴露；
       # 不配置签名，keystore 不入库，产出未签名 APK，仅验证能正常打包）。
+      # 模块口径（T-010 拆模块）：:core:domain / :core:reader 是纯 JVM 模块，
+      # 测试任务名是 test（不是 testClientDebugUnitTest），必须显式列出——
+      # 阅读引擎用例已从 app 迁到 :core:reader，漏掉这两个任务 = 99 例引擎测试
+      # 在 CI 里静默不跑（本地 ./gradlew test 兜不住，因为 app 侧已无这些类）。
       - name: Unit tests + coverage (excl. UI smoke)
         run: >
           ./gradlew
           testClientDebugUnitTest
           testDevDebugUnitTest
+          :core:domain:test
+          :core:reader:test
           jacocoTestReport
           jacocoTestCoverageVerification
           -PexcludeUiSmokeTests=true

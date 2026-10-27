@@ -3,13 +3,14 @@
 # 网络行为断言（T-009 · R-02 / AC-20.5 / G2①）。
 #
 # 口径（隐私承诺「纸阅不访问公网」的 CI 兜底）：应用运行时的网络行为
-# 只由 app/src/main 决定，本脚本把该承诺固化为静态断言，任一项失败即
-# 非零退出：
+# 只由各模块的 main 源码决定（T-010 拆模块后为 app/src/main/java +
+# core/reader、core/domain 的 main 源码），本脚本把该承诺固化为静态断言，
+# 任一项失败即非零退出：
 #   1. 三方网络 / 统计 SDK 禁入：构建配置与主源码中不得出现
 #      okhttp / retrofit / volley / coil / glide / fresco / WebView /
 #      firebase / umeng / bugly 等已知 SDK 坐标或包名（隐私页声明
 #      「无第三方依赖、无远程接口调用」，必须可验证）；
-#   2. URL 字面量白名单：app/src/main/java 下所有 http(s):// 字面量
+#   2. URL 字面量白名单：全部 main 源码下所有 http(s):// 字面量
 #      必须落在白名单文件内，且形状符合该文件的口径——
 #        - transfer/TransferHttpServer.kt：仅 http://$host:$port 形式的
 #          局域网对端地址（host 来自 UDP 广播发现的同网段设备）；
@@ -32,7 +33,8 @@
 #      不等于访问公网，白名单口径见 docs/NETWORK_AUDIT.md。
 #
 # 扫描范围说明（豁免及理由）：
-#   - app/src/test/**：测试夹具中的 http:// 均为 EPUB/XML 命名空间标识符
+#   - main 源码之外的测试目录（app/src/test、core/*/src/test）：测试夹具中的
+#     http:// 均为 EPUB/XML 命名空间标识符
 #     （w3.org / idpf.org / purl.org / daisy.org 等），不是网络地址；
 #   - app/src/main/res/**：XML 命名空间 xmlns 与许可全文中的链接，同理；
 #   - docs/ 与 *.md（README / SECURITY / CONTRIBUTING 等）：文档里的
@@ -44,18 +46,36 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-MAIN_JAVA="app/src/main/java"
-BUILD_FILES=(app/build.gradle.kts build.gradle.kts settings.gradle.kts gradle/libs.versions.toml)
+# 运行时源码根目录（T-010 拆模块后扩展）：app 与两个纯 JVM 模块的 main 源码
+# 全部属于「会打进 APK 的代码」，断言口径必须覆盖三处，否则把代码搬出 app
+# 就能让本脚本的扫描范围凭空缩小（等于开了个后门）。
+SRC_ROOTS=(app/src/main/java core/reader/src/main/kotlin core/domain/src/main/kotlin)
+BUILD_FILES=(app/build.gradle.kts build.gradle.kts settings.gradle.kts gradle/libs.versions.toml core/domain/build.gradle.kts core/reader/build.gradle.kts)
 MANIFEST="app/src/main/AndroidManifest.xml"
 
 fail=0
 
+# 在全部源码根中定位白名单文件（相对 io/github/lunalight/paperread/ 的路径）。
+# 找不到时返回非零，调用方据此报「白名单文件缺失」。
+find_src_file() {
+  local rel="$1" root
+  for root in "${SRC_ROOTS[@]}"; do
+    if [ -f "$root/io/github/lunalight/paperread/$rel" ]; then
+      printf '%s\n' "$root/io/github/lunalight/paperread/$rel"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # ---- 0) 目录存在性 ----
 
-if [ ! -d "$MAIN_JAVA" ]; then
-  echo "✗ 找不到 $MAIN_JAVA" >&2
-  exit 1
-fi
+for root_dir in "${SRC_ROOTS[@]}"; do
+  if [ ! -d "$root_dir" ]; then
+    echo "✗ 找不到 $root_dir" >&2
+    exit 1
+  fi
+done
 
 # ---- 1) 三方网络 / 统计 SDK 禁入 ----
 #
@@ -65,7 +85,7 @@ fi
 SDK_PATTERN='(okhttp|retrofit|retrofit2|volley|coil|glide|fresco|facebook\.|firebase|umeng|bugly|tencent\.bugly|com\.alibaba\.sdk|gson|moshi|ktor-client|webview)'
 
 sdk_hits="$(grep -rniE "$SDK_PATTERN" "${BUILD_FILES[@]}" 2>/dev/null || true)"
-sdk_hits="$sdk_hits$(grep -rnE 'import .*(okhttp3|retrofit2|com\.android\.volley|coil3?|com\.bumptech\.glide|com\.facebook|com\.google\.firebase|com\.umeng|com\.tencent\.bugly|android\.webkit\.WebView)' "$MAIN_JAVA" --include='*.kt' 2>/dev/null || true)"
+sdk_hits="$sdk_hits$(grep -rnE 'import .*(okhttp3|retrofit2|com\.android\.volley|coil3?|com\.bumptech\.glide|com\.facebook|com\.google\.firebase|com\.umeng|com\.tencent\.bugly|android\.webkit\.WebView)' "${SRC_ROOTS[@]}" --include='*.kt' 2>/dev/null || true)"
 
 if [ -n "$sdk_hits" ]; then
   echo "✗ 发现三方网络 / 统计 SDK 痕迹（隐私承诺「无第三方 SDK」，见 docs/NETWORK_AUDIT.md）：" >&2
@@ -89,7 +109,7 @@ WL_GUARD="reader/epub/EpubParser.kt"
 WL_LINKS="ui/about/AboutScreen.kt"
 
 # 2.1 白名单外文件出现 URL 字面量 → 失败
-unlisted="$(grep -rn 'https\?://' "$MAIN_JAVA" --include='*.kt' 2>/dev/null \
+unlisted="$(grep -rn 'https\?://' "${SRC_ROOTS[@]}" --include='*.kt' 2>/dev/null \
   | grep -v "/$WL_LAN:" | grep -v "/$WL_GUARD:" | grep -v "/$WL_LINKS:" || true)"
 
 if [ -n "$unlisted" ]; then
@@ -106,9 +126,9 @@ fi
 #
 # 2.2.1 局域网文件：每个 URL 必须含 $host 插值（对端地址来自 UDP 广播发现），
 #       不得出现字面量域名 / 公网 IP。
-lan_file="$MAIN_JAVA/io/github/lunalight/paperread/$WL_LAN"
-if [ ! -f "$lan_file" ]; then
-  echo "✗ 白名单文件缺失：$lan_file（TransferHttpServer 是局域网传输的唯一实现）" >&2
+lan_file="$(find_src_file "$WL_LAN" || true)"
+if [ -z "$lan_file" ]; then
+  echo "✗ 白名单文件缺失：io/github/lunalight/paperread/$WL_LAN（TransferHttpServer 是局域网传输的唯一实现）" >&2
   fail=1
 else
   lan_urls="$(grep -oE 'https?://[^"'"'"']*' "$lan_file" || true)"
@@ -127,9 +147,9 @@ fi
 
 # 2.2.2 外链守卫文件：URL 形态只允许作为 startsWith 的拒绝判断出现
 #       （解析到外链资源即整体拒绝，不建立连接）。
-guard_file="$MAIN_JAVA/io/github/lunalight/paperread/$WL_GUARD"
-if [ ! -f "$guard_file" ]; then
-  echo "✗ 白名单文件缺失：$guard_file（EpubParser 的外链拒绝守卫）" >&2
+guard_file="$(find_src_file "$WL_GUARD" || true)"
+if [ -z "$guard_file" ]; then
+  echo "✗ 白名单文件缺失：io/github/lunalight/paperread/$WL_GUARD（EpubParser 的外链拒绝守卫）" >&2
   fail=1
 else
   guard_hits="$(grep -nE 'https?://' "$guard_file" || true)"
@@ -145,9 +165,9 @@ fi
 
 # 2.2.3 项目外链文件：只允许 AboutLinks 的两个固定 GitHub 地址，
 #       且只能经系统浏览器 ACTION_VIEW 打开（不内置 WebView）。
-links_file="$MAIN_JAVA/io/github/lunalight/paperread/$WL_LINKS"
-if [ ! -f "$links_file" ]; then
-  echo "✗ 白名单文件缺失：$links_file（AboutScreen 的项目外链）" >&2
+links_file="$(find_src_file "$WL_LINKS" || true)"
+if [ -z "$links_file" ]; then
+  echo "✗ 白名单文件缺失：io/github/lunalight/paperread/$WL_LINKS（AboutScreen 的项目外链）" >&2
   fail=1
 else
   links_urls="$(grep -oE 'https?://[^"'"'"']*' "$links_file" || true)"
@@ -169,7 +189,7 @@ fi
 
 NET_API_PATTERN='(java\.net\.Socket|java\.net\.ServerSocket|java\.net\.DatagramSocket|java\.net\.HttpURLConnection|java\.net\.URL|openConnection|java\.net\.InetAddress|MulticastSocket)'
 
-net_api_hits="$(grep -rnE "$NET_API_PATTERN" "$MAIN_JAVA" --include='*.kt' 2>/dev/null \
+net_api_hits="$(grep -rnE "$NET_API_PATTERN" "${SRC_ROOTS[@]}" --include='*.kt' 2>/dev/null \
   | grep -v '/transfer/' || true)"
 
 if [ -n "$net_api_hits" ]; then
@@ -177,7 +197,7 @@ if [ -n "$net_api_hits" ]; then
   echo "$net_api_hits" >&2
   fail=1
 else
-  transfer_api_count="$(grep -rnE "$NET_API_PATTERN" "$MAIN_JAVA" --include='*.kt' 2>/dev/null | grep '/transfer/' | wc -l | tr -d ' ')"
+  transfer_api_count="$(grep -rnE "$NET_API_PATTERN" "${SRC_ROOTS[@]}" --include='*.kt' 2>/dev/null | grep '/transfer/' | wc -l | tr -d ' ')"
   echo "✓ 网络 API 仅存在于 transfer/（$transfer_api_count 处，均为局域网传书 / 迁移 / 同步）"
 fi
 

@@ -14,10 +14,15 @@
 4. **依赖控制**：不新增第三方依赖。确有必要时需明确批准，并在 README 依赖清单登记。AndroidX / JetBrains 官方库优先。
 5. **分层纪律**：
    - `reader/` 引擎保持零 Android 依赖（XML 解析只依赖 `XmlParser` 接口，由外层装配）；
+     该纪律自 T-010 起由 Gradle 模块边界强制：`:core:reader` / `:core:domain` 是纯 JVM
+     模块（只应用 `kotlin("jvm")`），Android 相关实现（`FileBookTextStore` /
+     `AndroidXmlParser` / `XmlParsers`）留在 `:app`；
    - UI 层禁止直接访问 Room / 文件系统；
    - `data/` 实现类型不得向上泄漏。
 6. **最小权限**：`AndroidManifest.xml` 只声明两组权限（2026-10-18 / 2026-10-19 用户拍板）：① `INTERNET`——仅可用于同一局域网内的设备发现与书籍 / 状态传输（传书 / 迁移 / 同步），**不得访问公网**；② 朗读前台服务三件套（`FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK` / `POST_NOTIFICATIONS`）——仅用于 TTS 朗读后台常驻播放与通知控制（语音本机离线合成，不联网）。除此之外新增任何其他权限都需单独说明理由并经人类审查。
-7. **测试先行**：`reader/` 引擎的每个新逻辑先写 JVM 单测（fixture 放 `app/src/test/resources/`）。
+7. **测试先行**：`reader/` 引擎的每个新逻辑先写 JVM 单测——T-010 起阅读引擎测试住在
+   `core/reader/src/test/kotlin/`（fixture 放 `core/reader/src/test/resources/`），
+   该模块**不得**引入 Robolectric：测试能在纯 JVM 上跑，是「引擎零 Android 依赖」的实证。
 
 ## 人工把关重点
 

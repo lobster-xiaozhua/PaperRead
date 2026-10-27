@@ -8,40 +8,18 @@ import java.io.RandomAccessFile
 import java.nio.charset.Charset
 
 /**
- * 书籍文本存取：按字节偏移懒加载章节。
+ * [BookTextStore] 的文件系统实现（filesDir/books/&lt;dirName&gt;/）。
  *
- * 目录约定：filesDir/books/<dirName>/ 下
- * - book.txt：标准化 UTF-8 正文（章节按 byteStart/byteEnd 定位）
- * - source.<ext>：导入时的原始文件（保留用于重新解析 / 切换编码）
+ * 为什么在 `:app` 而不在 `:core:reader`（T-010 / R-12）：实现需要
+ * `Context.filesDir` 来定位应用私有目录，这是唯一的 Android 依赖。
+ * 接口本身零 Android 依赖，已随阅读引擎迁入 `:core:reader`；
+ * 拆分时**两个文件保持同一包名** `io.github.lunalight.paperread.reader`，
+ * 因此所有调用方（`di/AppContainer`、各单测）无需改动 import。
  *
- * UI 层只依赖本接口（单测以内存 fake 替代）；文件系统实见 [FileBookTextStore]。
+ * 存储行为（与拆分前逐字一致）：
+ * - 章节读取按字节偏移 seek，不整本进内存；
+ * - [textFile] 不存在或区间长度 &lt;= 0 时返回空串（调用方据 [hasText] 区分错误性质）。
  */
-interface BookTextStore {
-
-    fun bookDir(dirName: String): File
-
-    fun textFile(dirName: String): File
-
-    fun sourceFile(book: Book): File
-
-    /** 读取单章文本（字节偏移定位 + UTF-8 解码）。 */
-    fun readChapter(dirName: String, chapter: Chapter): String
-
-    /**
-     * 正文文件是否存在且非空。
-     *
-     * [readChapter] 在「文件丢失」与「该章本身为空」两种情况下都返回空串，
-     * 调用方据此区分错误性质：前者只能删条目重导，后者可重新解析章节。
-     */
-    fun hasText(dirName: String): Boolean
-
-    /** 读取原始文件全文（重新解析场景）。 */
-    fun readSourceText(book: Book, charset: Charset): String
-
-    fun deleteBookDir(dirName: String)
-}
-
-/** [BookTextStore] 的文件系统实现（filesDir/books/<dirName>/）。 */
 class FileBookTextStore(context: Context) : BookTextStore {
 
     private val booksRoot: File = File(context.filesDir, "books")

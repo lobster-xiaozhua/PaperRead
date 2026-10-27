@@ -98,19 +98,31 @@ echo "sdk.dir=/path/to/Android/sdk" > local.properties
 
 ## 架构
 
-四层分层，`reader/` 引擎为零 Android 依赖的纯 Kotlin 模块，全部逻辑可 JVM 单测：
+四层分层，`reader/` 引擎为零 Android 依赖的纯 Kotlin 模块，全部逻辑可 JVM 单测。
+分层由 **Gradle 模块边界**强制（T-010 / R-12），不只是口头约定：
+
+```
+:app          Android 应用 —— UI · ViewModel · Room · DataStore · Android 相关实现
+              （FileBookTextStore / AndroidXmlParser / XmlParsers）
+:core:reader  纯 JVM 阅读引擎（kotlin-jvm，api :core:domain）—— 零 Android 依赖
+:core:domain  纯 JVM 领域模型与仓储接口（kotlin-jvm）
+```
+
+`:core:*` 只应用 `kotlin("jvm")`：谁在引擎或领域层写下 `import android.*`，编译立刻失败；
+这两个模块的单测在纯 JVM 上跑（无 Robolectric）。三者共用同一组包名
+（`io.github.lunalight.paperread.*`），所以分层调整对调用方透明。
 
 ```
 UI 层       Jetpack Compose + Material 3 · ViewModel + StateFlow 单向数据流
-Domain 层    纯 Kotlin 模型（Book / Chapter / Bookmark / ReaderPosition）
+Domain 层    纯 Kotlin 模型（Book / Chapter / Bookmark / ReaderPosition）· :core:domain
 Data 层      Room（书库·章节·进度·书签）· DataStore（设置）· Repository
-Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlParser 接口）· 双偏移懒加载
+Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlParser 接口）· 双偏移懒加载 · :core:reader
 ```
 
 关键设计：
 
 - **双偏移体系**：Chapter 同时记录字符偏移（进度计算）与字节偏移（文件读取），大文件流式切章、按章懒加载，百 MB 小说内存占用仅为单章
-- **XmlParser 接口**：Android 端包装 XmlPullParser，JVM 测试端用 JDK SAX，EPUB 核心逻辑零 Android 依赖可直测
+- **XmlParser 接口**：Android 端包装 XmlPullParser（`:app`），JVM 端用 JDK SAX（`:core:reader` 的 `JvmXmlParser`），EPUB 核心逻辑零 Android 依赖可直测
 - **字符加权进度**：`(cumulativeChars + 章内偏移) / totalChars`，章节长短不均也不跳变
 
 详细设计见仓库内技术方案文档与 `docs/SPEC.md`、`docs/TASKS.md`。

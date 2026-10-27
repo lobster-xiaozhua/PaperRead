@@ -27,7 +27,7 @@
 #   本脚本守，须靠人工评审 + 真机 install smoke。
 #
 # 断言分三组：
-#   A. @Serializable 漂移守卫：src/main 中每个 @Serializable 声明（按简单名）
+#   A. @Serializable 漂移守卫：各模块 main 源码中每个 @Serializable 声明（按简单名）
 #      都必须在 mapping 中出现——新增序列化类型时**自动**纳入，无需改脚本；
 #   B. 关键契约 FQCN：envelope / state / error 三类逐一断言（被裁即失败）；
 #   C. 生成序列化器：上述每个类型的 `<类型>$$serializer` 必须存在
@@ -43,7 +43,9 @@ set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 MAPPING="app/build/outputs/mapping/clientRelease/mapping.txt"
-SRC_MAIN="app/src/main"
+# @Serializable 漂移守卫的扫描范围（T-010 拆模块后扩展）：app 与两个纯 JVM
+# 模块的 main 源码都会打进 APK，任何一处新增序列化类型都要被本守卫覆盖。
+SRC_ROOTS=(app/src/main core/domain/src/main core/reader/src/main)
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -114,13 +116,13 @@ fi
 # 剥掉 private / internal / data 修饰后取类型名。新增序列化类型无需改本脚本。
 
 header "A) @Serializable 类型保留（漂移守卫）"
-grep -rhA1 '@Serializable' "$SRC_MAIN" --include='*.kt' 2>/dev/null \
+grep -rhA1 '@Serializable' "${SRC_ROOTS[@]}" --include='*.kt' 2>/dev/null \
   | sed -n 's/^\(private \|internal \|public \)*\(data \|sealed \|abstract \)*\(class\|object\|interface\) \([A-Za-z0-9_]*\).*/\4/p' \
   | sort -u > "$TMP/serializable_names.txt"
 
 serializable_total="$(wc -l < "$TMP/serializable_names.txt" | tr -d ' ')"
 if [ "$serializable_total" -eq 0 ]; then
-  echo "✗ 未从 $SRC_MAIN 提取到任何 @Serializable 类型（提取规则失效？）" >&2
+  echo "✗ 未从 ${SRC_ROOTS[*]} 提取到任何 @Serializable 类型（提取规则失效？）" >&2
   fail=1
 else
   missing_serializable=""

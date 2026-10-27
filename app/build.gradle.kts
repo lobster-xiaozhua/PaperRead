@@ -194,6 +194,17 @@ tasks.withType<Test>().configureEach {
 
 // ---- 覆盖率分母口径（report 与 verification 共用同一组 val，改一处即两处生效）----
 //
+// 模块拆分带来的口径变化（T-010 / R-12，务必知情）：
+// 阅读引擎（`:core:reader`）与领域模型（`:core:domain`）已迁出本模块，
+// 它们的 class 不再落在 `tmp/kotlin-classes/clientDebug` 下，因此**不在下面这组
+// 分母里**——本模块的门禁从此只度量 app 侧代码（UI / ViewModel / Room / DataStore /
+// Android 实现）。副作用有两面：
+//   1) 引擎那 99 例纯 JVM 单测不再为 app 侧覆盖率贡献分子（它们测的代码已不在此）；
+//   2) 迁移出的代码本身覆盖率较高（CI 口径实测约 95%），搬走后剩余分母的比率会
+//      **下降**而非虚高——门禁阈值不变（≥ 80%），实测仍通过。
+// 跨模块聚合（把 core 的 exec 合并进同一个 bundle）留给 T-014；在聚合落地前，
+// 引擎侧的行覆盖率**没有门禁兜底**，这是本轮明确登记的空窗。
+//
 // 为什么要动分母（2026-10 第 0 阶段出口验收的阻塞项 P1）：
 // `28d70fc`（T-001 七作业拆分）把 `ui.smoke.*`（Robolectric Compose 渲染冒烟）
 // 从 `unit` 作业移交给 `robolectric-ui` 作业，但覆盖率分母没有同步——于是
@@ -324,6 +335,15 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
 }
 
 dependencies {
+    // 多模块拆分（T-010 / R-12）：领域模型与阅读引擎已迁出为纯 JVM 模块。
+    // 两者包名与拆分前一致，因此源码侧 import 零改动；这里只需声明依赖。
+    // - :core:domain 纯领域模型 + 仓储接口
+    // - :core:reader 纯 JVM 阅读引擎（api 依赖 :core:domain，故会自动带出）
+    // 仍留在本模块的 reader 相关实现：FileBookTextStore（需 Context.filesDir）、
+    // AndroidXmlParser / XmlParsers（需 android.util.Xml），见 T-013。
+    implementation(project(":core:domain"))
+    implementation(project(":core:reader"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
 
