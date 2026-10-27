@@ -10,6 +10,9 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -229,8 +232,121 @@ class BackupCoordinatorTest {
         )
     }
 
-    // ---- 工具 ----
+    @Suppress("DEPRECATION") // ShadowContentResolver#getDeletedUris 在当前版本无替代 API
+    @Test
+    fun `导出中途取消时清理本次新建的SAF目标文档`() {
+        coordinator.loadExportPreview()
+        waitUntil { coordinator.state.value.exportPreview != null }
 
+        val uri = Uri.parse("content://paperread.test/cancel.zip")
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        shadowOf(context.contentResolver).registerOutputStream(uri, GatedOutputStream(started, release))
+
+        coordinator.export(uri, null)
+        assertTrue(
+            "导出应先走到拷贝目标阶段（否则下面的取消不是在测取消路径）",
+            started.await(10, TimeUnit.SECONDS),
+        )
+
+        // 此刻协程正卡在 copyToDocument 的写入里：取消 → 放开 → withContext 返回时
+        // 观察到取消 → finally 的清理必须仍然完成（NonCancellable 的意义所在）。
+        coordinator.cancel()
+        release.countDown()
+
+        waitUntil {
+            coordinator.state.value.message == context.getString(R.string.backup_export_canceled)
+        }
+        val deleted = awaitDeletedUris()
+        assertTrue("取消同样必须清理本次新建的目标文档，实际删除清单=$deleted", deleted.contains(uri))
+        assertNull("取消不是错误态", coordinator.state.value.error)
+    }
+
+    @Suppress("DEPRECATION") // 同上
+    @Test
+    fun `非本次新建的目标文档即使失败也不删除`() {
+        coordinator.loadExportPreview()
+        waitUntil { coordinator.state.value.exportPreview != null }
+
+        val uri = Uri.parse("content://paperread.test/existing.zip")
+        shadowOf(context.contentResolver).registerOutputStream(
+            uri,
+            object : java.io.OutputStream() {
+                override fun write(b: Int) {
+                    throw java.io.IOException("磁盘已满")
+                }
+            },
+        )
+
+        // 调用方声明「这个文档不是我新建的」（用户既有文件）
+        coordinator.export(uri, null, targetCreatedByThisExport = false)
+
+        waitUntil { coordinator.state.value.error != null }
+        waitUntil { !coordinator.state.value.busy }
+        assertFalse(
+            "用户既有文件不得被清理逻辑误删",
+            shadowOf(context.contentResolver).deletedUris.contains(uri),
+        )
+    }
+
+    @Test
+    fun `加密备份在口令未提供阶段也报缺失字体`() {
+        val zip = File(tmp.root, "fonts-encrypted.zip")
+        kotlinx.coroutines.runBlocking {
+            BackupExporter(
+                bookRepository = repository,
+                bookTextStore = textStore,
+                fontReferencesProvider = {
+                    listOf(
+                        BackupFontReference("serif", "衬线", builtIn = true),
+                        BackupFontReference("霞鹜文楷", "霞鹜文楷"),
+                    )
+                },
+            ).export(zip, "correct-horse-battery".toCharArray())
+        }
+        val uri = openUri(zip)
+
+        // 字体可用性只取决于明文 manifest，与是否解密无关（P3-1 的关键前提）
+        val fontAware = BackupCoordinator(
+            context = context,
+            exporter = BackupExporter(repository, textStore),
+            importer = BackupImporter(
+                bookRepository = repository,
+                gateway = FakeImportGateway(),
+                stateWriter = BookStateWriter(repository),
+                workDir = File(context.cacheDir, "backup/work-fonts"),
+                fontAvailability = { name -> name in FontAvailability.BUILT_IN_FONT_NAMES },
+            ),
+            scope = scope,
+        )
+
+        fontAware.openBackup(uri)
+        waitUntil { fontAware.state.value.importPreview != null }
+        val preview = fontAware.state.value.importPreview!!
+        assertTrue("加密包应停在「需要口令」", preview.passwordRequired)
+        assertEquals("口令未提供阶段也要报缺失字体", listOf("霞鹜文楷"), preview.fontFallbacks)
+        assertEquals("书名仍以占位形式出现", listOf("书籍 1"), preview.bookTitles)
+        fontAware.dismissImportPreview()
+    }
+
+    /** 首次写入即阻塞、直到 [release] 放行的输出流（用来把导出钉在拷贝阶段）。 */
+    private class GatedOutputStream(
+        private val started: CountDownLatch,
+        private val release: CountDownLatch,
+    ) : java.io.OutputStream() {
+        private val writes = AtomicInteger()
+
+        override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            if (writes.getAndIncrement() == 0) {
+                started.countDown()
+                release.await()
+            }
+        }
+    }
+
+    // ---- 工具 ----
     private fun exportToFile(password: CharArray?): File = kotlinx.coroutines.runBlocking {
         val zip = File(tmp.root, "coordinator-${System.nanoTime()}.zip")
         BackupExporter(repository, textStore).export(zip, password)

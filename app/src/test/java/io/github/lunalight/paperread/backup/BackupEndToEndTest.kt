@@ -183,6 +183,15 @@ class BackupEndToEndTest {
                 assertEquals("阅读段落应回写", before.lastParagraphIndex, restored.lastParagraphIndex)
                 assertEquals("字符偏移应回写", before.lastCharOffset, restored.lastCharOffset)
                 assertEquals("进度百分比应回写", before.progressPercent, restored.progressPercent, 0.0001f)
+                // F-01 回归守卫：上轮这条端到端用例比对了 8 个字段却漏掉
+                // lastReadAt，正好把「恢复把时间戳写成 now」藏了过去。语义上
+                // 「阅读进度」包含最后阅读时间，必须逐值相等（不是「差不多是现在」）。
+                assertTrue("前置条件：源书应有最后阅读时间", before.lastReadAt != null)
+                assertEquals(
+                    "上次阅读时间应保真（AC-14.1 / F-01）",
+                    before.lastReadAt,
+                    restored.lastReadAt,
+                )
                 assertTrue("恢复后 book.txt 应由流水线重建", textStore.textFile(restored.dirName).length() > 0)
 
                 val beforeMarks = bookmarksBefore.getValue(restored.sha256)
