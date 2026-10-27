@@ -29,11 +29,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lunalight.paperread.BuildConfig
 import io.github.lunalight.paperread.PaperReadApp
+import io.github.lunalight.paperread.R
 
 /**
  * 设置页（S2）：阅读偏好 + 备份与恢复（US-14）+ 关于入口。
@@ -53,6 +55,7 @@ import io.github.lunalight.paperread.PaperReadApp
 fun SettingsScreen(
     onBack: () -> Unit,
     onOpenAbout: () -> Unit,
+    onReplayOnboarding: () -> Unit,
 ) {
     val context = LocalContext.current
     val container = (context.applicationContext as PaperReadApp).container
@@ -113,6 +116,26 @@ fun SettingsScreen(
                 onDismissImportPreview = backupViewModel::dismissImportPreview,
                 onDismissReport = backupViewModel::dismissReport,
                 onDismissError = backupViewModel::clearError,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // ---- 重新查看引导（T-020 · AC-18.4） ----
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.settings_replay_onboarding_title)) },
+                supportingContent = {
+                    Text(stringResource(R.string.settings_replay_onboarding_subtitle))
+                },
+                leadingContent = {
+                    Icon(Icons.Filled.Info, contentDescription = null)
+                },
+                trailingContent = {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                    )
+                },
+                modifier = Modifier.clickable(onClick = onReplayOnboarding),
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

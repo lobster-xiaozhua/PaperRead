@@ -69,7 +69,7 @@ class SettingsScreenTest {
     fun `设置页渲染全部阅读偏好控件`() {
         composeRule.setContent {
             PaperReadTheme {
-                SettingsScreen(onBack = {}, onOpenAbout = {})
+                SettingsScreen(onBack = {}, onOpenAbout = {}, onReplayOnboarding = {})
             }
         }
         // 分区标题与主题 / 字体 / 字号默认值（首屏内，按页面自上而下断言）
@@ -103,7 +103,7 @@ class SettingsScreenTest {
     fun `设置页拖动字号滑块实时生效并经DataStore回流`() {
         composeRule.setContent {
             PaperReadTheme {
-                SettingsScreen(onBack = {}, onOpenAbout = {})
+                SettingsScreen(onBack = {}, onOpenAbout = {}, onReplayOnboarding = {})
             }
         }
         composeRule.onNodeWithText("18 sp").assertRendered()
@@ -136,7 +136,7 @@ class SettingsScreenTest {
         var aboutOpened = false
         composeRule.setContent {
             PaperReadTheme {
-                SettingsScreen(onBack = {}, onOpenAbout = { aboutOpened = true })
+                SettingsScreen(onBack = {}, onOpenAbout = { aboutOpened = true }, onReplayOnboarding = {})
             }
         }
         // 30s 上限同 UiSmokeTest：容纳 NATIVE 图形字体一次性拷贝成本，防止慢 runner 误超时
@@ -152,10 +152,30 @@ class SettingsScreenTest {
     // ---- 备份与恢复入口（T-015 / US-14） ----
 
     @Test
+    fun `点击重新查看引导进入引导页`() {
+        var replayed = false
+        composeRule.setContent {
+            PaperReadTheme {
+                SettingsScreen(
+                    onBack = {},
+                    onOpenAbout = {},
+                    onReplayOnboarding = { replayed = true },
+                )
+            }
+        }
+        // AC-18.4：引导入口常驻设置页，与「关于」相邻
+        composeRule.waitUntilAtLeastOneExists(hasText("重新查看引导"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("重新查看引导").performScrollTo().assertRendered()
+        composeRule.onNodeWithText("重新查看引导").performClick()
+        composeRule.waitForIdle()
+        assertTrue("点击引导入口应重新打开引导", replayed)
+    }
+
+    @Test
     fun `设置页展示备份与恢复入口`() {
         composeRule.setContent {
             PaperReadTheme {
-                SettingsScreen(onBack = {}, onOpenAbout = {})
+                SettingsScreen(onBack = {}, onOpenAbout = {}, onReplayOnboarding = {})
             }
         }
         composeRule.waitUntilAtLeastOneExists(hasText("备份与恢复"), timeoutMillis = 30_000)
@@ -168,7 +188,7 @@ class SettingsScreenTest {
     fun `点击导出备份先展示预览摘要`() {
         composeRule.setContent {
             PaperReadTheme {
-                SettingsScreen(onBack = {}, onOpenAbout = {})
+                SettingsScreen(onBack = {}, onOpenAbout = {}, onReplayOnboarding = {})
             }
         }
         composeRule.waitUntilAtLeastOneExists(hasText("导出备份"), timeoutMillis = 30_000)

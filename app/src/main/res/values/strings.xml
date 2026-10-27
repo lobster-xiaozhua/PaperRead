@@ -151,4 +151,23 @@
     <string name="settings_font_error_unsupported">该文件不是有效的 TTF / OTF 字体</string>
     <string name="settings_font_error_too_large">字体文件超过 %1$d MB，无法导入</string>
     <string name="settings_font_error_unreadable">无法读取所选文件，请重试</string>
+
+    <!-- 新手引导（T-020 · US-18）：三屏文案 + 空态 + 重看入口（AC-18.2 ~ AC-18.6） -->
+    <string name="onboarding_skip">跳过</string>
+    <string name="onboarding_next">下一步</string>
+    <string name="onboarding_start">开始使用</string>
+    <string name="onboarding_page1_title">书只存在这台设备上</string>
+    <string name="onboarding_page1_body">纸阅不联网、不上传：书架、阅读进度与书签都保存在本机，卸载即清除。没有账号，也不需要登录。</string>
+    <string name="onboarding_page2_title">把已有的书带进来</string>
+    <string name="onboarding_page2_body">从系统文件选择器导入 TXT / EPUB，自动识别 GBK / UTF-8 并切分章节。与电脑同一 Wi-Fi 时可以用局域网传书；换手机时用迁移一次搬走整架书和进度。</string>
+    <string name="onboarding_page3_title">听书需要中文语音包</string>
+    <string name="onboarding_page3_body">朗读由系统的文字转语音（TTS）引擎在本机离线合成。若点朗读没有声音，请到「系统设置 → 无障碍 → 文字转语音」安装中文语音包后再试。</string>
+
+    <string name="settings_replay_onboarding_title">重新查看引导</string>
+    <string name="settings_replay_onboarding_subtitle">回顾数据存储、导入书籍与听书的前提</string>
+
+    <string name="bookshelf_empty_title">书架空空如也</string>
+    <string name="bookshelf_empty_body">导入本地 TXT / EPUB 开始阅读\n书只保存在本机，不联网</string>
+    <string name="bookshelf_empty_import">导入书籍</string>
+    <string name="bookshelf_empty_transfer">局域网传书</string>
 </resources>

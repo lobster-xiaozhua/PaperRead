@@ -16,9 +16,11 @@ import io.github.lunalight.paperread.data.repository.AndroidBookImportGateway
 import io.github.lunalight.paperread.data.repository.BookImportGateway
 import io.github.lunalight.paperread.data.repository.BookImporter
 import io.github.lunalight.paperread.data.repository.BookRepositoryImpl
+import io.github.lunalight.paperread.data.onboarding.OnboardingStore
 import io.github.lunalight.paperread.data.repository.BookStateWriter
 import io.github.lunalight.paperread.data.repository.DefaultBookImporter
 import io.github.lunalight.paperread.data.settings.PreferencesSettingsStore
+import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.data.settings.SettingsDataStoreProvider
 import io.github.lunalight.paperread.data.settings.SettingsStore
 import io.github.lunalight.paperread.domain.repository.BookRepository
@@ -92,6 +94,35 @@ class AppContainer(context: Context) {
      * 实例，见 PreferencesDataStoreProvider）——lazy 保证。
      */
     val customFontStore: CustomFontStore by lazy { CustomFontStore.create(applicationContext) }
+
+    /**
+     * 新手引导标记（T-020 / US-18）。
+     *
+     * 独立 DataStore（`app_prefs`）+ 注入「是否老用户」判据（AC-18.1：
+     * 升级安装不属于首次）。判据放在这里而不是 OnboardingStore 内部，
+     * 是因为「什么算用过」是装配层的知识（要知道 preference 与书架两处），
+     * 而 OnboardingStore 只该知道「有没有痕迹」。
+     */
+    val onboardingStore: OnboardingStore by lazy {
+        OnboardingStore.create(applicationContext) { hasLegacyUsage() }
+    }
+
+    /**
+     * 老用户判据：**行为痕迹**而非「键是否存在」。
+     *
+     * - 阅读设置与默认值不同（用户真的改过字号 / 主题 / 朗读…）；
+     * - 或书架非空（用户真的导入过书）。
+     *
+     * 刻意不用「DataStore 文件里有没有键」：写一遍全默认值（测试复位、
+     * 或旧版本某些路径顺手写盘）也会留下键，但那不是使用痕迹；反过来，
+     * 升级用户即使从没进过设置页，只要书架有书就一定不是新用户。
+     *
+     * `internal`：单测直接断言这条判据（装配漏接是最容易漏测的失败模式）。
+     */
+    internal suspend fun hasLegacyUsage(): Boolean {
+        if (settingsStore.settings.first() != ReaderSettings()) return true
+        return bookRepository.observeBooks().first().isNotEmpty()
+    }
 
     /**
      * 语音朗读控制器（进程单例）。

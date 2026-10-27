@@ -7,7 +7,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasProgressBarRangeInfo
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -133,8 +132,15 @@ class UiSmokeTest {
 
     @Test
     fun `空书架显示导入入口`() {
+        var transferStarted = false
         composeRule.setContent {
-            PaperReadTheme { BookshelfScreen(onOpenSettings = {}, onOpenBook = {}, onStartTransfer = {}) }
+            PaperReadTheme {
+                BookshelfScreen(
+                    onOpenSettings = {},
+                    onOpenBook = {},
+                    onStartTransfer = { transferStarted = true },
+                )
+            }
         }
         // 首帧是加载态（CircularProgressIndicator），Room 空流到达后才切空态。
         // waitForIdle 只保证 Compose 空闲、不保证异步状态已到达，CI 高负载下
@@ -144,15 +150,13 @@ class UiSmokeTest {
         // 解压拷贝 native 字体（约 3-5s，着陆点随机），CI 慢机器上会计入等待窗口。
         composeRule.waitUntilAtLeastOneExists(hasText("书架空空如也"), timeoutMillis = 30_000)
         composeRule.onNodeWithText("书架空空如也").assertRendered()
-        composeRule.waitUntilAtLeastOneExists(hasText("选择文件"), timeoutMillis = 30_000)
-        composeRule.onNodeWithText("选择文件").assertRendered()
-        // FAB 文本未并入合并语义树，waitUntilAtLeastOneExists 只查合并树，
-        // 改用 waitUntil + 未合并树查询等待其出现
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            composeRule.onAllNodesWithText("导入书籍", useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithText("导入书籍", useUnmergedTree = true).assertRendered()
+        // AC-18.5：空态给「导入书籍」（主）+「局域网传书」（次）+ 一句话说明
+        composeRule.waitUntilAtLeastOneExists(hasText("导入书籍"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("导入书籍").assertRendered()
+        composeRule.waitUntilAtLeastOneExists(hasText("局域网传书"), timeoutMillis = 30_000)
+        composeRule.onNodeWithText("局域网传书").performClick()
+        composeRule.waitForIdle()
+        assertTrue("空态「局域网传书」应回调传书入口", transferStarted)
     }
 
     @Test

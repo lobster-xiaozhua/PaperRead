@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -67,6 +68,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -178,7 +181,9 @@ fun BookshelfScreen(
             }
         },
         floatingActionButton = {
-            if (!selectionMode) {
+            // 空态时隐藏 FAB：空态自己有主行动（导入书籍）+ 次行动（局域网传书），
+            // 两个「导入书籍」按钮并存既重复又让自动化测试无法唯一定位（AC-18.5）
+            if (!selectionMode && state.books.isNotEmpty()) {
                 ExtendedFloatingActionButton(
                     onClick = { importLauncher.launch(arrayOf("*/*")) },
                     icon = { Icon(Icons.Filled.Add, contentDescription = null) },
@@ -201,6 +206,7 @@ fun BookshelfScreen(
                 state.books.isEmpty() -> {
                     EmptyBookshelf(
                         onImport = { importLauncher.launch(arrayOf("*/*")) },
+                        onStartTransfer = { onStartTransfer(emptyList()) },
                         modifier = Modifier.align(Alignment.Center),
                     )
                 }
@@ -295,7 +301,11 @@ fun BookshelfScreen(
 }
 
 @Composable
-private fun EmptyBookshelf(onImport: () -> Unit, modifier: Modifier = Modifier) {
+private fun EmptyBookshelf(
+    onImport: () -> Unit,
+    onStartTransfer: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier.padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -307,15 +317,23 @@ private fun EmptyBookshelf(onImport: () -> Unit, modifier: Modifier = Modifier) 
             tint = MaterialTheme.colorScheme.primary,
         )
         Spacer(Modifier.height(16.dp))
-        Text("书架空空如也", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.bookshelf_empty_title), style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
+        // AC-18.5：一句话说明 + 主「导入书籍」+ 次「局域网传书」
         Text(
-            text = "导入本地 TXT 小说开始阅读\n支持 GBK / UTF-8 自动识别，可手动切换",
+            text = stringResource(R.string.bookshelf_empty_body),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(24.dp))
-        TextButton(onClick = onImport) { Text("选择文件") }
+        Button(onClick = onImport) {
+            Text(stringResource(R.string.bookshelf_empty_import))
+        }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onStartTransfer) {
+            Text(stringResource(R.string.bookshelf_empty_transfer))
+        }
     }
 }
 
