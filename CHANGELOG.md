@@ -3,7 +3,7 @@
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
 每个正式版本的完整说明见 [GitHub Releases](https://github.com/lobster-xiaozhua/PaperRead/releases)。
 
-## [2.0.0] - 未发布
+## [0.2.0] - 2026-10-28
 
 > 本条目按 [docs/release-notes-template.md](docs/release-notes-template.md) 五段组织（AC-21.3）。
 

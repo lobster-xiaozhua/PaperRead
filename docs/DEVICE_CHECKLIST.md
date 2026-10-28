@@ -1,6 +1,6 @@
 # 纸阅 PaperRead 装机验证清单
 
-> 适用版本：v2.0.0（发布前 bump，当前 versionName 见 app/build.gradle.kts；minSdk 26 / targetSdk 35）
+> 适用版本：v0.2.0（当前 versionName 见 app/build.gradle.kts；minSdk 26 / targetSdk 35）
 > 验证目标设备：至少一台 Android 8.0（API 26）真机；建议覆盖 Android 13/14/15 各一台
 > 隐私红线：全程开启飞行模式或断网验证，应用**不得**出现任何网络行为
 

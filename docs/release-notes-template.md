@@ -34,6 +34,8 @@
   （示例条目，继承自 v2.0.0 CHANGELOG 的 breaking 描述——后续版本按实际 breaking
   改写，不要原样照抄。）
 - 【版本门控 / 数据格式变化】：【如备份格式、迁移包、数据库 schema 有版本门控，说明旧版本数据的兼容行为】
+- 【签名与装包】：从旧 debug 签名版升级到 release 正式版的设备，须先卸载旧 debug 版（数据用应用内「备份/恢复」导出后再恢复）；`.dev` 调试版与正式版包名不同（.dev 后缀），可同机并存、互不干扰，无需卸载。
+- 【versionCode 纪律】：versionCode 只能递增（+1）、不可回退，否则系统会因签名/版本不一致拒绝安装（INSTALL_FAILED_UPDATE_INCOMPATIBLE）。规则见 docs/SIGNING.md §9。
 
 ---
 

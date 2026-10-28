@@ -11,7 +11,7 @@
 - **本地导入 TXT / EPUB**：智能章节解析，5 套预设阅读主题，段级进度记忆
 - **零二进制素材**：封面程序化生成，图标为矢量图，安装包干净可审查
 
-> 状态：**v2.0.0**（versionCode 5，未发布——CHANGELOG 已就绪。相对 v1.2.0 新增：传输配对鉴权 / 本地备份恢复 / 全书搜索 / 书签备注 / 自定义字体 / 新手引导 / 诊断导出 / UI 文案资源化 / 无障碍基线；830 单测全绿 / lint 0·0 / 行覆盖率以 `jacocoTestReport` 报告为准（门禁 ≥ 80%，三模块聚合口径：app + :core:data + :core:reader；经登记的零覆盖纯渲染类不计入分母，清单见 `app/build.gradle.kts`））。
+> 状态：**v0.2.0**（versionCode 5，已发布——CHANGELOG 已就绪。相对 v1.2.0 新增：传输配对鉴权 / 本地备份恢复 / 全书搜索 / 书签备注 / 自定义字体 / 新手引导 / 诊断导出 / UI 文案资源化 / 无障碍基线；830 单测全绿 / lint 0·0 / 行覆盖率以 `jacocoTestReport` 报告为准（门禁 ≥ 80%，三模块聚合口径：app + :core:data + :core:reader；经登记的零覆盖纯渲染类不计入分母，清单见 `app/build.gradle.kts`））。
 > 升级注意：局域网传输协议升级至 v2，与 v1.2 及更早版本设备**不互通**，详见 [CHANGELOG.md](CHANGELOG.md) 的「升级注意」。未来规划见 [ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能

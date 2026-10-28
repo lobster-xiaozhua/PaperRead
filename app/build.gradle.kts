@@ -24,8 +24,10 @@ android {
         applicationId = "io.github.lunalight.paperread"
         minSdk = 26
         targetSdk = 35
+        // versionCode 只能递增、不可回退（回退会导致 INSTALL_FAILED_UPDATE_INCOMPATIBLE）。
+        // 每次发版 +1；规则见 docs/SIGNING.md §9 与 docs/release-notes-template.md。
         versionCode = 5
-        versionName = "2.0.0"
+        versionName = "0.2.0"
     }
 
     // 分发渠道（单一维度 distribution），2026-10-18 用户拍板（ROADMAP C9 决策点 2）：
@@ -56,8 +58,24 @@ android {
     // Release 签名：keystore 不入库，经 gradle properties / 环境变量注入：
     //   RELEASE_STORE_FILE / RELEASE_STORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD
     // 未配置时产出未签名 release APK（可用 apksigner 后续重签）。
+    //
+    // 密钥即应用身份（docs/SIGNING.md §1）：同一密钥才能覆盖安装旧版本，密钥一旦丢失，
+    // 该包名（io.github.lunalight.paperread）下已装用户将永久无法更新，且无法找回。
+    // 本地签名：在 local.properties（或 ~/.gradle/gradle.properties）写入上述四个属性
+    // （模板见仓库根 keystore.properties.template），再 ./gradlew assembleClientRelease。
+    // F-Droid 渠道从源码自行构建并自签（docs/SIGNING.md §7），与我们的 release 密钥无关，
+    // 不需要、也不应交出密钥给第三方。
     val releaseStoreFile: File? =
         (project.findProperty("RELEASE_STORE_FILE") as String?)?.let { file(it) }
+
+    // 发布护栏（docs/SIGNING.md §5）：置 RELEASE_ENFORCE_SIGNING=true 时若仍未配置签名，
+    // 直接失败，杜绝把未签名包当发布包发出去。CI 的 assemble 作业不签名、不置该属性，保持绿。
+    val enforceSigning = project.findProperty("RELEASE_ENFORCE_SIGNING") == "true"
+    if (releaseStoreFile == null && enforceSigning) {
+        throw GradleException(
+            "发布构建要求签名，但未找到 RELEASE_STORE_FILE。请按 docs/SIGNING.md 配置签名属性后再发布。",
+        )
+    }
 
     signingConfigs {
         if (releaseStoreFile != null) {
@@ -66,6 +84,11 @@ android {
                 storePassword = project.findProperty("RELEASE_STORE_PASSWORD") as String?
                 keyAlias = project.findProperty("RELEASE_KEY_ALIAS") as String?
                 keyPassword = project.findProperty("RELEASE_KEY_PASSWORD") as String?
+                // 显式开启全签名方案（docs/SIGNING.md §6）：
+                // v3 支持密钥轮转，未来密钥泄露可平滑轮换而不丢更新能力。
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
