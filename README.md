@@ -11,8 +11,8 @@
 - **本地导入 TXT / EPUB**：智能章节解析，5 套预设阅读主题，段级进度记忆
 - **零二进制素材**：封面程序化生成，图标为矢量图，安装包干净可审查
 
-> 状态：**v1.2.0**（体验增强版：TTS 语音朗读 / 局域网传书·迁移·进度同步 / 设置页与关于页 / 仿真翻页 / 平板双页跨页，830 单测全绿 / lint 0·0 / 行覆盖率以 `jacocoTestReport` 报告为准（门禁 ≥ 80%，三模块聚合口径：app + :core:data + :core:reader；经登记的零覆盖纯渲染类不计入分母，清单见 `app/build.gradle.kts`））。
-> `main` 含未发布变更：Kotlin 工具链升级（版本以 `gradle/libs.versions.toml` 为单一来源）、TTS 语音朗读（系统 TTS 离线朗读 + 后台常驻播放）。未来规划见 [ROADMAP.md](docs/ROADMAP.md)。
+> 状态：**v2.0.0**（versionCode 5，未发布——CHANGELOG 已就绪。相对 v1.2.0 新增：传输配对鉴权 / 本地备份恢复 / 全书搜索 / 书签备注 / 自定义字体 / 新手引导 / 诊断导出 / UI 文案资源化 / 无障碍基线；830 单测全绿 / lint 0·0 / 行覆盖率以 `jacocoTestReport` 报告为准（门禁 ≥ 80%，三模块聚合口径：app + :core:data + :core:reader；经登记的零覆盖纯渲染类不计入分母，清单见 `app/build.gradle.kts`））。
+> 升级注意：局域网传输协议升级至 v2，与 v1.2 及更早版本设备**不互通**，详见 [CHANGELOG.md](CHANGELOG.md) 的「升级注意」。未来规划见 [ROADMAP.md](docs/ROADMAP.md)。
 
 ## 功能
 
@@ -38,10 +38,16 @@
 | 局域网传书（UDP 发现 + 局域网 HTTP：多选发送 / 进度可取消 / 复用导入流水线） | ✅ |
 | 换机迁移（整库打包为单一 zip、逐本导入、进度书签 last-write-wins 回写） | ✅ |
 | 进度同步（双向交换阅读位置与书签、last-write-wins 冲突、书签只增不删） | ✅ |
+| 传输配对鉴权（配对码 + HMAC 请求令牌防重放，未配对拒绝一切请求） | ✅ |
 | TTS 语音朗读（系统 TTS 离线合成 / 段级高亮跟随 / 语速音调 / 章尾自动续读 / 后台常驻播放） | ✅ |
 | 本地备份 / 恢复（zip 导出导入、可选口令加密 AES-256-GCM、幂等恢复、失败明细） | ✅ |
+| 自定义字体（TTF / OTF 经 SAF 导入、魔数校验、选用持久化、缺失静默回退） | ✅ |
+| 新手引导（首启三屏：数据本机 / 导入与迁移 / 听书语音包）+ 空书架空态 | ✅ |
+| 诊断导出（崩溃日志环形 10 份 + 导入失败环形 5 条，脱敏 zip 一键导出） | ✅ |
+| UI 文案全量资源化（strings.xml 单一来源 + CI 硬编码文案门禁） | ✅ |
+| 无障碍基线（TalkBack 语义标注 / 触达高度 ≥ 48dp / CI 语义冒烟） | ✅ |
 
-Roadmap：自定义字体、平板适配、国际化（见 [ROADMAP.md](docs/ROADMAP.md)）。
+Roadmap：书架级全局搜索、国际化、无障碍增强（见 [ROADMAP.md](docs/ROADMAP.md)）。
 
 ## 构建
 
@@ -99,6 +105,28 @@ echo "sdk.dir=/path/to/Android/sdk" > local.properties
 
 装机前请按 [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md) 完成真机验证。
 
+## 发行渠道与安装
+
+| 渠道 | 状态 | 说明 |
+|---|---|---|
+| GitHub Releases | ✅ 正式渠道 | 在 [Releases](https://github.com/lobster-xiaozhua/PaperRead/releases) 下载 APK 直接安装；Release 说明按 [docs/release-notes-template.md](docs/release-notes-template.md) 撰写 |
+| F-Droid | 🔜 计划上架 | fastlane 元数据已就绪（[fastlane/metadata/android/zh-CN/](fastlane/metadata/android/zh-CN/)：名称 / 简述 / 详述 / 更新日志，截图与图标素材待真机采集），上架后在此更新 badge 与安装指引 |
+
+> **分发渠道决策（D1）**：纸阅**不上架 Google Play 与国内应用商店**——
+> 上架要求接入商店 SDK / 推送 / 统计等与阅读无关的服务，与「无遥测、
+> 零第三方依赖」的隐私承诺冲突。GitHub Releases 与 F-Droid 两个渠道均
+> 不引入任何第三方代码。
+
+### 安装指引
+
+1. **GitHub Releases（推荐）**：进入 [Releases](https://github.com/lobster-xiaozhua/PaperRead/releases) 页，
+   下载 `app-client-release.apk`（client 正式版，推荐）安装；
+   `app-dev-debug.apk` 为 dev 调试版（applicationId 带 `.dev` 后缀，可与正式版同机安装，用于自测局域网传书互发），日常使用无需安装。
+2. **F-Droid（待上架）**：上架后可直接在 F-Droid 搜索「纸阅」安装，更新由 F-Droid 构建流程从源码产出。
+3. 隐私政策：[PRIVACY.md](PRIVACY.md)（与应用内「关于 → 隐私说明」页同源）。
+4. 从 v1.2 升级到 v2.0 的用户请先阅读 [CHANGELOG.md](CHANGELOG.md) 的「升级注意」：
+   **局域网传输协议与 v1.2 不兼容**，需要互传的设备请都升级到 v2.0。
+
 ## 架构
 
 四层分层，`reader/` 引擎为零 Android 依赖的纯 Kotlin 模块，全部逻辑可 JVM 单测。
@@ -143,10 +171,11 @@ Reader 引擎  CharsetDetector · ChapterSplitter · EpubParser（只依赖 XmlP
 
 仓库已上线：<https://github.com/lobster-xiaozhua/PaperRead>。发版步骤：
 
-1. 更新 `CHANGELOG.md` 与 `app/build.gradle.kts` 的 `versionName` / `versionCode`
-2. 提交后打标签并推送：`git tag -a vX.Y.Z -m "..." && git push origin main vX.Y.Z`
-3. 构建产物：`./gradlew assembleDebug assembleRelease`
-4. 在 [Releases](https://github.com/lobster-xiaozhua/PaperRead/releases) 基于该 tag 创建 Release 并附上 APK
+1. 更新 `CHANGELOG.md`（按 [docs/release-notes-template.md](docs/release-notes-template.md) 五段组织）与 `app/build.gradle.kts` 的 `versionName` / `versionCode`（versionCode 按既有节奏 +1）
+2. 同步 `fastlane/metadata/android/zh-CN/changelogs/<新 versionCode>.txt`（≤ 500 字符）与 `PRIVACY.md`（权限 / 网络行为有变化时）
+3. 提交后打标签并推送：`git tag -a vX.Y.Z -m "..." && git push origin main vX.Y.Z`
+4. 构建产物：`./gradlew assembleDebug assembleRelease`
+5. 在 [Releases](https://github.com/lobster-xiaozhua/PaperRead/releases) 基于该 tag 创建 Release，说明按模板五段撰写并附上 APK
 
 签名见上文「Release 签名」（keystore 不入库，经 `local.properties` 注入）。
 

@@ -7,7 +7,7 @@
 ## 当前版本
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
-- **main 未发布变更**：T-018 自定义字体（US-16）· T-020 新手引导（US-18）· T-021 反馈 / 诊断导出（US-19）——三功能已合入，待随下一版本发布
+- **待发布 v2.0.0（versionCode 5）**：版本号已就绪（`app/build.gradle.kts`），CHANGELOG 按 [release-notes-template](release-notes-template.md) 五段组织完毕。内容 = 第 0 / 1 阶段（传输鉴权 R-01 / 隐私可验证化 R-02 / 模块化 R-12 / Room 迁移 R-06 / 线程模型 R-10 / 覆盖率与 CI 门禁）+ 第 2 阶段（备份恢复 US-14 / 全书搜索 US-15 / 书签备注 US-17 / 自定义字体 US-16 / 新手引导 US-18 / 诊断导出 US-19 / 文案资源化 US-21 / 无障碍 US-22）。发行物料见「工程与交付」的 T-024 条目
 - **质量基线**：830 单测全绿（其中 2 例门控 / skipped；app 635 + `:core:data` 78 + `:core:reader` 117）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 八作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
 
 ## 当前能力（已完成）
@@ -20,6 +20,12 @@
 - 覆盖率口径（2026-10 批次 4 整改·最小化 + 显式白名单；T-014 起为**三模块聚合口径**：app + :core:data + :core:reader 的 class 与 exec 合并度量）：分母默认包含**所有**类；仅**经登记的零覆盖纯渲染类**不计入分母（当前 7 个：`ReaderScreenKt` / `ReaderContentKt` / `ReaderPagerKt` / `ReaderChromeKt` / `SpeechControlBarKt` / `TransferScreenKt` / `ReaderSettingsSheetKt`，显式类名清单见 `app/build.gradle.kts` 的 `coverageExcludedRenderClasses`）。登记条件两条缺一不可：① CI 口径（`-PexcludeUiSmokeTests=true`）下该类 0%（完全未执行）；② 无任何 CI 测试代码 import / 调用其逻辑成员（仅被 `ui.smoke` 渲染用例引用不算被测）。**T-011（R-11）后阅读器从 1 个 645 行 God File 拆成 6 个文件**：编排层 `ReaderScreen.kt` 归零为「状态收集 + 事件分发 + 部件组合」，正文 / 翻页 / 外壳 / 朗读条各自成类并逐个登记白名单（与拆分前同一批渲染行、同一条登记理由，只是按类重新归属），而**系统效果（`ReaderEffectsKt`）合并到分母内度量**——因此拆分没有靠扩大白名单来「凑」覆盖率。**不再按 `*ScreenKt` / `*DialogKt` 等模式通配剔除**——通配会让新增的 `FooScreen.kt` 自动脱离度量，并让被测试直接调用的逻辑函数（如 `ImportResultDialogKt.formatFileSize`、`LicenseScreenKt.readLicenseText`）连同文件一起从分母消失；白名单后新增文件默认进分母，逻辑进 `*Screen.kt` 也会被度量，要划出分母须显式登记并说明理由。UI 行为由 `robolectric-ui` 作业的行为冒烟承载，两个作业口径互补。**T-012（R-11 第二批 God File 拆分）后传输域与导入域同样按职责拆类**：`transfer/LanTransferManager.kt`（1131 行）→ 门面 + `TransferCoordinator`（状态流 / 生命周期 / 配对） + `TransferSendController` / `TransferReceiveController` / `TransferMigrationController` / `TransferSyncController`；`transfer/TransferHttpServer.kt`（725 行）→ 纯帧层（`TransferHttpServer` + `TransferHttpConnection`） + 语义层 `TransferServer`（路由 + 鉴权中间件）+ 客户端 `TransferClient`；`data/repository/BookImporter.kt`（716 行）→ 门面 + `PreparePipeline` + `ImportSource` + `BookParserRegistry`（`TxtBookParser` / `EpubBookParser`，契约 `BookParser` 落 `:core:reader`）。**新类默认全部进分母度量、无一个新增白名单**——拆分后分母扩大、分子同步扩大，比率不降反升；「该拆但没拆」的纯转发层（如 `ImportModels.kt` 的数据契约）只做同包移动，不引入新类
 - CI 结构演进（2026-10）：门禁原为「合并成单次 Gradle 调用」以省配置阶段，现改为八作业独立 —— 理由是**失败定位清晰**（哪道门禁红一目了然，不必翻单次构建日志）+ **flaky 隔离**（Robolectric 渲染在内存受限 runner 上抖动，重试 ≤ 1 隔离在 `robolectric-ui`，不阻塞 `unit`）；代价是各作业各付一次配置阶段（AGP + KSP + Room + Compose，约 10s），多作业并行执行下总时长不劣于单作业。其余提效手段保留：Robolectric android-all jar（API 34 运行 SDK + API 35 compileSdk，约 335MB/轮）经 actions/cache 跨运行复用；单测双 fork 并行；纯文档变更（md / docs）跳过 CI；产物保留期收敛为 14 天
 - 开源物料：README / LICENSE(Apache-2.0) / CONTRIBUTING / AGENTS / SECURITY / Issue 模板 / PR 模板 / CODEOWNERS / .editorconfig
+- **发行物料（T-024 / US-21 / R-21）**：
+  - F-Droid 元数据：`fastlane/metadata/android/zh-CN/`（title / short / full / license / source / issues / changelogs/5.txt；截图与图标素材待真机采集，采集指引见该目录 `images/README.md`）。注意：架构文档曾写 `fastlane/metadata/zh-CN/`，实际按 F-Droid 官方规范落在 `fastlane/metadata/android/zh-CN/`
+  - `PRIVACY.md`：独立隐私政策（与应用内隐私说明页同源：4 项权限逐项用途 / 不访问公网 / 备份加密与诊断导出数据边界 / 无账号·无云同步·无遥测），附最近更新日期
+  - `docs/release-notes-template.md`：Release 五段模板（新增 / 变更 / 修复 / 已知问题 / 升级注意），升级注意含 Breaking 标注（传输协议 v2 与 v1.2 不互通），自 v2.0.0 起使用
+  - README：发行渠道表（GitHub Releases 正式 + F-Droid 计划上架）、安装指引、**不上架 Google Play / 国内商店（决策 D1）**、v2.0.0 状态行
+  - 版本号：`versionCode 4 → 5`、`versionName 1.2.0 → 2.0.0`；CHANGELOG v2.0.0 条目按模板五段补全并与模板联动
 
 ### 导入
 - TXT 导入：SAF 选文件 + 流式拷贝 + SHA-256 去重 + 磁盘预检（空间 1.5 倍）

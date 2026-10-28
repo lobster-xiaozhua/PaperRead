@@ -5,26 +5,69 @@
 
 ## [2.0.0] - 未发布
 
-> **Breaking**：局域网传输协议升级至 v2，与 v1（v1.2 及更早）设备**不互通**；传输需配对鉴权。
+> 本条目按 [docs/release-notes-template.md](docs/release-notes-template.md) 五段组织（AC-21.3）。
 
 ### 新增
-- **本地备份 / 恢复（US-14 / T-015 / T-016）**：设置页新增「备份与恢复」区块
+
+- **本地备份 / 恢复（US-14 / T-015 / T-016 / R-13）**：设置页新增「备份与恢复」区块
   - 导出：单一 zip = `manifest.json`（明文摘要）+ 每本书的阅读状态 + 源文件；进度回调 + 可取消；失败 / 取消不留半成品
   - 可选口令加密：PBKDF2-HMAC-SHA256（100,000 迭代 / 256 bit / 16B 随机 salt）派生密钥，条目级 AES-256-GCM（每条目独立 12B nonce）；`crypto.json` 只存 KDF 参数、salt 与 verifier，口令不落盘、不进日志
   - 恢复：版本门控（高版本明确拒绝）、manifest 内容摘要 / 条目大小 / SHA-256 三重完整性校验、逐本走共享导入流水线、SHA-256 命中跳过、单本失败不中断并给失败明细、`WriteBackDecider` 保证旧进度不覆盖新进度、口令错误原地重试
   - 备份不含 `book.txt`（派生文件，恢复时重建）与字体文件（只记引用；缺失回退默认字体并提示）
   - 共享导入网关（AC-9.5 / AC-14.4）：`core:data` 新增 `BookImportGateway` / `AndroidBookImportGateway` / `BookStateWriter`，迁移与备份共用同一条 `prepare → confirm` 流水线与同一套回写动作；迁移侧改为委托，行为逐行不变
-  - 测试：新增 49 例（含真实 Room + 导入流水线 + FileProvider 的「导出 → 删库 → 恢复 → 全量比对」端到端用例）；备份包行覆盖率 88.4%，三模块聚合 83.97% ≥ 80%
+  - 测试：新增 49 例（含真实 Room + 导入流水线 + FileProvider 的「导出 → 删库 → 恢复 → 全量比对」端到端用例）
 - **传输配对鉴权（R-01 / G1）**：同一 WiFi 下的传书 / 迁移 / 进度同步增加配对门——未配对拒绝一切请求
   - 配对码：展示端 SecureRandom 生成 6 位数字（当面展示 / 输入，不经网络传输）
   - secret 派生：PBKDF2-HMAC-SHA256（100,000 迭代 / 256 bit，salt = 双方设备 ID 排序拼接的 SHA-256）
   - 请求令牌：HMAC-SHA256 覆盖 `method + path + ts + nonce + sha256(body)`，±60s 时间窗 + nonce LRU 缓存（1024 / TTL 5 分钟）防重放
   - 配对 UI：展示端生成配对码并展示等待、发送端输入并探测配对、配对状态与错误提示（取消配对 / 配对失效可重来）
+- **全书搜索 · 当前书（US-15 / T-017 / R-14）**：阅读器顶栏新增「本书搜索」——关键词流式扫描当前书，先命中的章节先展示，结果定位到段并高亮（滚动 / 翻页 / 双页三条渲染路径同一份高亮口径）；可随时取消、取消后回到发起前的阅读位置且不改动已保存进度；不建索引、不整本载入内存
+- **书签备注与按章分组（US-17 / T-019 / R-18）**：书签可写 ≤ 500 字备注（添加后自动进入编辑、常驻 n/500 计数），列表按章分组展示；备注随同步与迁移跨设备互通（新旧版本互相兼容：新版收旧数据按默认值接纳、旧版收新数据忽略未知字段），合并仍按「章节 + 段落 + 字符偏移」去重、只增不删
+- **自定义字体（US-16 / T-018 / R-19）**：阅读设置新增「导入字体文件」——经系统文件选择器选取本机 TTF / OTF（魔数校验 + 20MB 上限），显示名取自字体 `name` 表（零依赖字节解析，零新增依赖）；选用后正文立即生效并持久化，文件缺失 / 损坏静默回退默认字体
+- **新手引导（US-18 / T-020 / R-20）**：首次启动三屏引导（数据只存本机不联网 / 如何导入与局域网传书迁移 / 听书依赖系统 TTS 中文语音包），可滑动 + 跳过；升级用户（有使用痕迹）不弹；设置页可重新查看；空书架提供空态（主行动「导入书籍」+ 次行动「局域网传书」）
+- **反馈与诊断导出（US-19 / T-021）**：关于页新增「导出诊断信息」——崩溃日志环形保留 10 份（链式钩子记录后照常转发系统处理器）、导入失败环形保留 5 条；先展示摘要再经系统文件选择器导出 zip（`summary.txt` / `crashes/*.log` / `import-errors.json`），私有路径 / 书籍目录名 / UUID 脱敏，不含书籍正文与个人信息，取消或失败不留半成品
 - **传输完整性：先验签、后落盘**：POST 请求携带 `X-Content-Sha256` 摘要声明，服务端以声明摘要验签（令牌时间窗只覆盖请求发起时刻，大文件传输不中途失效），落盘后核对实际摘要与声明值，不符即拒绝并清理——落库流水线只见双重校验通过的字节
 - **接收进度与中止**： spill 落盘阶段实时回报进度（字节比），断链 / 数据不符触发中止回调并复位 UI
 - **`SECURITY.md`**：攻击面说明、威胁模型（资产 / 攻击者 / 向量缓解 / 已知限制）、传输加密（TLS）后置决策记录、漏洞报告流程
 
+### 变更
+
+- **协议版本 v1 → v2**：`PresencePacket`（UDP 发现报文）增加 `pairingRequired` 字段；v1 报文一律拒绝（版本门控优先于字段兼容），**v1 与 v2 设备无法互相发现**
+- **配对为会话级**：secret 仅存内存，停止传输服务或取消配对即清零；重新开放传书需重新配对
+- **401 语义映射**：对端未配对 / 配对失效时，发送侧提示「对端未配对或配对已失效，请重新配对」而非笼统网络错误
+- **UI 文案资源化（US-21 / T-022，AC-21.4 / AC-21.5）**：UI 层 302 处中文字面量清零收口进 `strings.xml`，纯搬运、内容零变更（唯一改写是拼接句改占位符）；新增 `UiText` 文案载体让 ViewModel 不持有 Context；数据层话术（参与序列化 / 跨设备传输）按登记制逐条留档
+- **无障碍基线（US-22 / T-023）**：书籍卡合并朗读「书名，进度」、设置开关行级描述、书签行按钮标签、底栏翻页按钮作为三区点按 / 滑动翻页的 TalkBack 替代入口、可点控件触达高度 ≥ 48dp；语义树冒烟并入 CI，TalkBack 实际走查与 200% 字号按 `docs/DEVICE_CHECKLIST.md` §9 真机采集
+- **传输 / 导入域 God File 拆分（T-012 / R-11 第二批）**：三个千行级文件按职责拆分，**行为零变更**（并发语义 / 错误话术 / 状态机转移逐行搬迁）
+  - `transfer/LanTransferManager.kt`（1131 行）→ 200 行：`LanTransferManager` 接口 + `DefaultLanTransferManager` 门面（构造签名逐字未变，DI / UI / fake 零改动）
+    - `TransferCoordinator.kt`：五条状态流 + 配对状态的唯一持有者、服务生命周期（WiFi 地址 → HTTP 服务 → UDP 发现）、配对门、四个流程的装配
+    - `TransferSendController.kt` / `TransferReceiveController.kt` / `TransferMigrationController.kt` / `TransferSyncController.kt`：传书发送 / 接收（单槽语义 + 后台解析）/ 换机迁移 / 进度同步各自成类，各自持有作业与状态写入
+    - `TransferStates.kt`（状态数据模型）/ `TransferFileNames.kt`（`sanitizeFileName` 纯函数）：同包移动，类名不变
+  - `transfer/TransferHttpServer.kt`（725 行）→ 三个文件：帧层 `TransferHttpServer`（accept / 派发 / `TransferHttpConnection` 请求解析与响应写回，~200 行）+ 语义层 `TransferServer`（鉴权中间件 → 五端点路由 → spill 落盘 + 摘要核对）+ 客户端 `TransferClient`（含 `UploadResult` / `PairingProbeResult`）
+  - `data/repository/BookImporter.kt`（716 行）→ 125 行门面 + `PreparePipeline`（预检 / 拷贝 / 去重 / 解析编排 / 错误翻译）+ `ImportSource`（唯一接触 SAF 的一层）+ `ImportModels.kt`（数据契约同包移动）
+  - **BookParser 注册表（`:core:reader` 契约）**：`reader/BookParser.kt` 定义 `BookParser` / `ParseContext` / `ParseResult` / `ParsePhase` / `BookDecodeException`（零 Android 依赖，不反向引用 `:app`）；`BookParserRegistry` 按 `BookFormat` 分发，`TxtBookParser` / `EpubBookParser` 各自实现——**新增格式 = 实现接口 + 在 `defaults()` 注册一行**，流水线里再无 `if (format == EPUB)` 分支
+- **阅读器 God File 拆分（T-011 / R-11）**：`ui/reader/ReaderScreen.kt`（1326 行 / JaCoCo 645 行）拆成六个文件，**行为零变更**
+  - `ReaderScreen.kt`：编排层（状态收集 + 一次性事件分发 + 部件组合），268 行
+  - `ReaderContent.kt`：正文渲染（连续滚动）+ 字体应用 `readerTextStyle` + 朗读高亮槽 `paragraphHighlight` + `ChapterFooter` / `ReaderError`
+  - `ReaderPager.kt`：翻页（`HorizontalPager`）与双页跨页，收拢原 `PaginatedSpread.kt`（该文件删除）
+  - `ReaderChrome.kt`：顶栏 / 底栏 / 目录与书签弹层，收拢原 `ReaderSettingsSheet.kt` 的 `TocSheet`
+  - `ReaderEffects.kt`：系统效果（亮度 / 常亮 / 沉浸 / 系统栏图标 / 朗读前台服务生命周期）
+  - `SpeechControlBar.kt`：朗读控制条 + 通知权限场景化对话框
+- **模块拆分（T-010 / R-12）**：抽出 `:core:domain`（领域模型 + 仓储接口）与 `:core:reader`（阅读引擎）两个**纯 JVM 模块**（只应用 `kotlin("jvm")`，JDK 17 与 app 的 jvmTarget 对齐），`:core:reader` 以 `api` 依赖 `:core:domain`、`:app` 反向依赖两者
+  - 分层纪律从「口头约定」变为**编译期强制**：在 `domain.*` / `reader.*` 里写 `import android.*` 直接编译失败
+  - **包名保持不变**（`io.github.lunalight.paperread.domain.*` / `.reader.*`），拆分对调用方透明——全仓 import 零改动
+  - `reader/BookTextStore.kt` 按依赖边界拆成两个文件：接口（只依赖 `java.io.File` + 领域模型）去 `:core:reader`，`FileBookTextStore`（依赖 `Context.filesDir`）留 `:app`，包名相同故调用方无感
+  - 仍留 `:app` 的 Android 相关实现：`FileBookTextStore` / `AndroidXmlParser` / `XmlParsers`（后者的 `android()` 直接构造 `android.util.Xml` 实现，是 `:core:reader` 无法承载的真实边界）；引擎内 XML 解析器缺省值改为 `::JvmXmlParser`，不再反向依赖 app 侧工厂
+  - **99 例阅读引擎单测**（Pagination / ReaderProgress / ChapterSplitter / CharsetDetector / ChapterIndexWriter / InlineChapterScanner / TxtChapterStream / EpubParser / XhtmlTextExtractor / JvmXmlParser）迁到 `core/reader/src/test/kotlin` 并**脱离 Robolectric**，在纯 JVM 上跑；CI `unit` 作业补 `:core:domain:test` / `:core:reader:test`（JVM 模块任务名是 `test`，漏写则引擎用例静默不跑）
+  - 质量脚本口径同步扩展（代码搬出 app 不等于脱离门禁）：`check-doc-consistency.sh` 的单测总数扫描改扫全部模块测试源码，`check-network-behavior.sh` 的源码扫描与白名单文件定位、`check-r8-keep.sh` 的 `@Serializable` 漂移守卫均覆盖 `core/*/src/main`
+- **传输服务线程模型（T-005 / R-10 / G10）**：accept 并发派发 + 落盘即应答，`runBlocking` 清零——大文件传输不再阻塞其他请求
+- **Room 迁移基建（T-006 / R-06 / G6）**：书签 schema v1→v2 迁移测试纳入 CI，`fallbackToDestructiveMigration` 保持禁用
+- **200MB GBK 大文件验收基建（R-05 / G5）**：`scripts/gen-large-book-sample.sh`（固定 seed、字节级可复现的 200MB GBK 样本生成）+ `LargeBookImportTest`（JVM 侧直测导入流水线，20MB 进 CI、200MB 由属性门控）+ `docs/PERFORMANCE_BASELINE.md`
+- **release/R8 运行时冒烟（R-07 / G7）**：CI `r8-smoke` job（`assembleClientRelease` → `scripts/check-r8-keep.sh` 的 mapping 静态断言 → release 变体序列化 round-trip）
+- **CI 结构演进**：门禁重组为八个独立作业（`unit` / `robolectric-ui` / `lint` / `room-migration` / `network-audit` / `strings-check` / `assemble` / `r8-smoke`）——失败定位清晰 + flaky 隔离；新增 `scripts/check-doc-consistency.sh`（权限清单 / 覆盖率口径 / 单测总数 / CI 作业数对账）与 `scripts/check-hardcoded-strings.sh`（硬编码中文文案门禁，数据层按 baseline 登记对账）；Robolectric jar 缓存、单测双 fork、纯文档变更跳过 CI
+- CONTRIBUTING / README 口径修正（flavor 命名约束、CI 结构、最小权限说明）；`scripts/check-room-migration.sh` 加固；`docs/NETWORK_AUDIT.md` 补「验证机制的能力边界」；隐私页权限名改由 `strings.xml` 提供
+
 ### 修复
+
 - **备份恢复不还原「上次阅读时间」（F-01，批次 10 QA 验收）**：`BookRepository.saveReaderPosition` 固定把 `lastReadAt` 写成本次调用的时刻，而共享回写器无法表达「还原历史时间戳」，于是
   1. 备份里的 `lastReadAt` 恢复后一律变成「刚刚」，AC-14.1 的阅读进度保真只剩位置一半；
   2. **更严重**：先恢复旧备份（第 1 章）再恢复新备份（第 3 章）时，第一次恢复已把本地时间抬到 now，第二次的真实新进度被 `WriteBackDecider` 判成「旧进度」而静默跳过回写——报告显示「已存在 1 本、回写 0 本」，用户不会察觉。
@@ -35,45 +78,23 @@
 - **`BackupEntries.isSafeDirName` 与 KDoc 不符**（P3-4）：改用 ASCII 白名单（原 `Char.isLetterOrDigit()` 按 Unicode 放行中文 / emoji），并补中文 / emoji / 全角 / 空格 / `..` / 超长边界用例。
 - **观察项入文档**：条目级 AES-GCM 无 AAD 绑定（同包内可换条目）、明文备份无完整性认证，写入 `SECURITY.md` 新增的「威胁模型：本地备份与恢复」已知限制——当前口径是「防传输损坏与误操作」，不承诺「防主动篡改」。
 
-### 变更
-- **协议版本 v1 → v2**：`PresencePacket`（UDP 发现报文）增加 `pairingRequired` 字段；v1 报文一律拒绝（版本门控优先于字段兼容），**v1 与 v2 设备无法互相发现**
-- **配对为会话级**：secret 仅存内存，停止传输服务或取消配对即清零；重新开放传书需重新配对
-- **401 语义映射**：对端未配对 / 配对失效时，发送侧提示「对端未配对或配对已失效，请重新配对」而非笼统网络错误
+### 已知问题
 
-### 基础设施
-- **传输 / 导入域 God File 拆分（T-012 / R-11 第二批）**：三个千行级文件按职责拆分，**行为零变更**（并发语义 / 错误话术 / 状态机转移逐行搬迁）
-  - `transfer/LanTransferManager.kt`（1131 行）→ 200 行：`LanTransferManager` 接口 + `DefaultLanTransferManager` 门面（构造签名逐字未变，DI / UI / fake 零改动）
-    - `TransferCoordinator.kt`：五条状态流 + 配对状态的唯一持有者、服务生命周期（WiFi 地址 → HTTP 服务 → UDP 发现）、配对门、四个流程的装配
-    - `TransferSendController.kt` / `TransferReceiveController.kt` / `TransferMigrationController.kt` / `TransferSyncController.kt`：传书发送 / 接收（单槽语义 + 后台解析）/ 换机迁移 / 进度同步各自成类，各自持有作业与状态写入
-    - `TransferStates.kt`（状态数据模型）/ `TransferFileNames.kt`（`sanitizeFileName` 纯函数）：同包移动，类名不变
-  - `transfer/TransferHttpServer.kt`（725 行）→ 三个文件：帧层 `TransferHttpServer`（accept / 派发 / `TransferHttpConnection` 请求解析与响应写回，~200 行）+ 语义层 `TransferServer`（鉴权中间件 → 五端点路由 → spill 落盘 + 摘要核对）+ 客户端 `TransferClient`（含 `UploadResult` / `PairingProbeResult`）
-  - `data/repository/BookImporter.kt`（716 行）→ 125 行门面 + `PreparePipeline`（预检 / 拷贝 / 去重 / 解析编排 / 错误翻译）+ `ImportSource`（唯一接触 SAF 的一层）+ `ImportModels.kt`（数据契约同包移动）
-  - **BookParser 注册表（`:core:reader` 契约）**：`reader/BookParser.kt` 定义 `BookParser` / `ParseContext` / `ParseResult` / `ParsePhase` / `BookDecodeException`（零 Android 依赖，不反向引用 `:app`）；`BookParserRegistry` 按 `BookFormat` 分发，`TxtBookParser` / `EpubBookParser` 各自实现——**新增格式 = 实现接口 + 在 `defaults()` 注册一行**，流水线里再无 `if (format == EPUB)` 分支
-  - 覆盖率口径（CI `-PexcludeUiSmokeTests=true`）：**分母 4096 → 4290 行，无一类新增白名单**（新类全部计量），分母扩大而 missed 仅 660 → 672（新增 missed 全在既有错误路径上换了个归属类），比率不降反升，门禁 ≥ 80% 通过
-  - 测试：app 435 → 438 例（新增 `BookParserRegistryTest` 3 例锁住「注册一行」契约），**既有 534 例零改动、零删除、零放宽**；core 99 例不变
-：`ui/reader/ReaderScreen.kt`（1326 行 / JaCoCo 645 行）拆成六个文件，**行为零变更**
-  - `ReaderScreen.kt`：编排层（状态收集 + 一次性事件分发 + 部件组合），268 行
-  - `ReaderContent.kt`：正文渲染（连续滚动）+ 字体应用 `readerTextStyle` + 朗读高亮槽 `paragraphHighlight` + `ChapterFooter` / `ReaderError`
-  - `ReaderPager.kt`：翻页（`HorizontalPager`）与双页跨页，收拢原 `PaginatedSpread.kt`（该文件删除）
-  - `ReaderChrome.kt`：顶栏 / 底栏 / 目录与书签弹层，收拢原 `ReaderSettingsSheet.kt` 的 `TocSheet`
-  - `ReaderEffects.kt`：系统效果（亮度 / 常亮 / 沉浸 / 系统栏图标 / 朗读前台服务生命周期）
-  - `SpeechControlBar.kt`：朗读控制条 + 通知权限场景化对话框
-  - 覆盖率口径：六个新类**逐个**按「CI 口径 0% + 无 CI 测试引用其逻辑成员」重新登记白名单（与拆分前同一批渲染行，仅按类重新归属）；**系统效果那 50 行刻意不登记**、并入分母度量，`ReaderScreenKt` 由 645 行降到 134 行后仍满足登记条件（保留）；白名单条目 4 → 7，行数合计 1414 → 1373
-- **模块拆分（T-010 / R-12）**：抽出 `:core:domain`（领域模型 + 仓储接口）与 `:core:reader`（阅读引擎）两个**纯 JVM 模块**（只应用 `kotlin("jvm")`，JDK 17 与 app 的 jvmTarget 对齐），`:core:reader` 以 `api` 依赖 `:core:domain`、`:app` 反向依赖两者
-  - 分层纪律从「口头约定」变为**编译期强制**：在 `domain.*` / `reader.*` 里写 `import android.*` 直接编译失败
-  - **包名保持不变**（`io.github.lunalight.paperread.domain.*` / `.reader.*`），拆分对调用方透明——全仓 import 零改动
-  - `reader/BookTextStore.kt` 按依赖边界拆成两个文件：接口（只依赖 `java.io.File` + 领域模型）去 `:core:reader`，`FileBookTextStore`（依赖 `Context.filesDir`）留 `:app`，包名相同故调用方无感
-  - 仍留 `:app` 的 Android 相关实现：`FileBookTextStore` / `AndroidXmlParser` / `XmlParsers`（后者的 `android()` 直接构造 `android.util.Xml` 实现，是 `:core:reader` 无法承载的真实边界）；引擎内 XML 解析器缺省值改为 `::JvmXmlParser`，不再反向依赖 app 侧工厂
-  - **99 例阅读引擎单测**（Pagination / ReaderProgress / ChapterSplitter / CharsetDetector / ChapterIndexWriter / InlineChapterScanner / TxtChapterStream / EpubParser / XhtmlTextExtractor / JvmXmlParser）迁到 `core/reader/src/test/kotlin` 并**脱离 Robolectric**，在纯 JVM 上跑；CI `unit` 作业补 `:core:domain:test` / `:core:reader:test`（JVM 模块任务名是 `test`，漏写则引擎用例静默不跑）
-  - 质量脚本口径同步扩展（代码搬出 app 不等于脱离门禁）：`check-doc-consistency.sh` 的单测总数扫描改扫全部模块测试源码，`check-network-behavior.sh` 的源码扫描与白名单文件定位、`check-r8-keep.sh` 的 `@Serializable` 漂移守卫均覆盖 `core/*/src/main`
-- CI 结构调整为四 job：`unit`（双 flavor 单测 + 覆盖率门禁）、`robolectric-ui`（Robolectric UI 测试独立 job + 失败重试 ≤1 次，隔离内存抖动）、`lint`、`assemble`；Robolectric jar 缓存 key 增加 `libs.versions.toml` 哈希（依赖变更即失效）
-- 新增 `scripts/check-doc-consistency.sh`（权限清单比对 Manifest、覆盖率数字引用检查、禁文档硬编码 Kotlin 版本号）并纳入 CI
-- CONTRIBUTING / README 口径修正（flavor 命名约束、CI 结构、最小权限说明）
-- **200MB GBK 大文件验收基建（R-05 / G5）**：新增 `scripts/gen-large-book-sample.sh`（固定 seed、字节级可复现的 200MB GBK 样本生成，输出 `.meta` 供真机核对章节数 / 体积 / 首末行 / SHA-256）与 `LargeBookImportTest`（JVM 侧直测导入流水线：章节数生成器/独立扫描/导入三方交叉、GBK 首末章解码、双偏移全链连续、末章不以换行截断；20MB 进 CI，200MB 由属性门控）；新增 `docs/PERFORMANCE_BASELINE.md`（沙箱自动化口径与待真机补测项分栏，明确 JVM 堆与 Android PSS 不可换算）
-- **release/R8 运行时冒烟（R-07 / G7，架构 §6.2 方案 B）**：CI 新增 `r8-smoke` job（`assembleClientRelease` → `scripts/check-r8-keep.sh` 的 mapping 静态断言 → `testClientReleaseUnitTest` 只跑 `quality.*` 序列化 round-trip）；模拟器 install + instrumented 步骤以注释预留（需 KVM runner）
-- `scripts/check-room-migration.sh` 加固（QA 批次 3 反馈）：destructive fallback 匹配放宽到方法名（覆盖 `From(vararg)` / `(dropAllTables)`），新增第 6 项「`version >= 2` 必须有 `MigrationTestHelper` + `runMigrationsAndValidate` 的迁移测试」
-- `docs/NETWORK_AUDIT.md` 补「验证机制的能力边界」：脚本是关键字黑名单 + 字面量扫描，依赖坐标白名单由 `BuildDependencyAllowlistTest` 承担，拼接式 URL 不可静态检出（不再承诺「跳过任一步骤必失败」）
-- 隐私页权限名改由 `strings.xml` 提供（`PrivacyPermissionItems.Item.nameRes`），消除 4 条未引用的 `privacy_permission_*_name` 死资源
+- 暂停朗读后恢复会从当前段开头重读一句（系统 TTS 无 pause API，AC-12.2 明示的权衡）
+- 系统缺少中文语音数据时听书不可用并提示安装，不静默失败
+- TXT 作者恒为「未知」；目录页与正文首章无空行分隔的极端边界可能把首个标题归入目录块（文本不丢失，可激进重解析修复）
+- 亮度手动调节仅在阅读器内生效，退出后恢复系统值
+- AGP 内置 R8 早于当前 Kotlin 工具链，release 构建存在 Kotlin 元数据解析警告（非致命，保守保留相关类，后续随 AGP 升级消解）
+- 搜索 / 大文件的性能红线（首批结果时延、峰值内存）在真机按 `docs/PERFORMANCE_BASELINE.md` 与 `docs/DEVICE_CHECKLIST.md` 验收，仓库内记录的是 JVM 侧近似值
+
+### 升级注意
+
+> **Breaking**：局域网传输协议升级至 v2，与 v1（v1.2 及更早）设备**不互通**；传输需配对鉴权。
+
+- **传输协议 v2 与 v1.2 不互通**：v2.0 起传书 / 换机迁移 / 进度同步启用 v2 协议并要求配对鉴权，v1 报文一律拒绝，新旧版本设备**无法互相发现**。需要互传的两台设备请都升级到 v2.0；每次开放传书需重新配对（配对码当面展示输入，不经网络传输），停止传输服务或取消配对后配对即失效。
+- **数据库 schema v1 → v2 自动迁移**：书签新增备注与更新时间两列，升级后首次打开自动完成迁移，无需任何操作；`fallbackToDestructiveMigration` 保持禁用，不丢数据。
+- **新旧版本书签互通**：v2.0 的书签备注同步到 v1.2 设备时，旧版忽略未知字段正常合并；v1.2 的书签（无备注）同步到 v2.0 按默认值接纳，不崩溃、不丢书签。
+- **权限无新增**：自 v1.2 起权限清单即固定为 4 项（INTERNET + 朗读前台服务三件套），本版本未申请任何新权限；隐私口径见 [PRIVACY.md](PRIVACY.md) 与应用内「隐私说明」页。
 
 [未发布]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.2.0...HEAD
 [1.2.0]: https://github.com/lobster-xiaozhua/PaperRead/compare/v1.1.0...v1.2.0
