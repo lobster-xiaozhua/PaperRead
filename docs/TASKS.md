@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **main 未发布变更**：T-018 自定义字体（US-16）· T-020 新手引导（US-18）· T-021 反馈 / 诊断导出（US-19）——三功能已合入，待随下一版本发布
-- **质量基线**：825 单测全绿（其中 2 例门控 / skipped；app 630 + `:core:data` 78 + `:core:reader` 117）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 八作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
+- **质量基线**：830 单测全绿（其中 2 例门控 / skipped；app 635 + `:core:data` 78 + `:core:reader` 117）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 八作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
 
 ## 当前能力（已完成）
 
