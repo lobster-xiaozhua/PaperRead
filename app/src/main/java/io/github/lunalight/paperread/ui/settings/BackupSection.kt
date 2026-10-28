@@ -256,7 +256,9 @@ private fun BackupExportDialog(
                     } else {
                         stringResource(
                             R.string.backup_export_fonts,
-                            preview.fontReferences.joinToString("、") { it.displayName },
+                            preview.fontReferences.joinToString(
+                                stringResource(R.string.common_enumeration_separator),
+                            ) { it.displayName },
                         )
                     },
                     style = MaterialTheme.typography.bodySmall,
@@ -364,7 +366,9 @@ private fun BackupImportDialog(
                 Text(
                     text = stringResource(
                         R.string.backup_import_books,
-                        preview.bookTitles.joinToString("、"),
+                        preview.bookTitles.joinToString(
+                            stringResource(R.string.common_enumeration_separator),
+                        ),
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 6,
@@ -448,20 +452,22 @@ private fun BackupImportDialog(
 private fun importMetaText(preview: BackupImportPreview): String {
     val version = preview.manifest.version
     val fonts = preview.manifest.fontReferences.map { it.displayName }
+    // 枚举连接符同样属于文案（T-022：`、` 也进 strings.xml）
+    val separator = stringResource(R.string.common_enumeration_separator)
     return when {
         fonts.isEmpty() -> stringResource(R.string.backup_import_meta_fonts_none, version)
 
         preview.fontFallbacks.isNotEmpty() -> stringResource(
             R.string.backup_import_meta_fonts_missing,
             version,
-            fonts.joinToString("、"),
-            preview.fontFallbacks.joinToString("、"),
+            fonts.joinToString(separator),
+            preview.fontFallbacks.joinToString(separator),
         )
 
         else -> stringResource(
             R.string.backup_import_meta,
             version,
-            fonts.joinToString("、"),
+            fonts.joinToString(separator),
         )
     }
 }
@@ -519,7 +525,9 @@ private fun BackupReportDialog(report: BackupRestoreReport, onDismiss: () -> Uni
                     Text(
                         text = stringResource(
                             R.string.backup_report_fonts,
-                            report.fontFallbacks.joinToString("、"),
+                            report.fontFallbacks.joinToString(
+                                stringResource(R.string.common_enumeration_separator),
+                            ),
                         ),
                         style = MaterialTheme.typography.bodySmall,
                     )

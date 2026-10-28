@@ -1,0 +1,42 @@
+### 数据层中文话术例外登记（T-022 · US-21 AC-21.4）
+###
+### 判据（架构设计 §8）：UI 层零容忍、必须进 strings.xml；数据层话术保留字面量，
+### 因为它们是 userMessage 一类要参与序列化 / 跨设备传输（迁移包、同步报文、
+### 备份 manifest、诊断包）或通知 / TTS 引擎消费的文案，且 core 侧模块不依赖
+### Android resources。逐条理由见各文件行。
+###
+### 格式：路径 | 登记条数 | 理由（路径相对仓库根；条数必须与实际命中完全相等，
+###       由 scripts/check-hardcoded-strings.sh 对账；基线只能手工维护）
+### 维护：新增话术 → 确认属数据层口径后把条数 +1 并在理由补一句；
+###       话术减少 → 条数 -1。不做自动 update（防顺手放行）。
+
+# ---- transfer：迁移 / 同步 / 收发话术，随迁移包与同步报文跨设备传输 ----
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferMigrationController.kt|15|迁移打包 / 解包的 userMessage 与阶段标签，写入迁移包 JSON 并在对端 UI 呈现，跨设备传输
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferClient.kt|7|HTTP 客户端对端返回的错误话术透传（对端生成、本机展示），文案归协议层
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferCoordinator.kt|6|配对 / 服务生命周期 userMessage，随状态流透传且与对端鉴权报文语义耦合
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferReceiveController.kt|5|接收端校验错误话术（导入 / 重解析失败原因），与发送端日志对账
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferSendController.kt|3|发送端错误话术（写入 / 连接失败），随发送状态跨线程透传
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferServer.kt|3|服务端路由与鉴权中间件的错误响应体，直接写进 HTTP 响应（协议内容）
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferSyncController.kt|3|同步失败话术，随同步状态流透传
+app/src/main/java/io/github/lunalight/paperread/transfer/ProgressSyncCoordinator.kt|3|进度同步阶段标签与错误话术，随同步报文语义耦合
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferStates.kt|1|MIGRATION_PHASE_SENT（「已发送」）：数据层产生的阶段标签，UI 按常量比对判断结果卡片，字面量只此一处
+app/src/main/java/io/github/lunalight/paperread/transfer/TransferAuth.kt|1|配对 secret 派生的内部异常信息（设备 ID 数目断言），进诊断日志
+app/src/main/java/io/github/lunalight/paperread/transfer/MigrationProcessor.kt|1|迁移条目校验失败话术，写进迁移报告随包回传对端
+app/src/main/java/io/github/lunalight/paperread/transfer/DeviceIdentityStore.kt|1|默认本机设备名「Android 设备」，随配对报文发给对端展示（跨设备值）
+
+# ---- backup：备份 / 恢复校验话术，写入备份包与 manifest ----
+app/src/main/java/io/github/lunalight/paperread/backup/BackupCrypto.kt|14|加密 / 解密失败话术（口令错误、认证标签、参数不支持），进 BackupError 随异常链路透传并写入诊断包
+app/src/main/java/io/github/lunalight/paperread/backup/BackupImporter.kt|9|恢复校验话术（条目缺失 / 哈希不匹配 / DRM），写入恢复结果报告
+app/src/main/java/io/github/lunalight/paperread/backup/BackupArchive.kt|7|备份包完整性校验话术（manifest 计数 / 摘要不匹配），随包结构耦合
+app/src/main/java/io/github/lunalight/paperread/backup/BackupCoordinator.kt|3|备份编排错误（写入 / 读取所选位置）与条目占位名，进 BackupError 透传
+app/src/main/java/io/github/lunalight/paperread/backup/BackupExporter.kt|1|导出取消话术，随备份结果状态透传
+
+# ---- speech：通知栏与 TTS 引擎消费的文案（非 Compose 渲染） ----
+app/src/main/java/io/github/lunalight/paperread/speech/SpeechNotifications.kt|10|媒体样式通知的渠道名 / 状态 / 按钮文案，由 NotificationManager 与系统面板消费
+app/src/main/java/io/github/lunalight/paperread/speech/AndroidSpeechController.kt|7|TTS 引擎错误话术（引擎不可用 / 缺中文语音数据）与线程断言信息，经 onEngineUnavailable 回调透传
+app/src/main/java/io/github/lunalight/paperread/speech/SpeechPlayback.kt|1|语音合成失败话术，随播放错误状态透传
+
+# ---- diag：诊断包文本与导入失败环形记录（导出为文件内容） ----
+app/src/main/java/io/github/lunalight/paperread/diag/DiagnosticsExporter.kt|9|诊断摘要文本文件的正文行（版本 / 设备 / 权限），内容即导出产物本身
+app/src/main/java/io/github/lunalight/paperread/diag/DiagnosticsExportCoordinator.kt|1|诊断导出写入失败话术，随导出结果透传
+app/src/main/java/io/github/lunalight/paperread/diag/ImportErrorLog.kt|1|环形记录的括号连接片段（格式用），与 ImportError.userMessage 拼接后入环并导出

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -41,38 +42,94 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.domain.model.Bookmark
+import io.github.lunalight.paperread.ui.asString
 import io.github.lunalight.paperread.ui.theme.ReaderTheme
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * 阅读器「外壳」部件：顶栏 / 底栏 / 目录与书签弹层 / 书签备注编辑。
  *
  * 归属索引：
  * - [ReaderTopBar]：返回 / 书名·章名 / 加书签 / 朗读开关 / 本书搜索 / 目录 / 设置
- * - [ReaderBottomBar]：上一章 / 已读进度 / 下一章
+ * - [ReaderBottomBar]：上一页 / 上一章 / 已读进度 / 下一章 / 下一页
  * - [TocSheet]：目录 + 书签双 Tab 弹层（[ChapterList] / [BookmarkList]）
  * - [BookmarkNoteDialog]：书签备注编辑（AC-17.1 / AC-17.3）
  *
  * 搜索面板本身不在本文件（`ui/reader/search/BookSearchPanel.kt`），这里只放入口
- * ——顶栏一个图标，避免外壳文件继续膨胀。
+ * ——顶栏一个图标，避免外壳文件继续膨胀。书签分组的**纯逻辑**已抽到
+ * `BookmarkPresentation.kt`（T-022 顺手项），本文件只做渲染：状态由
+ * [ReaderUiState] 提供，动作全部由调用方以 lambda 传入。
  *
- * 本文件只做渲染：状态由 [ReaderUiState] 提供，动作全部由调用方以 lambda 传入。
+ * 文案资源化（T-022 · AC-21.4）：本文件所有用户可见文字走 `stringResource`，
+ * 无中文字面量残留；`ReaderUiState.chapterPosition` 等 VM 侧文案经
+ * [io.github.lunalight.paperread.ui.UiText] 携带资源 id，渲染时才解析。
+ *
+ * 无障碍（T-023）：
+ * - AC-22.1 顶栏 7 个入口全部有 `contentDescription`（图标按钮的唯一可读标签）；
+ * - AC-22.2 「三区点按 + 滑动翻页」的手势由底栏两侧的 [ReaderBottomBar] 翻页
+ *   按钮兜底（TalkBack 下自定义手势不可靠，必须有可聚焦按钮替代）；
+ * - AC-22.4 底栏按钮容器 `heightIn(min = 48.dp)`，避免大字号下按钮被压到 48dp 以下。
  */
+
+/**
+ * 翻页动作句柄（AC-22.2）。
+ *
+ * 翻页能力住在 `ReaderPager` 的 `PagerState` 里（页由正文度量动态装箱），
+ * 底栏却在 `ReaderScreen` 的另一处组合中——句柄把「当前页能不能翻 / 怎么翻」
+ * 上抛给外壳按钮，双向各自持有：`ReaderPagerContent` 负责 [bind]，
+ * `ReaderBottomBar` 负责调用。没有翻页模式（连续滚动）时句柄为 null，
+ * 底栏不渲染翻页按钮。
+ */
+@Stable
+internal class PageTurnHandle {
+    /** 当前页之前是否还有页（首页禁用「上一页」）。 */
+    var canPreviousPage by mutableStateOf(false)
+        private set
+
+    /** 当前页之后是否还有页（末页禁用「下一页」）。 */
+    var canNextPage by mutableStateOf(false)
+        private set
+
+    private var previousAction: () -> Unit = {}
+    private var nextAction: () -> Unit = {}
+
+    /**
+     * 由翻页容器在页状态变化时重绑（页数 / 当前页 / 章节切换都会变）。
+     *
+     * 传 lambda 而非状态：翻页动作依赖 `PagerState` 与协程作用域，随组合更新。
+     */
+    fun bind(
+        canPrevious: Boolean,
+        canNext: Boolean,
+        previous: () -> Unit,
+        next: () -> Unit,
+    ) {
+        canPreviousPage = canPrevious
+        canNextPage = canNext
+        previousAction = previous
+        nextAction = next
+    }
+
+    fun previousPage() = previousAction()
+
+    fun nextPage() = nextAction()
+}
 
 @Composable
 internal fun ReaderTopBar(
@@ -100,28 +157,39 @@ internal fun ReaderTopBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.common_back),
+                )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = state.book?.title ?: "",
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = "${state.chapterPosition} · ${state.chapterTitle}",
+                    text = "${state.chapterPosition.asString()} · ${state.chapterTitle}",
                     style = MaterialTheme.typography.labelSmall,
                     color = theme.secondary,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             IconButton(onClick = onAddBookmark) {
-                Icon(Icons.Filled.Star, contentDescription = "添加书签", tint = theme.accent)
+                Icon(
+                    Icons.Filled.Star,
+                    contentDescription = stringResource(R.string.reader_add_bookmark),
+                    tint = theme.accent,
+                )
             }
             IconButton(onClick = onToggleSpeech) {
                 Icon(
                     painter = painterResource(R.drawable.ic_speech),
-                    contentDescription = if (state.speech.isActive) "停止朗读" else "开始朗读",
+                    contentDescription = stringResource(
+                        if (state.speech.isActive) R.string.speech_stop else R.string.speech_start,
+                    ),
                     tint = if (state.speech.isActive) theme.accent else theme.onBackground,
                 )
             }
@@ -133,22 +201,42 @@ internal fun ReaderTopBar(
                 )
             }
             IconButton(onClick = onOpenToc) {
-                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "目录")
+                Icon(
+                    Icons.AutoMirrored.Filled.List,
+                    contentDescription = stringResource(R.string.reader_toc),
+                )
             }
             IconButton(onClick = onOpenSettings) {
-                Icon(Icons.Filled.Settings, contentDescription = "阅读设置")
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = stringResource(R.string.reader_settings),
+                )
             }
         }
     }
 }
 
+/**
+ * 底栏：翻页（AC-22.2 手势替代入口）+ 切章 + 已读进度。
+ *
+ * 布局承压点（AC-22.3 · 200% 字号）：中间进度文本 `weight(1f)` + 单行省略，
+ * 两侧按钮固定 48dp 触达尺寸，字号放大时先牺牲进度文本的可读长度，
+ * 不出现文字互相重叠。
+ */
 @Composable
 internal fun ReaderBottomBar(
     state: ReaderUiState,
     theme: ReaderTheme,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    pageTurn: PageTurnHandle? = null,
 ) {
+    val progressText = stringResource(
+        R.string.reader_progress_read,
+        "%.1f".format(state.progressPercent),
+    )
+    val previousPageDescription = stringResource(R.string.reader_prev_page)
+    val nextPageDescription = stringResource(R.string.reader_next_page)
     Surface(color = theme.background, contentColor = theme.onBackground) {
         Row(
             modifier = Modifier
@@ -158,29 +246,48 @@ internal fun ReaderBottomBar(
                         WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal,
                     ),
                 )
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .heightIn(min = 48.dp)
+                .padding(horizontal = 4.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (pageTurn != null) {
+                IconButton(
+                    onClick = { pageTurn.previousPage() },
+                    enabled = pageTurn.canPreviousPage,
+                    modifier = Modifier.semantics { contentDescription = previousPageDescription },
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = null)
+                }
+            }
             TextButton(
                 onClick = onPrevious,
                 enabled = state.chapterIndex > 0,
             ) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = null)
-                Text("上一章")
+                Text(stringResource(R.string.reader_prev_chapter))
             }
             Text(
-                text = "已读 ${"%.1f".format(state.progressPercent)}%",
+                text = progressText,
                 style = MaterialTheme.typography.labelMedium,
                 color = theme.secondary,
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             TextButton(
                 onClick = onNext,
                 enabled = state.chapterIndex < state.chapters.lastIndex,
             ) {
-                Text("下一章")
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                Text(stringResource(R.string.reader_next_chapter))
+            }
+            if (pageTurn != null) {
+                IconButton(
+                    onClick = { pageTurn.nextPage() },
+                    enabled = pageTurn.canNextPage,
+                    modifier = Modifier.semantics { contentDescription = nextPageDescription },
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                }
             }
         }
     }
@@ -219,14 +326,14 @@ fun TocSheet(
             Tab(
                 selected = tab == 0,
                 onClick = { tab = 0 },
-                text = { Text("目录 · ${state.chapters.size}") },
+                text = { Text(stringResource(R.string.reader_toc_tab_chapters, state.chapters.size)) },
                 selectedContentColor = theme.accent,
                 unselectedContentColor = theme.secondary,
             )
             Tab(
                 selected = tab == 1,
                 onClick = { tab = 1 },
-                text = { Text("书签 · ${state.bookmarks.size}") },
+                text = { Text(stringResource(R.string.reader_toc_tab_bookmarks, state.bookmarks.size)) },
                 selectedContentColor = theme.accent,
                 unselectedContentColor = theme.secondary,
             )
@@ -268,6 +375,7 @@ private fun ChapterList(
             key = { index, _ -> index },
         ) { index, chapter ->
             val selected = index == state.chapterIndex
+            val currentDescription = stringResource(R.string.reader_chapter_current)
             ListItem(
                 headlineContent = {
                     Text(
@@ -278,7 +386,7 @@ private fun ChapterList(
                 },
                 supportingContent = {
                     Text(
-                        text = "第 ${index + 1} 章",
+                        text = stringResource(R.string.reader_chapter_ordinal, index + 1),
                         style = MaterialTheme.typography.labelSmall,
                     )
                 },
@@ -286,7 +394,7 @@ private fun ChapterList(
                     if (selected) {
                         Icon(
                             Icons.Filled.Check,
-                            contentDescription = "当前章节",
+                            contentDescription = currentDescription,
                             tint = theme.accent,
                         )
                     } else {
@@ -309,9 +417,7 @@ private fun ChapterList(
 /**
  * 书签列表（AC-17.2）：按章分组。
  *
- * 分组口径与「跳转」一致——同一章的书签归一组，组头给出章名与条数；
- * 组内保持仓储返回的创建时间倒序（最近添加的排前面），与改动前一致，
- * 不引入第二套排序心理模型。
+ * 分组口径见 `BookmarkPresentation.bookmarkGroups`（纯函数，单测覆盖）。
  */
 @Composable
 private fun BookmarkList(
@@ -343,14 +449,14 @@ private fun BookmarkList(
         }
         return
     }
-    // toSortedMap：组顺序 = 章节顺序（第 1 章在前），不随书签添加时间跳动
-    val groups = remember(state.bookmarks) { state.bookmarks.groupBy { it.chapterIndex }.toSortedMap() }
+    // 组顺序 = 章节顺序（第 1 章在前），不随书签添加时间跳动
+    val groups = remember(state.bookmarks) { bookmarkGroups(state.bookmarks) }
     LazyColumn(modifier = modifier) {
         groups.forEach { (chapterIndex, bookmarks) ->
             item(key = "chapter-$chapterIndex") {
                 BookmarkGroupHeader(
                     title = state.chapters.getOrNull(chapterIndex)?.title
-                        ?: "第 ${chapterIndex + 1} 章",
+                        ?: stringResource(R.string.reader_chapter_ordinal, chapterIndex + 1),
                     count = bookmarks.size,
                     theme = theme,
                 )
@@ -453,7 +559,7 @@ private fun BookmarkRow(
                 IconButton(onClick = { onDelete(bookmark.id) }) {
                     Icon(
                         Icons.Filled.Delete,
-                        contentDescription = "删除书签",
+                        contentDescription = stringResource(R.string.reader_bookmark_delete),
                         tint = theme.secondary,
                     )
                 }
@@ -523,11 +629,8 @@ fun BookmarkNoteDialog(
         },
         dismissButton = {
             TextButton(onClick = onCancel) {
-                Text(stringResource(R.string.reader_bookmark_note_cancel), color = theme.secondary)
+                Text(stringResource(R.string.common_cancel), color = theme.secondary)
             }
         },
     )
 }
-
-private fun formatBookmarkTime(epochMillis: Long): String =
-    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(epochMillis))

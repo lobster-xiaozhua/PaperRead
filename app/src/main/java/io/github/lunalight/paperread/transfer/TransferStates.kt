@@ -44,6 +44,17 @@ data class TransferReceiveState(
 /** 迁移方向（发送端打包上行 / 接收端解包导入）。 */
 enum class MigrationDirection { NONE, SEND, RECEIVE }
 
+/**
+ * 迁移「已发送」阶段标签（T-022）。
+ *
+ * 这个字符串仍归数据层：它由 [TransferMigrationController] 产生、随
+ * [TransferMigrationState] 透传给 UI 展示（同 userMessage 口径，登记在
+ * `scripts/strings-baseline.txt`）。UI 侧原先用字面量 `"已发送"` 判断
+ * 「发送成功但无报告」的结果卡片，等于把数据层话术抄进了渲染层——
+ * 改为引用本常量，UI 层不再持有该字面量。
+ */
+const val MIGRATION_PHASE_SENT = "已发送"
+
 /** 进度同步状态（AC-11.1 ~ AC-11.3）。 */
 data class TransferSyncState(
     val active: Boolean = false,

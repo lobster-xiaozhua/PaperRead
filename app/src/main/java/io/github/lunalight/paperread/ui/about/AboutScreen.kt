@@ -116,12 +116,12 @@ fun AboutScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("关于") },
+                title = { Text(stringResource(R.string.about_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
+                            contentDescription = stringResource(R.string.common_back),
                         )
                     }
                 },
@@ -156,7 +156,11 @@ fun AboutScreen(
                         style = MaterialTheme.typography.titleLarge,
                     )
                     Text(
-                        text = "版本 ${BuildConfig.VERSION_NAME}（${BuildConfig.VERSION_CODE}）",
+                        text = stringResource(
+                            R.string.about_version_full,
+                            BuildConfig.VERSION_NAME,
+                            BuildConfig.VERSION_CODE,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -164,11 +168,11 @@ fun AboutScreen(
             }
 
             // ---- 功能简介 ----
-            AboutSectionLabel("功能简介")
+            AboutSectionLabel(stringResource(R.string.about_section_features))
             AboutBody(stringResource(R.string.about_intro))
 
             // ---- 隐私承诺 ----
-            AboutSectionLabel("隐私承诺")
+            AboutSectionLabel(stringResource(R.string.about_section_privacy))
             AboutBody(stringResource(R.string.about_privacy_promise))
 
             // ---- 隐私说明一页入口（AC-20.3：权限清单 / 网络行为 / 数据边界） ----
@@ -180,10 +184,10 @@ fun AboutScreen(
             )
 
             // ---- 开源许可 ----
-            AboutSectionLabel("开源许可")
+            AboutSectionLabel(stringResource(R.string.about_section_license))
             AboutEntryItem(
                 title = "Apache License 2.0",
-                subtitle = "查看许可全文",
+                subtitle = stringResource(R.string.about_license_view_full),
                 leadingIcon = Icons.Filled.Info,
                 onClick = onOpenLicense,
             )
@@ -191,16 +195,16 @@ fun AboutScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             // ---- 项目主页与反馈（系统浏览器打开） ----
-            AboutSectionLabel("项目与反馈")
+            AboutSectionLabel(stringResource(R.string.about_section_project))
             AboutEntryItem(
-                title = "GitHub 项目主页",
+                title = stringResource(R.string.about_github_home),
                 subtitle = AboutLinks.HOME,
                 leadingIcon = Icons.Filled.Home,
                 onClick = { openUrl(context, AboutLinks.HOME) },
             )
             AboutEntryItem(
-                title = "问题反馈",
-                subtitle = "在 GitHub 提交 Issue",
+                title = stringResource(R.string.about_feedback),
+                subtitle = stringResource(R.string.about_feedback_subtitle),
                 leadingIcon = Icons.Filled.Email,
                 onClick = { openUrl(context, AboutLinks.ISSUES) },
             )
@@ -216,14 +220,11 @@ fun AboutScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             // ---- 第三方依赖声明 ----
-            AboutSectionLabel("第三方依赖")
-            AboutBody(
-                "无第三方依赖：纸阅不集成任何第三方 SDK 与统计库，" +
-                    "全部功能基于 AndroidX 与 Kotlin 官方库实现。",
-            )
+            AboutSectionLabel(stringResource(R.string.about_section_third_party))
+            AboutBody(stringResource(R.string.about_third_party_body))
 
             // ---- 维护者 ----
-            AboutSectionLabel("维护者")
+            AboutSectionLabel(stringResource(R.string.about_section_maintainer))
             AboutBody("lobster-xiaozhua")
 
             Spacer(Modifier.height(24.dp))
@@ -356,6 +357,6 @@ private fun openUrl(context: Context, url: String) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
     } catch (e: ActivityNotFoundException) {
-        Toast.makeText(context, "没有可用的浏览器", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.about_no_browser), Toast.LENGTH_SHORT).show()
     }
 }

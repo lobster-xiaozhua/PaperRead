@@ -69,6 +69,7 @@ import io.github.lunalight.paperread.reader.PageBound
 import io.github.lunalight.paperread.reader.pageIndexForStartParagraph
 import io.github.lunalight.paperread.reader.paginate
 import io.github.lunalight.paperread.ui.reader.search.SearchHighlighter
+import io.github.lunalight.paperread.ui.asString
 import io.github.lunalight.paperread.ui.theme.ReaderTheme
 import kotlin.math.absoluteValue
 import kotlin.math.max
@@ -107,6 +108,8 @@ internal fun ReaderPagerContent(
     viewModel: ReaderViewModel,
     theme: ReaderTheme,
     isLandscape: Boolean,
+    /** AC-22.2：把「当前页翻页能力」上抛给底栏按钮（TalkBack 手势替代入口）。 */
+    pageTurn: PageTurnHandle? = null,
 ) {
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
@@ -170,6 +173,7 @@ internal fun ReaderPagerContent(
             horizontalPaddingPx = horizontalPaddingPx,
             isLandscape = isLandscape,
             focusRequester = focusRequester,
+            pageTurn = pageTurn,
         )
     }
 }
@@ -191,6 +195,7 @@ private fun ReaderPagerScaffold(
     horizontalPaddingPx: Int,
     isLandscape: Boolean,
     focusRequester: FocusRequester,
+    pageTurn: PageTurnHandle? = null,
 ) {
     val pagerState = rememberPagerState(initialPage = 0) { pages.size.coerceAtLeast(1) }
     val scope = rememberCoroutineScope()
@@ -231,6 +236,30 @@ private fun ReaderPagerScaffold(
     }
 
     val currentPage by remember { derivedStateOf { pagerState.currentPage } }
+
+    // AC-22.2：把翻页能力暴露给外壳按钮。用 snapshotFlow 观察页码，
+    // 换章（pages 变）或翻页时重新绑定可用态，按钮据此启用 / 禁用。
+    // 首页 / 末页不做「跨章兜底」：切章有独立的「上一章 / 下一章」按钮，
+    // 翻页按钮的语义严格限定在「同一章内翻页」，避免两个入口行为重叠。
+    LaunchedEffect(pagerState, pages, pageTurn) {
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            val lastIndex = pages.lastIndex
+            pageTurn?.bind(
+                canPrevious = page > 0,
+                canNext = page in 0 until lastIndex,
+                previous = {
+                    if (pagerState.currentPage > 0) {
+                        scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+                    }
+                },
+                next = {
+                    if (pagerState.currentPage < pages.lastIndex) {
+                        scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
+                    }
+                },
+            )
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -572,7 +601,7 @@ fun PaginatedSpread(
                     showFooter = lastPage == 0,
                     hasNext = state.chapterIndex < state.chapters.lastIndex,
                     progressPercent = state.progressPercent,
-                    chapterPosition = state.chapterPosition,
+                    chapterPosition = state.chapterPosition.asString(),
                     onNextChapter = viewModel::nextChapter,
                     highlight = highlight,
                 )
@@ -591,7 +620,7 @@ fun PaginatedSpread(
                         showFooter = rightIndex == lastPage,
                         hasNext = state.chapterIndex < state.chapters.lastIndex,
                         progressPercent = state.progressPercent,
-                        chapterPosition = state.chapterPosition,
+                        chapterPosition = state.chapterPosition.asString(),
                         onNextChapter = viewModel::nextChapter,
                         highlight = highlight,
                     )

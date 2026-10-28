@@ -23,7 +23,10 @@ data class PageBreak(
  *   某段高度超过 [pageHeightPx] 时该段独占一页（渲染层按需裁切，属已知限制，不影响进度）。
  */
 fun packPages(paragraphHeights: List<Int>, pageHeightPx: Int): List<PageBreak> {
-    require(pageHeightPx > 0) { "pageHeightPx 必须 > 0，实际 $pageHeightPx" }
+    // 开发者断言（不面用户，也不会被渲染）：T-022 的扫描把 ui/** 里的中文字面量
+    // 一律视为「漏资源的 UI 文案」，故这条内部断言用英文——它不是文案，硬塞进
+    // strings.xml 反而给翻译添噪音。
+    require(pageHeightPx > 0) { "pageHeightPx must be > 0, actual $pageHeightPx" }
     if (paragraphHeights.isEmpty()) return emptyList()
     val pages = mutableListOf<PageBreak>()
     var used = 0

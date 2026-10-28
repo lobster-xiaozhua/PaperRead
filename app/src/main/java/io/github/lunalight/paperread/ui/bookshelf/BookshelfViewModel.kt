@@ -1,5 +1,6 @@
 package io.github.lunalight.paperread.ui.bookshelf
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -12,9 +13,11 @@ import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.data.repository.PrepareResult
 import io.github.lunalight.paperread.di.AppContainer
 import io.github.lunalight.paperread.domain.model.Book
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.domain.repository.BookRepository
 import io.github.lunalight.paperread.reader.BookTextStore
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
+import io.github.lunalight.paperread.ui.UiText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,12 +25,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 书架排序方式。 */
-enum class SortOrder(val label: String) {
-    RECENTLY_READ("最近阅读"),
-    ADDED("最近导入"),
-    TITLE("书名"),
-    PROGRESS("进度"),
+/** 书架排序方式（T-022：只带 `@StringRes`，文案在 `strings.xml`）。 */
+enum class SortOrder(@param:StringRes val labelRes: Int) {
+    RECENTLY_READ(R.string.sort_recently_read),
+    ADDED(R.string.sort_added),
+    TITLE(R.string.sort_title),
+    PROGRESS(R.string.sort_progress),
 }
 
 /** 导入相关 UI 状态（进度 / 结果待确认 / 提示消息）。 */
@@ -47,8 +50,8 @@ data class BookshelfUiState(
     val reparseTarget: Book? = null,
     /** 判重对话框目标（SHA-256 命中，非空时展示「替换 / 取消」，AC-1.5）。 */
     val duplicateTarget: Book? = null,
-    /** 一次性提示（Snackbar）。 */
-    val message: String? = null,
+    /** 一次性提示（Snackbar）；T-022：VM 不持有 Context，携带字符串资源 id。 */
+    val message: UiText? = null,
 )
 
 class BookshelfViewModel(
@@ -115,21 +118,27 @@ class BookshelfViewModel(
                             duplicateTarget = result.existing,
                         )
 
+                        // 导入失败话术来自 :core:data（ImportError.userMessage，要参与
+                        // 迁移 / 同步序列化），原样透传为 Plain，不资源化（见
+                        // scripts/strings-baseline.txt 的数据层例外登记）。
                         is PrepareResult.Unsupported -> state.copy(
                             import = ImportUiState(),
-                            message = result.error.userMessage,
+                            message = UiText.Plain(result.error.userMessage),
                         )
 
                         is PrepareResult.Failure -> state.copy(
                             import = ImportUiState(),
-                            message = result.error.userMessage,
+                            message = UiText.Plain(result.error.userMessage),
                         )
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // 用户取消导入（AC-1.4）：导入器已清理半成品目录
                 _uiState.update {
-                    it.copy(import = ImportUiState(), message = "已取消导入")
+                    it.copy(
+                        import = ImportUiState(),
+                        message = UiText.res(R.string.bookshelf_import_canceled),
+                    )
                 }
                 throw e
             }
@@ -171,7 +180,7 @@ class BookshelfViewModel(
                     error == null -> _uiState.update {
                         it.copy(
                             import = ImportUiState(),
-                            message = "已替换《${existing.title}》（进度与书签已重置）",
+                            message = UiText.res(R.string.bookshelf_replace_done, existing.title),
                         )
                     }
 
@@ -179,19 +188,25 @@ class BookshelfViewModel(
                         bookRepository.deleteBook(existing)
                         bookTextStore.deleteBookDir(existing.dirName)
                         _uiState.update {
-                            it.copy(import = ImportUiState(), message = "正在重新导入《${existing.title}》")
+                            it.copy(
+                                import = ImportUiState(),
+                                message = UiText.res(R.string.bookshelf_reimporting, existing.title),
+                            )
                         }
                         launchImport(uri, lastImportStrategy)
                     }
 
                     else -> _uiState.update {
-                        it.copy(import = ImportUiState(), message = error.userMessage)
+                        it.copy(import = ImportUiState(), message = UiText.Plain(error.userMessage))
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // 取消发生在替换生效之前：book.txt 未被改写，旧书保持可用
                 _uiState.update {
-                    it.copy(import = ImportUiState(), message = "已取消替换")
+                    it.copy(
+                        import = ImportUiState(),
+                        message = UiText.res(R.string.bookshelf_replace_canceled),
+                    )
                 }
                 throw e
             }
@@ -205,7 +220,7 @@ class BookshelfViewModel(
             val reparsed = bookImporter.reparse(pending, charsetName, strategy)
             _uiState.update { state ->
                 if (reparsed == null) {
-                    state.copy(message = "重新解析失败，请重试")
+                    state.copy(message = UiText.res(R.string.bookshelf_reparse_failed))
                 } else {
                     state.copy(import = state.import.copy(pending = reparsed))
                 }
@@ -218,7 +233,10 @@ class BookshelfViewModel(
         viewModelScope.launch {
             bookImporter.confirm(pending)
             _uiState.update {
-                it.copy(import = ImportUiState(), message = "已导入《${pending.title}》")
+                it.copy(
+                    import = ImportUiState(),
+                    message = UiText.res(R.string.bookshelf_import_done, pending.title),
+                )
             }
         }
     }
@@ -257,8 +275,8 @@ class BookshelfViewModel(
             val error = bookImporter.reparseBook(book, strategy)
             _uiState.update {
                 it.copy(
-                    message = error?.userMessage
-                        ?: "已按新策略重新解析《${book.title}》（进度与书签已重置）",
+                    message = error?.let { UiText.Plain(it.userMessage) }
+                        ?: UiText.res(R.string.bookshelf_reparsed_done, book.title),
                 )
             }
         }

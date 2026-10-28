@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.di.AppContainer
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.domain.repository.BookRepository
@@ -21,6 +22,7 @@ import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
 import io.github.lunalight.paperread.transfer.TransferSyncState
+import io.github.lunalight.paperread.ui.UiText
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,8 +48,13 @@ data class TransferUiState(
     val sync: TransferSyncState = TransferSyncState(),
     val books: List<Book> = emptyList(),
     val booksResolved: Boolean = false,
-    /** 一次性提示（Snackbar）：发送 / 接收错误、导入成功、迁移 / 同步结果。 */
-    val message: String? = null,
+    /**
+     * 一次性提示（Snackbar）：发送 / 接收错误、导入成功、迁移 / 同步结果。
+     *
+     * T-022：VM 不持有 Context —— 本页自产的提示带字符串资源 id（[UiText.Res]），
+     * 传输层透传的错误话术原样装载（[UiText.Plain]）。
+     */
+    val message: UiText? = null,
     val pairing: TransferPairingState = TransferPairingState(),
     val pairingTarget: DiscoveredDevice? = null,
     val pairingInput: String = "",
@@ -94,7 +101,7 @@ class TransferViewModel(
                     // 错误只提示一次：随发射转一次性消息，不保留在卡片里重复曝光
                     state.copy(
                         send = send,
-                        message = send.error ?: state.message,
+                        message = send.error?.let { UiText.Plain(it) } ?: state.message,
                     )
                 }
             }
@@ -104,7 +111,8 @@ class TransferViewModel(
                 _uiState.update { state ->
                     state.copy(
                         receive = receive,
-                        message = receive.error ?: receive.importedTitle?.let { "已导入《$it》" }
+                        message = receive.error?.let { UiText.Plain(it) }
+                            ?: receive.importedTitle?.let { UiText.res(R.string.transfer_imported, it) }
                             ?: state.message,
                     )
                 }
@@ -117,9 +125,10 @@ class TransferViewModel(
             transferManager.migration.collect { migration ->
                 _uiState.update { state ->
                     // 错误一次性提示；接收端完成（无错误、有报告）时同样给一次性汇总
-                    val notice = migration.error ?: migration.report?.let { report ->
-                        if (migration.active) null else migrationSummary(report)
-                    }
+                    val notice = migration.error?.let { UiText.Plain(it) }
+                        ?: migration.report?.let { report ->
+                            if (migration.active) null else migrationSummary(report)
+                        }
                     state.copy(
                         migration = migration,
                         message = notice ?: state.message,
@@ -131,9 +140,10 @@ class TransferViewModel(
             transferManager.sync.collect { sync ->
                 _uiState.update { state ->
                     // 错误一次性提示；同步完成（无错误、有报告）时给一次性汇总
-                    val notice = sync.error ?: sync.report?.let { report ->
-                        if (sync.active) null else syncSummary(report)
-                    }
+                    val notice = sync.error?.let { UiText.Plain(it) }
+                        ?: sync.report?.let { report ->
+                            if (sync.active) null else syncSummary(report)
+                        }
                     state.copy(sync = sync, message = notice ?: state.message)
                 }
             }
@@ -296,24 +306,43 @@ class TransferViewModel(
     }
 
     companion object {
-        /** 迁移结果一次性汇总（AC-10.3：成功 / 失败清单）。 */
-        fun migrationSummary(report: MigrationReport): String = buildString {
-            append("迁移完成：新导入 ${report.imported} 本")
-            if (report.duplicates > 0) append("，已存在 ${report.duplicates} 本")
-            if (report.progressWritten > 0) append("，回写进度 ${report.progressWritten} 本")
-            if (report.failed.isNotEmpty()) append("，失败 ${report.failed.size} 本")
-        }
+        /**
+         * 迁移结果一次性汇总（AC-10.3：成功 / 失败清单）。
+         *
+         * T-022：条件片段各自成资源、由 [UiText.Concat] 顺序拼接——拼出的整句
+         * 与资源化前逐字一致（含中文逗号），只是「词」搬进了 `strings.xml`。
+         */
+        fun migrationSummary(report: MigrationReport): UiText = UiText.Concat(
+            buildList {
+                add(UiText.res(R.string.transfer_migration_summary_head, report.imported))
+                if (report.duplicates > 0) {
+                    add(UiText.res(R.string.transfer_migration_summary_duplicates, report.duplicates))
+                }
+                if (report.progressWritten > 0) {
+                    add(UiText.res(R.string.transfer_migration_summary_progress, report.progressWritten))
+                }
+                if (report.failed.isNotEmpty()) {
+                    add(UiText.res(R.string.transfer_migration_summary_failed, report.failed.size))
+                }
+            },
+        )
 
         /**
          * 同步结果一次性汇总（AC-11.2：告知被覆盖条目数；AC-11.3：只增不删）。
          */
-        fun syncSummary(report: SyncReport): String = buildString {
-            append("同步完成：")
-            append("覆盖本地进度 ${report.localOverwritten} 本")
-            append("，新增书签 ${report.localBookmarksAdded} 条")
-            if (report.pushBack.isNotEmpty()) append("，回推 ${report.pushBack.size} 本")
-            if (report.remoteOnlyBooks > 0) append("，对端另有 ${report.remoteOnlyBooks} 本本地没有")
-        }
+        fun syncSummary(report: SyncReport): UiText = UiText.Concat(
+            buildList {
+                add(UiText.res(R.string.transfer_sync_summary_head))
+                add(UiText.res(R.string.transfer_sync_summary_overwritten, report.localOverwritten))
+                add(UiText.res(R.string.transfer_sync_summary_bookmarks, report.localBookmarksAdded))
+                if (report.pushBack.isNotEmpty()) {
+                    add(UiText.res(R.string.transfer_sync_summary_pushback, report.pushBack.size))
+                }
+                if (report.remoteOnlyBooks > 0) {
+                    add(UiText.res(R.string.transfer_sync_summary_remote_only, report.remoteOnlyBooks))
+                }
+            },
+        )
 
         fun factory(bookIds: List<Long>, container: AppContainer): ViewModelProvider.Factory =
             viewModelFactory {

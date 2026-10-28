@@ -1,5 +1,6 @@
 package io.github.lunalight.paperread.ui.reader
 
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.domain.model.BookFormat
 import io.github.lunalight.paperread.domain.model.Bookmark
@@ -8,6 +9,7 @@ import io.github.lunalight.paperread.fakes.FakeBookRepository
 import io.github.lunalight.paperread.fakes.FakeBookTextStore
 import io.github.lunalight.paperread.fakes.FakeSettingsStore
 import io.github.lunalight.paperread.fakes.FakeSpeechController
+import io.github.lunalight.paperread.ui.UiText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -125,7 +127,7 @@ class ReaderBookmarkNoteViewModelTest {
         assertNotNull("添加后应允许写备注", editor)
         assertTrue(editor!!.isNew)
         assertEquals("", editor.draft)
-        assertEquals("已添加书签", viewModel.uiState.value.message)
+        assertEquals(UiText.res(R.string.reader_bookmark_added), viewModel.uiState.value.message)
         assertEquals("书签本身已经落库", 1, repository.addedBookmarks.size)
     }
 
@@ -160,7 +162,7 @@ class ReaderBookmarkNoteViewModelTest {
         assertEquals("落库前 trim", "精彩的一段", saved.note)
         assertTrue("updatedAt 必须大于 0（合并裁决依据）", saved.updatedAt > 0L)
         assertNull(viewModel.uiState.value.bookmarkEditor)
-        assertEquals("备注已保存", viewModel.uiState.value.message)
+        assertEquals(UiText.res(R.string.reader_bookmark_note_saved), viewModel.uiState.value.message)
     }
 
     // ---- 长度上限（AC-17.1 ≤ 500 字） ----

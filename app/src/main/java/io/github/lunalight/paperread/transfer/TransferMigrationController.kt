@@ -204,7 +204,7 @@ internal class TransferMigrationController(
                     is UploadResult.Success -> migrationState.value = migrationState.value.copy(
                         active = false,
                         fraction = 1f,
-                        phaseLabel = "已发送",
+                        phaseLabel = MIGRATION_PHASE_SENT,
                     )
 
                     is UploadResult.Failure -> migrationState.value = migrationState.value.copy(

@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -79,7 +81,7 @@ internal fun SpeechControlBar(
                 IconButton(onClick = { onSkip(-1) }) {
                     Icon(
                         painter = painterResource(R.drawable.ic_speech_prev),
-                        contentDescription = "上一段",
+                        contentDescription = stringResource(R.string.speech_prev_unit),
                         tint = theme.onBackground,
                     )
                 }
@@ -88,26 +90,30 @@ internal fun SpeechControlBar(
                         painter = painterResource(
                             if (speech.isSpeaking) R.drawable.ic_speech_pause else R.drawable.ic_speech_play,
                         ),
-                        contentDescription = if (speech.isSpeaking) "暂停朗读" else "继续朗读",
+                        contentDescription = stringResource(
+                            if (speech.isSpeaking) R.string.speech_pause else R.string.speech_resume,
+                        ),
                         tint = theme.accent,
                     )
                 }
                 IconButton(onClick = { onSkip(1) }) {
                     Icon(
                         painter = painterResource(R.drawable.ic_speech_next),
-                        contentDescription = "下一段",
+                        contentDescription = stringResource(R.string.speech_next_unit),
                         tint = theme.onBackground,
                     )
                 }
                 IconButton(onClick = onStop) {
                     Icon(
                         painter = painterResource(R.drawable.ic_speech_stop),
-                        contentDescription = "停止朗读",
+                        contentDescription = stringResource(R.string.speech_stop),
                         tint = theme.onBackground,
                     )
                 }
                 Text(
-                    text = if (speech.isSpeaking) "正在朗读" else "已暂停",
+                    text = stringResource(
+                        if (speech.isSpeaking) R.string.speech_state_speaking else R.string.speech_state_paused,
+                    ),
                     style = MaterialTheme.typography.labelMedium,
                     color = theme.secondary,
                     modifier = Modifier.weight(1f),
@@ -116,7 +122,7 @@ internal fun SpeechControlBar(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "语速",
+                    text = stringResource(R.string.speech_rate),
                     style = MaterialTheme.typography.labelSmall,
                     color = theme.secondary,
                 )
@@ -133,12 +139,14 @@ internal fun SpeechControlBar(
                     text = "%.2fx".format(speech.rate),
                     style = MaterialTheme.typography.labelSmall,
                     color = theme.secondary,
-                    modifier = Modifier.width(44.dp),
+                    // AC-22.3：固定 44dp 在 200% 字号下会把「1.00x」截断，
+                    // 改最小宽度：正常字号等价，放大时允许撑开。
+                    modifier = Modifier.widthIn(min = 44.dp),
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "音调",
+                    text = stringResource(R.string.speech_pitch),
                     style = MaterialTheme.typography.labelSmall,
                     color = theme.secondary,
                 )
@@ -155,18 +163,21 @@ internal fun SpeechControlBar(
                     text = "%.2fx".format(speech.pitch),
                     style = MaterialTheme.typography.labelSmall,
                     color = theme.secondary,
-                    modifier = Modifier.width(44.dp),
+                    modifier = Modifier.widthIn(min = 44.dp),
                 )
             }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    // AC-22.4：整行可点，`padding(vertical = 2.dp)` 会让行高掉到
+                    // 48dp 以下（Switch 视觉高 32dp），显式给最小触达高度。
+                    .heightIn(min = 48.dp)
                     .clickable { onAutoNextChange(!autoNextChapter) }
                     .padding(vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "读完一章后自动继续下一章",
+                    text = stringResource(R.string.speech_auto_next),
                     style = MaterialTheme.typography.labelSmall,
                     color = theme.secondary,
                     modifier = Modifier.weight(1f),

@@ -18,13 +18,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.domain.model.BookFormat
 import io.github.lunalight.paperread.reader.txt.CharsetDetector
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
+import io.github.lunalight.paperread.ui.UiText
+import io.github.lunalight.paperread.ui.asString
 
 /**
  * 导入结果确认对话框（本地导入与局域网传书接收共用，AC-9.5）。
@@ -44,20 +48,34 @@ internal fun ImportResultDialog(
     val isEpub = pending.format == BookFormat.EPUB
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("导入确认", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        title = {
+            Text(
+                stringResource(R.string.import_confirm_title),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
         text = {
             Column {
                 Text(pending.title, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, maxLines = 2)
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "${pending.format.name} · ${formatFileSize(pending.fileSize)} · " +
-                        "${pending.chapters.size} 章 · ${formatChars(pending.totalChars)}",
+                    stringResource(
+                        R.string.import_confirm_summary,
+                        pending.format.name,
+                        formatFileSize(pending.fileSize),
+                        pending.chapters.size,
+                        formatChars(pending.totalChars).asString(),
+                    ),
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (!isEpub) {
                     Spacer(Modifier.height(12.dp))
-                    Text("编码", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    Text(
+                        stringResource(R.string.import_charset),
+                        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                    )
                     Spacer(Modifier.height(4.dp))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CharsetDetector.SUPPORTED_ENCODINGS.forEach { name ->
@@ -74,7 +92,10 @@ internal fun ImportResultDialog(
                         }
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text("切分策略", style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    Text(
+                        stringResource(R.string.import_split_strategy),
+                        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                    )
                     Spacer(Modifier.height(4.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SplitStrategy.entries.forEach { option ->
@@ -88,7 +109,13 @@ internal fun ImportResultDialog(
                                 },
                                 label = {
                                     Text(
-                                        if (option == SplitStrategy.CONSERVATIVE) "保守" else "激进",
+                                        stringResource(
+                                            if (option == SplitStrategy.CONSERVATIVE) {
+                                                R.string.split_strategy_conservative
+                                            } else {
+                                                R.string.split_strategy_aggressive
+                                            },
+                                        ),
                                         fontSize = 12.sp,
                                     )
                                 },
@@ -98,8 +125,12 @@ internal fun ImportResultDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("导入") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(stringResource(R.string.common_import)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        },
     )
 }
 
@@ -110,7 +141,14 @@ internal fun formatFileSize(bytes: Long): String = when {
     else -> "$bytes B"
 }
 
-internal fun formatChars(chars: Long): String = when {
-    chars >= 10_000 -> "%.1f 万字".format(chars / 10_000.0)
-    else -> "$chars 字"
+/**
+ * 字数展示：≥1 万字用「x.x 万字」，否则「n 字」。
+ *
+ * T-022：单位也是文案，故返回 [UiText]（带资源 id）而不是成品字符串——
+ * 本函数因此保持**纯函数**（单测直接断言返回了哪条资源 + 哪个参数），
+ * 渲染期由调用方 `asString()` 解析。
+ */
+internal fun formatChars(chars: Long): UiText = when {
+    chars >= 10_000 -> UiText.res(R.string.import_chars_wan, "%.1f".format(chars / 10_000.0))
+    else -> UiText.res(R.string.import_chars_count, chars)
 }

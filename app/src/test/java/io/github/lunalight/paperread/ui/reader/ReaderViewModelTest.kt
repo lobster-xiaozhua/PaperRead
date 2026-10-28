@@ -1,5 +1,6 @@
 package io.github.lunalight.paperread.ui.reader
 
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.domain.model.BookFormat
 import io.github.lunalight.paperread.domain.model.Bookmark
@@ -26,6 +27,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import io.github.lunalight.paperread.ui.UiText
 
 /**
  * ReaderViewModel 单测（纯 JVM，无 Robolectric）：
@@ -165,7 +167,7 @@ class ReaderViewModelTest {
 
         val state = viewModel.uiState.value
         assertFalse(state.loading)
-        assertEquals("书籍不存在或已删除", state.error)
+        assertEquals(UiText.res(R.string.reader_error_book_missing), state.error)
     }
 
     @Test
@@ -176,7 +178,7 @@ class ReaderViewModelTest {
 
         val state = viewModel.uiState.value
         assertFalse(state.loading)
-        assertEquals("章节为空，请尝试重新解析", state.error)
+        assertEquals(UiText.res(R.string.reader_error_no_chapters), state.error)
     }
 
     @Test
@@ -337,7 +339,7 @@ class ReaderViewModelTest {
             added.charOffset,
         )
         assertEquals(1L, added.bookId)
-        assertEquals("已添加书签", viewModel.uiState.value.message)
+        assertEquals(UiText.res(R.string.reader_bookmark_added), viewModel.uiState.value.message)
 
         // 仓储流推送 → UI 状态同步（倒序由仓储保证）
         val stored = added.copy(id = 7L)
@@ -414,7 +416,7 @@ class ReaderViewModelTest {
         repository.book = null
         viewModel = ReaderViewModel(1L, repository, textStore, settingsStore, speechController)
         advanceUntilIdle()
-        assertEquals("书籍不存在或已删除", viewModel.uiState.value.error)
+        assertEquals(UiText.res(R.string.reader_error_book_missing), viewModel.uiState.value.error)
 
         viewModel.dismissError()
         assertNull(viewModel.uiState.value.error)
@@ -551,7 +553,7 @@ class ReaderViewModelTest {
 
         val state = viewModel.uiState.value
         assertFalse(state.speech.isActive)
-        assertEquals("已朗读完本章", state.message)
+        assertEquals(UiText.res(R.string.speech_chapter_finished), state.message)
     }
 
     @Test

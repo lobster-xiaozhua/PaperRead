@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -44,6 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,7 +66,9 @@ import io.github.lunalight.paperread.transfer.TransferReceiveState
 import io.github.lunalight.paperread.transfer.TransferSendState
 import io.github.lunalight.paperread.transfer.TransferServiceState
 import io.github.lunalight.paperread.transfer.TransferSyncState
+import io.github.lunalight.paperread.transfer.MIGRATION_PHASE_SENT
 import io.github.lunalight.paperread.ui.bookshelf.ImportResultDialog
+import io.github.lunalight.paperread.ui.resolve
 
 /**
  * 传书页（AC-9.1 ~ AC-9.7）：本机标识 → 已选书目 → 在线设备 → 发送进度 →
@@ -85,7 +90,7 @@ fun TransferScreen(
 
     // 一次性消息（发送 / 接收错误、导入成功）
     LaunchedEffect(state.message) {
-        val message = state.message ?: return@LaunchedEffect
+        val message = state.message?.resolve(context) ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
         viewModel.dismissMessage()
     }
@@ -93,12 +98,12 @@ fun TransferScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("局域网传书") },
+                title = { Text(stringResource(R.string.transfer_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
+                            contentDescription = stringResource(R.string.common_back),
                         )
                     }
                 },
@@ -267,7 +272,7 @@ private fun PairingCard(
                     Text(
                         stringResource(
                             R.string.transfer_pairing_paired,
-                            pairedDeviceName ?: "对端设备",
+                            pairedDeviceName ?: stringResource(R.string.common_peer_device),
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -329,7 +334,7 @@ private fun PairingDialog(
             ) {
                 Text(
                     if (busy) {
-                        "配对中…"
+                        stringResource(R.string.transfer_pairing_busy)
                     } else {
                         stringResource(R.string.transfer_pairing_dialog_confirm)
                     }
@@ -365,7 +370,10 @@ private fun ServiceCard(
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("本机标识", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    stringResource(R.string.transfer_service_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
             }
             Spacer(Modifier.height(8.dp))
             when {
@@ -373,7 +381,10 @@ private fun ServiceCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("正在启动传书服务…", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            stringResource(R.string.transfer_service_starting),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                 }
 
@@ -389,7 +400,7 @@ private fun ServiceCard(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "同一 WiFi 下的其他设备打开传书页即可发现本机（不访问公网）",
+                        stringResource(R.string.transfer_service_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -397,7 +408,7 @@ private fun ServiceCard(
 
                 else -> {
                     Text(
-                        service.error ?: "服务未启动",
+                        service.error ?: stringResource(R.string.transfer_service_not_running),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -409,7 +420,7 @@ private fun ServiceCard(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text("重试")
+                        Text(stringResource(R.string.common_retry))
                     }
                 }
             }
@@ -432,18 +443,23 @@ private fun SelectedBooksCard(books: List<Book>, resolved: Boolean) {
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("待发送书籍", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    stringResource(R.string.transfer_selected_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
             }
             Spacer(Modifier.height(8.dp))
             when {
                 !resolved -> {
-                    Text("正在读取书目…", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        stringResource(R.string.transfer_selected_loading),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                 }
 
                 books.isEmpty() -> {
                     Text(
-                        "未选择书籍。返回书架，长按多选后点右上角发送图标，" +
-                            "即可把所选书籍传到在线设备。",
+                        stringResource(R.string.transfer_selected_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -451,7 +467,7 @@ private fun SelectedBooksCard(books: List<Book>, resolved: Boolean) {
 
                 else -> {
                     Text(
-                        "共 ${books.size} 本，选择下方设备开始发送：",
+                        stringResource(R.string.transfer_selected_count, books.size),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(Modifier.height(4.dp))
@@ -482,7 +498,7 @@ private fun SendProgressCard(
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
-                "正在发送《${send.currentTitle}》（${send.index}/${send.total}）",
+                stringResource(R.string.transfer_sending, send.currentTitle, send.index, send.total),
                 style = MaterialTheme.typography.titleSmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -497,7 +513,9 @@ private fun SendProgressCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = onCancel) { Text("取消发送") }
+                TextButton(onClick = onCancel) {
+                    Text(stringResource(R.string.transfer_send_cancel))
+                }
             }
         }
     }
@@ -521,7 +539,7 @@ private fun ReceiveProgressCard(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "正在接收 ${receive.fileName}",
+                    stringResource(R.string.transfer_receiving, receive.fileName),
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -542,11 +560,13 @@ private fun MigrationCard(
     onCancel: () -> Unit,
     onDismissReport: () -> Unit,
 ) {
+    // `buildString` 里要拼「（3/10）」这类纯格式片段，取 context 解析资源
+    val context = LocalContext.current
     // 进行中 / 出错 / 结果清单：三者都无则不占位
     val visible = migration.active ||
         migration.error != null ||
         migration.report != null ||
-        migration.phaseLabel == "已发送"
+        migration.phaseLabel == MIGRATION_PHASE_SENT
     if (!visible) return
 
     Card(
@@ -563,7 +583,13 @@ private fun MigrationCard(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    if (migration.direction == MigrationDirection.RECEIVE) "接收整库迁移" else "换机迁移",
+                    stringResource(
+                        if (migration.direction == MigrationDirection.RECEIVE) {
+                            R.string.transfer_migration_receive_title
+                        } else {
+                            R.string.transfer_migration_send_title
+                        },
+                    ),
                     style = MaterialTheme.typography.titleSmall,
                 )
             }
@@ -580,7 +606,13 @@ private fun MigrationCard(
                         buildString {
                             append(migration.phaseLabel)
                             if (migration.total > 0) {
-                                append("（${migration.index}/${migration.total}）")
+                                append(
+                                    context.getString(
+                                        R.string.transfer_migration_progress,
+                                        migration.index,
+                                        migration.total,
+                                    ),
+                                )
                             }
                             if (migration.currentTitle.isNotBlank()) {
                                 append(" · ${migration.currentTitle}")
@@ -599,7 +631,9 @@ private fun MigrationCard(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                     ) {
-                        TextButton(onClick = onCancel) { Text("取消迁移") }
+                        TextButton(onClick = onCancel) {
+                            Text(stringResource(R.string.transfer_migration_cancel))
+                        }
                     }
                 }
 
@@ -607,20 +641,28 @@ private fun MigrationCard(
                     val report = migration.report
                     if (report != null) {
                         Text(
-                            "新导入 ${report.imported} 本 · 已存在 ${report.duplicates} 本 · " +
-                                "回写进度 ${report.progressWritten} 本",
+                            stringResource(
+                                R.string.transfer_migration_report,
+                                report.imported,
+                                report.duplicates,
+                                report.progressWritten,
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         if (report.failed.isNotEmpty()) {
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "失败 ${report.failed.size} 本：",
+                                stringResource(R.string.transfer_migration_failed, report.failed.size),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.error,
                             )
                             report.failed.forEach { entry ->
                                 Text(
-                                    "· ${entry.title}：${entry.reason}",
+                                    stringResource(
+                                        R.string.transfer_migration_failed_entry,
+                                        entry.title,
+                                        entry.reason,
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error,
                                     maxLines = 2,
@@ -630,13 +672,18 @@ private fun MigrationCard(
                         }
                         Spacer(Modifier.height(4.dp))
                     } else {
-                        Text("迁移包已发送", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            stringResource(R.string.transfer_migration_sent),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                     ) {
-                        TextButton(onClick = onDismissReport) { Text("知道了") }
+                        TextButton(onClick = onDismissReport) {
+                            Text(stringResource(R.string.common_got_it))
+                        }
                     }
                 }
             }
@@ -665,7 +712,10 @@ private fun SyncCard(
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("阅读进度同步", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    stringResource(R.string.transfer_sync_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
             }
             Spacer(Modifier.height(8.dp))
             when {
@@ -679,7 +729,7 @@ private fun SyncCard(
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        sync.phaseLabel.ifBlank { "正在同步…" },
+                        sync.phaseLabel.ifBlank { stringResource(R.string.transfer_sync_loading) },
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
@@ -688,29 +738,40 @@ private fun SyncCard(
                     val report = sync.report
                     if (report != null) {
                         Text(
-                            "覆盖本地进度 ${report.localOverwritten} 本 · " +
-                                "新增书签 ${report.localBookmarksAdded} 条 · " +
-                                "回推 ${report.pushBack.size} 本",
+                            stringResource(
+                                R.string.transfer_sync_report,
+                                report.localOverwritten,
+                                report.localBookmarksAdded,
+                                report.pushBack.size,
+                            ),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         if (report.remoteOnlyBooks > 0 || report.localOnlyBooks > 0) {
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "两侧书目不完全一致：对端另有 ${report.remoteOnlyBooks} 本，" +
-                                    "本地另有 ${report.localOnlyBooks} 本（均保留，不做删除）",
+                                stringResource(
+                                    R.string.transfer_sync_diff,
+                                    report.remoteOnlyBooks,
+                                    report.localOnlyBooks,
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Spacer(Modifier.height(4.dp))
                     } else {
-                        Text("同步已完成", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            stringResource(R.string.transfer_sync_done),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End,
                     ) {
-                        TextButton(onClick = onDismissReport) { Text("知道了") }
+                        TextButton(onClick = onDismissReport) {
+                            Text(stringResource(R.string.common_got_it))
+                        }
                     }
                 }
             }
@@ -742,21 +803,34 @@ private fun DeviceListCard(
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("在线设备", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    stringResource(R.string.transfer_devices_title),
+                    style = MaterialTheme.typography.titleSmall,
+                )
             }
             Spacer(Modifier.height(8.dp))
             if (devices.isEmpty()) {
                 Text(
-                    "未发现在线设备。请确认两台设备处于同一 WiFi，" +
-                        "且对端已打开传书页（发现通常不超过 3 秒）。",
+                    stringResource(R.string.transfer_devices_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
                 devices.forEach { device ->
+                    // AC-22.1 / AC-22.4：设备行整行可点（发送），必须能被 TalkBack
+                    // 读成「设备名 + 地址」；触达高度给到 48dp 下限。
+                    // 不做 mergeDescendants——行内还有「同步进度 / 迁移整库」两个按钮，
+                    // 合并会把它们吞进同一个焦点。
+                    val deviceLabel = stringResource(
+                        R.string.a11y_transfer_device_item,
+                        device.deviceName,
+                        "${device.host}:${device.httpPort}",
+                    )
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .semantics { contentDescription = deviceLabel }
                             .clickable(enabled = sendEnabled) { onDeviceClick(device) }
                             .padding(vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -795,7 +869,7 @@ private fun DeviceListCard(
                         }
                         if (!sendEnabled) {
                             Text(
-                                "先选书",
+                                stringResource(R.string.transfer_devices_select_first),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -804,20 +878,25 @@ private fun DeviceListCard(
                             onClick = { onSyncClick(device) },
                             enabled = syncEnabled,
                         ) {
-                            Text("同步进度", fontSize = 12.sp)
+                            Text(
+                                stringResource(R.string.transfer_device_sync),
+                                fontSize = 12.sp,
+                            )
                         }
                         TextButton(
                             onClick = { onMigrateClick(device) },
                             enabled = migrationEnabled,
                         ) {
-                            Text("迁移整库", fontSize = 12.sp)
+                            Text(
+                                stringResource(R.string.transfer_device_migrate),
+                                fontSize = 12.sp,
+                            )
                         }
                     }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "点设备名 = 发送上方所选书籍；「同步进度」= 双向交换阅读位置与书签；" +
-                        "「迁移整库」= 把全部书籍与进度 / 书签打包发给该设备",
+                    stringResource(R.string.transfer_devices_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

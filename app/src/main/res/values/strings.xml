@@ -168,8 +168,8 @@
 
     <string name="bookshelf_empty_title">书架空空如也</string>
     <string name="bookshelf_empty_body">导入本地 TXT / EPUB 开始阅读\n书只保存在本机，不联网</string>
-    <string name="bookshelf_empty_import">导入书籍</string>
-    <string name="bookshelf_empty_transfer">局域网传书</string>
+    <!-- 空态主行动与 FAB 共用同一文案（T-022 去重：导入书籍 / 局域网传书各一个 key） -->
+    <string name="bookshelf_import_button">导入书籍</string>
 
     <!-- 反馈 / 诊断导出（T-021 · US-19）：入口 + 摘要对话 + 结果提示（AC-19.1 ~ AC-19.7） -->
     <string name="about_diagnostics_title">导出诊断信息</string>
@@ -182,4 +182,213 @@
     <string name="diagnostics_export_done">诊断信息已导出</string>
     <string name="diagnostics_export_canceled">已取消导出</string>
     <string name="diagnostics_export_failed">诊断信息导出失败：%1$s</string>
+
+    <!-- T-022 · US-21 AC-21.4：存量硬编码文案收口（纯搬运，内容零变更）。
+         本节收纳原先散落在 app/ui/** 里的中文字面量。纪律（AC-21.5）：
+         只改「位置」，不改「词」，逐屏可按 git diff 核对；
+         唯一允许的改写是占位符：拼接改为 %1$d / %1$s 形式。
+         跨屏复用的文案只留一个 key（见「通用动作」组），屏内唯一文案
+         以屏名前缀分组，便于反查归属。 -->
+
+    <!-- 通用动作：跨屏复用（返回 ×6、取消 ×7、知道了 ×2、重试 ×1） -->
+    <string name="common_back">返回</string>
+    <string name="common_cancel">取消</string>
+    <string name="common_got_it">知道了</string>
+    <string name="common_retry">重试</string>
+    <string name="common_import">导入</string>
+    <string name="common_peer_device">对端设备</string>
+    <!-- 枚举连接符：备份预览里连接书名 / 字体名（不属于任何单句文案） -->
+    <string name="common_enumeration_separator">、</string>
+
+    <!-- 切分策略（书架重解析对话框 + 导入确认对话框共用） -->
+    <string name="split_strategy_conservative">保守</string>
+    <string name="split_strategy_aggressive">激进</string>
+
+    <!-- 书架页（BookshelfScreen / BookshelfViewModel / ImportResultDialog / CoverGenerator） -->
+    <string name="bookshelf_selection_count">已选 %1$d 本</string>
+    <string name="bookshelf_selection_exit">退出多选</string>
+    <string name="bookshelf_send_selected">传书到其他设备</string>
+    <string name="bookshelf_delete_selected">删除所选</string>
+    <string name="bookshelf_sort">排序</string>
+    <string name="bookshelf_continue_reading">继续阅读</string>
+    <string name="bookshelf_continue_progress">已读 %1$s · 第 %2$d 章</string>
+    <string name="bookshelf_card_progress">%1$s · %2$d 章</string>
+    <string name="bookshelf_card_chapters">%1$d 章</string>
+    <string name="bookshelf_reparse_short">重解析</string>
+    <string name="bookshelf_import_running">正在导入</string>
+    <string name="bookshelf_import_cancel">取消导入</string>
+    <string name="bookshelf_duplicate_title">书籍已存在</string>
+    <string name="bookshelf_duplicate_message">书架中已有《%1$s》，内容与所选文件完全相同。要替换为新导入的版本吗？（替换会清除旧书的进度与书签）</string>
+    <string name="bookshelf_duplicate_replace">替换</string>
+    <string name="bookshelf_reparse_title">重新解析《%1$s》</string>
+    <string name="bookshelf_reparse_message">将按所选策略重新切分章节，阅读进度会重置。</string>
+    <string name="bookshelf_reparse_confirm">重新解析</string>
+    <!-- 封面首字兜底（书名全为空白时显示的占位字形，CoverGenerator 无 Context） -->
+    <string name="bookshelf_cover_glyph_fallback">书</string>
+
+    <!-- 书架排序项（SortOrder 枚举只带资源 id，文案在本文件） -->
+    <string name="sort_recently_read">最近阅读</string>
+    <string name="sort_added">最近导入</string>
+    <string name="sort_title">书名</string>
+    <string name="sort_progress">进度</string>
+
+    <!-- 书架一次性提示（BookshelfViewModel → UiText.Res） -->
+    <string name="bookshelf_import_canceled">已取消导入</string>
+    <string name="bookshelf_replace_done">已替换《%1$s》（进度与书签已重置）</string>
+    <string name="bookshelf_reimporting">正在重新导入《%1$s》</string>
+    <string name="bookshelf_replace_canceled">已取消替换</string>
+    <string name="bookshelf_reparse_failed">重新解析失败，请重试</string>
+    <string name="bookshelf_import_done">已导入《%1$s》</string>
+    <string name="bookshelf_reparsed_done">已按新策略重新解析《%1$s》（进度与书签已重置）</string>
+
+    <!-- 导入确认对话框 -->
+    <string name="import_confirm_title">导入确认</string>
+    <string name="import_confirm_summary">%1$s · %2$s · %3$d 章 · %4$s</string>
+    <string name="import_charset">编码</string>
+    <string name="import_split_strategy">切分策略</string>
+    <string name="import_chars_wan">%1$s 万字</string>
+    <string name="import_chars_count">%1$d 字</string>
+
+    <!-- 阅读器外壳 / 正文 / 错误页（ReaderChrome / ReaderContent / ReaderViewModel） -->
+    <string name="reader_add_bookmark">添加书签</string>
+    <string name="reader_toc">目录</string>
+    <string name="reader_settings">阅读设置</string>
+    <string name="reader_prev_chapter">上一章</string>
+    <string name="reader_next_chapter">下一章</string>
+    <string name="reader_progress_read">已读 %1$s%%</string>
+    <string name="reader_finished">已读完 · %1$s%%</string>
+    <string name="reader_toc_tab_chapters">目录 · %1$d</string>
+    <string name="reader_toc_tab_bookmarks">书签 · %1$d</string>
+    <string name="reader_chapter_ordinal">第 %1$d 章</string>
+    <string name="reader_chapter_current">当前章节</string>
+    <string name="reader_chapter_position">第 %1$d/%2$d 章</string>
+    <string name="reader_bookmark_delete">删除书签</string>
+    <string name="reader_back_to_shelf">返回书架</string>
+    <string name="reader_delete_entry">删除该条目</string>
+    <string name="reader_error_book_missing">书籍不存在或已删除</string>
+    <string name="reader_error_no_chapters">章节为空，请尝试重新解析</string>
+    <string name="reader_error_text_missing">正文文件已丢失或损坏，无法阅读。\n删除该条目后可重新导入。</string>
+    <string name="reader_error_chapter_empty">本章内容为空，可能章节索引已损坏。\n请回书架用「重新解析章节」后重试。</string>
+    <string name="reader_bookmark_added">已添加书签</string>
+    <string name="reader_bookmark_note_saved">备注已保存</string>
+    <!-- AC-22.2：阅读器「三区点按 / 滑动翻页」的手势替代入口（底栏按钮） -->
+    <string name="reader_prev_page">上一页</string>
+    <string name="reader_next_page">下一页</string>
+
+    <!-- 朗读控制条 / 朗读提示（SpeechControlBar / ReaderViewModel） -->
+    <string name="speech_start">开始朗读</string>
+    <string name="speech_stop">停止朗读</string>
+    <string name="speech_pause">暂停朗读</string>
+    <string name="speech_resume">继续朗读</string>
+    <string name="speech_prev_unit">上一段</string>
+    <string name="speech_next_unit">下一段</string>
+    <string name="speech_state_speaking">正在朗读</string>
+    <string name="speech_state_paused">已暂停</string>
+    <string name="speech_rate">语速</string>
+    <string name="speech_pitch">音调</string>
+    <string name="speech_auto_next">读完一章后自动继续下一章</string>
+    <string name="speech_chapter_finished">已朗读完本章</string>
+    <string name="speech_nothing_to_read">本章暂无可朗读的内容</string>
+    <string name="speech_notification_degraded">未获得通知权限，朗读控制通知不可用；朗读仍可正常播放。</string>
+
+    <!-- 设置页 / 阅读偏好面板 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_section_theme">主题</string>
+    <string name="settings_section_font">字体</string>
+    <string name="settings_section_typography">排版</string>
+    <string name="settings_section_behavior">行为</string>
+    <string name="settings_font_size">字号</string>
+    <string name="settings_line_height">行距</string>
+    <string name="settings_line_height_value">%1$s 倍</string>
+    <string name="settings_paragraph_spacing">段距</string>
+    <string name="settings_margin">页边距</string>
+    <string name="settings_brightness_label">亮度</string>
+    <string name="settings_brightness_follow_system">跟随系统</string>
+    <string name="settings_keep_screen_on">阅读时常亮</string>
+    <string name="settings_keep_screen_on_subtitle">阅读过程中保持屏幕点亮</string>
+    <string name="settings_immersive">沉浸模式</string>
+    <string name="settings_immersive_subtitle">隐藏系统状态栏与导航栏</string>
+    <string name="settings_volume_key">音量键翻章</string>
+    <string name="settings_volume_key_subtitle">音量下键下一章、上键上一章（防误触默认关闭）</string>
+    <string name="settings_page_turn">翻页模式</string>
+    <string name="settings_page_turn_subtitle">关闭为连续滚动，开启为左右滑动翻页（仿真书页，可点按左/右/中区）</string>
+    <string name="settings_two_page">双页跨页</string>
+    <string name="settings_two_page_subtitle">平板/横屏大屏自动左右两页；手机竖屏不受影响</string>
+
+    <!-- 阅读器主题预设名（ReaderThemes 只带资源 id） -->
+    <string name="theme_paper">纸白</string>
+    <string name="theme_beige">米黄</string>
+    <string name="theme_moss">苔绿</string>
+    <string name="theme_indigo">黛蓝</string>
+    <string name="theme_ink">墨黑</string>
+
+    <!-- 关于页 / 许可页 -->
+    <string name="about_title">关于</string>
+    <string name="about_version_full">版本 %1$s（%2$d）</string>
+    <string name="about_version_short">版本 %1$s</string>
+    <string name="about_section_features">功能简介</string>
+    <string name="about_section_privacy">隐私承诺</string>
+    <string name="about_section_license">开源许可</string>
+    <string name="about_license_view_full">查看许可全文</string>
+    <string name="about_section_project">项目与反馈</string>
+    <string name="about_github_home">GitHub 项目主页</string>
+    <string name="about_feedback">问题反馈</string>
+    <string name="about_feedback_subtitle">在 GitHub 提交 Issue</string>
+    <string name="about_section_third_party">第三方依赖</string>
+    <string name="about_third_party_body">无第三方依赖：纸阅不集成任何第三方 SDK 与统计库，全部功能基于 AndroidX 与 Kotlin 官方库实现。</string>
+    <string name="about_section_maintainer">维护者</string>
+    <string name="about_no_browser">没有可用的浏览器</string>
+
+    <!-- 传书页（TransferScreen / TransferViewModel） -->
+    <string name="transfer_title">局域网传书</string>
+    <string name="transfer_pairing_busy">配对中…</string>
+    <string name="transfer_service_title">本机标识</string>
+    <string name="transfer_service_starting">正在启动传书服务…</string>
+    <string name="transfer_service_hint">同一 WiFi 下的其他设备打开传书页即可发现本机（不访问公网）</string>
+    <string name="transfer_service_not_running">服务未启动</string>
+    <string name="transfer_selected_title">待发送书籍</string>
+    <string name="transfer_selected_loading">正在读取书目…</string>
+    <string name="transfer_selected_empty">未选择书籍。返回书架，长按多选后点右上角发送图标，即可把所选书籍传到在线设备。</string>
+    <string name="transfer_selected_count">共 %1$d 本，选择下方设备开始发送：</string>
+    <string name="transfer_sending">正在发送《%1$s》（%2$d/%3$d）</string>
+    <string name="transfer_send_cancel">取消发送</string>
+    <string name="transfer_receiving">正在接收 %1$s</string>
+    <string name="transfer_migration_receive_title">接收整库迁移</string>
+    <string name="transfer_migration_send_title">换机迁移</string>
+    <string name="transfer_migration_cancel">取消迁移</string>
+    <string name="transfer_migration_progress">（%1$d/%2$d）</string>
+    <string name="transfer_migration_report">新导入 %1$d 本 · 已存在 %2$d 本 · 回写进度 %3$d 本</string>
+    <string name="transfer_migration_failed">失败 %1$d 本：</string>
+    <string name="transfer_migration_failed_entry">· %1$s：%2$s</string>
+    <string name="transfer_migration_sent">迁移包已发送</string>
+    <string name="transfer_sync_title">阅读进度同步</string>
+    <string name="transfer_sync_loading">正在同步…</string>
+    <string name="transfer_sync_report">覆盖本地进度 %1$d 本 · 新增书签 %2$d 条 · 回推 %3$d 本</string>
+    <string name="transfer_sync_diff">两侧书目不完全一致：对端另有 %1$d 本，本地另有 %2$d 本（均保留，不做删除）</string>
+    <string name="transfer_sync_done">同步已完成</string>
+    <string name="transfer_devices_title">在线设备</string>
+    <string name="transfer_devices_empty">未发现在线设备。请确认两台设备处于同一 WiFi，且对端已打开传书页（发现通常不超过 3 秒）。</string>
+    <string name="transfer_devices_select_first">先选书</string>
+    <string name="transfer_device_sync">同步进度</string>
+    <string name="transfer_device_migrate">迁移整库</string>
+    <string name="transfer_devices_hint">点设备名 = 发送上方所选书籍；「同步进度」= 双向交换阅读位置与书签；「迁移整库」= 把全部书籍与进度 / 书签打包发给该设备</string>
+
+    <!-- 传书页一次性汇总（TransferViewModel → UiText.Concat：句子由固定片段拼装，
+         条件片段各自成 key，拼出的整句与资源化前逐字一致） -->
+    <string name="transfer_imported">已导入《%1$s》</string>
+    <string name="transfer_migration_summary_head">迁移完成：新导入 %1$d 本</string>
+    <string name="transfer_migration_summary_duplicates">，已存在 %1$d 本</string>
+    <string name="transfer_migration_summary_progress">，回写进度 %1$d 本</string>
+    <string name="transfer_migration_summary_failed">，失败 %1$d 本</string>
+    <string name="transfer_sync_summary_head">同步完成：</string>
+    <string name="transfer_sync_summary_overwritten">覆盖本地进度 %1$d 本</string>
+    <string name="transfer_sync_summary_bookmarks">，新增书签 %1$d 条</string>
+    <string name="transfer_sync_summary_pushback">，回推 %1$d 本</string>
+    <string name="transfer_sync_summary_remote_only">，对端另有 %1$d 本本地没有</string>
+
+    <!-- T-023 · US-22 无障碍基线：TalkBack 朗读用的组合描述 -->
+    <string name="a11y_bookshelf_book_item">%1$s，%2$s</string>
+    <string name="a11y_bookshelf_book_selected">已选中</string>
+    <string name="a11y_transfer_device_item">%1$s，%2$s</string>
+    <string name="a11y_settings_switch_item">%1$s，%2$s</string>
 </resources>

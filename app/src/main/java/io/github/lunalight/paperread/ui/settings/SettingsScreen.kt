@@ -77,12 +77,12 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
+                            contentDescription = stringResource(R.string.common_back),
                         )
                     }
                 },
@@ -141,8 +141,10 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             ListItem(
-                headlineContent = { Text("关于") },
-                supportingContent = { Text("版本 ${BuildConfig.VERSION_NAME}") },
+                headlineContent = { Text(stringResource(R.string.about_title)) },
+                supportingContent = {
+                    Text(stringResource(R.string.about_version_short, BuildConfig.VERSION_NAME))
+                },
                 leadingContent = {
                     Icon(Icons.Filled.Info, contentDescription = null)
                 },

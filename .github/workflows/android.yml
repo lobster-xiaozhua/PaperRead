@@ -22,7 +22,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# 门禁拆分为七个独立作业（T-001 · R-03 / R-09；T-006 · R-06；T-009 · R-02 增量接入；T-008 · R-07 增补 r8-smoke）：
+# 门禁拆分为八个独立作业（T-001 · R-03 / R-09；T-006 · R-06；T-009 · R-02 增量接入；T-008 · R-07 增补 r8-smoke；T-022 · US-21 增补 strings-check）：
 #   unit          双 flavor 单元测试 + 覆盖率门禁（client 变体口径）
 #   robolectric-ui UI 冒烟独立作业 + 失败重试 ≤ 1（G9：Robolectric 渲染在
 #                 内存受限环境有抖动，隔离出不阻塞主测试门禁）
@@ -31,6 +31,8 @@ concurrency:
 #                 destructive fallback 禁用，纯 bash 断言，无需 JDK/SDK）
 #   network-audit 网络行为断言（G2①：不访问公网 / 无三方网络 SDK /
 #                 网络行为收敛于 transfer/，纯 bash 断言，无需 JDK/SDK）
+#   strings-check 硬编码中文文案门禁（US-21 AC-21.4 / 21.5：UI 层清零 +
+#                 数据层 baseline 对账，纯 bash 断言，无需 JDK/SDK）
 #   assemble      双 flavor 装配（client 交付版 + dev 调试版）
 #   r8-smoke      release/R8 运行时冒烟（T-008 · R-07 / G7，架构 §6.2 方案 B：
 #                 assembleClientRelease → mapping keep 静态断言 → clientRelease
@@ -38,8 +40,8 @@ concurrency:
 #                 需 KVM runner）
 # 拆分代价是各作业各自支付一次配置阶段（AGP + KSP + Room + Compose，约 10s），
 # 换取失败定位清晰与 flaky 隔离；多作业并行执行，总时长不劣于原单作业。
-# room-migration 与 network-audit 为纯脚本作业（checkout 后直接跑 bash，
-# 无构建配置成本）。
+# room-migration、network-audit 与 strings-check 为纯脚本作业（checkout 后
+# 直接跑 bash，无构建配置成本）。
 jobs:
   # 门禁一：单元测试 + 覆盖率（client 变体口径，三模块聚合）。
   # ui/smoke 冒烟在内存受限 runner 上存在 Robolectric 渲染超时抖动（已知基线
@@ -272,7 +274,23 @@ jobs:
       - name: Network behavior audit (G2)
         run: ./scripts/check-network-behavior.sh
 
-  # 门禁六：双 flavor 装配（client 正式版 + dev 调试版；含 release 打包路径）。
+  # 门禁六：硬编码中文文案门禁（T-022 · US-21 AC-21.4 / AC-21.5）。
+  # 纯 bash 静态断言，不依赖 JDK / Android SDK：
+  #   1. UI 层（app/src/main/java/**/ui/**）零中文字面量——文案必须进
+  #      strings.xml（stringResource / context.getString）；
+  #   2. 数据层话术（transfer / backup / speech / diag 的 userMessage 类，
+  #      参与序列化 / 跨设备传输）逐文件登记在 scripts/strings-baseline.txt，
+  #      登记条数与实际命中强一致——baseline 外新增即红。
+  # 基线只能手工维护（无 --update-baseline 自动模式），防顺手放行。
+  strings-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hardcoded strings gate (US-21)
+        run: ./scripts/check-hardcoded-strings.sh
+
+  # 门禁七：双 flavor 装配（client 正式版 + dev 调试版；含 release 打包路径）。
   assemble:
     runs-on: ubuntu-latest
     steps:
@@ -319,7 +337,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # 门禁七：release / R8 运行时冒烟（T-008 · R-07 / G7）。
+  # 门禁八：release / R8 运行时冒烟（T-008 · R-07 / G7）。
   #
   # 采用架构设计 §6.2 的**方案 B**（退化方案）：本 runner 无 KVM，模拟器起不来、
   # instrumented 测试跑不了，为彻底规避 androidx.test 依赖，把「R8 后的运行时

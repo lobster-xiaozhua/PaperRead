@@ -1,5 +1,6 @@
 package io.github.lunalight.paperread.ui.transfer
 
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.domain.model.BookFormat
@@ -7,6 +8,7 @@ import io.github.lunalight.paperread.fakes.FakeBookRepository
 import io.github.lunalight.paperread.fakes.FakeLanTransferManager
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
 import io.github.lunalight.paperread.transfer.DiscoveredDevice
+import io.github.lunalight.paperread.ui.UiText
 import io.github.lunalight.paperread.transfer.MigrationDirection
 import io.github.lunalight.paperread.transfer.MigrationReport
 import io.github.lunalight.paperread.transfer.PairingGate
@@ -209,7 +211,7 @@ class TransferViewModelTest {
         manager.emitSend(TransferSendState(error = "《书一》发送失败：连接重置"))
         advanceUntilIdle()
         assertFalse(viewModel.uiState.value.send.active)
-        assertEquals("《书一》发送失败：连接重置", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("《书一》发送失败：连接重置"), viewModel.uiState.value.message)
 
         viewModel.dismissMessage()
         assertNull(viewModel.uiState.value.message)
@@ -238,7 +240,7 @@ class TransferViewModelTest {
         manager.emitReceive(TransferReceiveState(importedTitle = "书一"))
         advanceUntilIdle()
 
-        assertEquals("已导入《书一》", viewModel.uiState.value.message)
+        assertEquals(UiText.res(R.string.transfer_imported, "书一"), viewModel.uiState.value.message)
         assertEquals(1, manager.consumeImportedTitleCount)
 
         viewModel.dismissMessage()
@@ -252,7 +254,7 @@ class TransferViewModelTest {
         manager.emitReceive(TransferReceiveState(error = "传输不完整，已丢弃"))
         advanceUntilIdle()
 
-        assertEquals("传输不完整，已丢弃", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("传输不完整，已丢弃"), viewModel.uiState.value.message)
     }
 
     @Test
@@ -262,7 +264,7 @@ class TransferViewModelTest {
         manager.emitReceive(TransferReceiveState(error = "《旧书架》已存在于书架，已跳过"))
         advanceUntilIdle()
 
-        assertEquals("《旧书架》已存在于书架，已跳过", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("《旧书架》已存在于书架，已跳过"), viewModel.uiState.value.message)
         viewModel.dismissMessage()
         assertNull(viewModel.uiState.value.message)
     }
@@ -289,7 +291,7 @@ class TransferViewModelTest {
         )
         advanceUntilIdle()
 
-        assertEquals("重新解析失败，请重试", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("重新解析失败，请重试"), viewModel.uiState.value.message)
         // 待确认态保留：用户可换编码 / 策略重试，不被错误清掉
         assertEquals("重解书", viewModel.uiState.value.receive.pending?.title)
     }
@@ -306,12 +308,12 @@ class TransferViewModelTest {
 
         manager.emitReceive(TransferReceiveState(error = "该 EPUB 含 DRM 加密，无法导入"))
         advanceUntilIdle()
-        assertEquals("该 EPUB 含 DRM 加密，无法导入", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("该 EPUB 含 DRM 加密，无法导入"), viewModel.uiState.value.message)
 
         // 随后的无错误发射沿用旧消息（一次性语义：只弹一次，关闭才消失）
         manager.emitReceive(TransferReceiveState())
         advanceUntilIdle()
-        assertEquals("该 EPUB 含 DRM 加密，无法导入", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("该 EPUB 含 DRM 加密，无法导入"), viewModel.uiState.value.message)
 
         viewModel.dismissMessage()
         assertNull(viewModel.uiState.value.message)
@@ -324,7 +326,7 @@ class TransferViewModelTest {
         manager.emitMigration(TransferMigrationState(error = "已取消迁移"))
         advanceUntilIdle()
 
-        assertEquals("已取消迁移", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("已取消迁移"), viewModel.uiState.value.message)
         assertFalse(viewModel.uiState.value.migration.active)
         viewModel.dismissMessage()
         assertNull(viewModel.uiState.value.message)
@@ -395,7 +397,7 @@ class TransferViewModelTest {
         manager.emitMigration(TransferMigrationState(error = "迁移包损坏或版本不兼容"))
         advanceUntilIdle()
 
-        assertEquals("迁移包损坏或版本不兼容", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("迁移包损坏或版本不兼容"), viewModel.uiState.value.message)
     }
 
     @Test
@@ -413,11 +415,18 @@ class TransferViewModelTest {
         manager.emitMigration(TransferMigrationState(direction = MigrationDirection.RECEIVE, report = report))
         advanceUntilIdle()
 
-        val summary = viewModel.uiState.value.message!!
-        assertTrue(summary, summary.contains("新导入 3 本"))
-        assertTrue(summary, summary.contains("已存在 1 本"))
-        assertTrue(summary, summary.contains("回写进度 2 本"))
-        assertTrue(summary, summary.contains("失败 1 本"))
+        assertEquals(
+            "汇总 = 固定片段按条件拼接（整句与资源化前逐字一致由 UiCopyMigrationTest 保证）",
+            UiText.Concat(
+                listOf(
+                    UiText.res(R.string.transfer_migration_summary_head, 3),
+                    UiText.res(R.string.transfer_migration_summary_duplicates, 1),
+                    UiText.res(R.string.transfer_migration_summary_progress, 2),
+                    UiText.res(R.string.transfer_migration_summary_failed, 1),
+                ),
+            ),
+            viewModel.uiState.value.message,
+        )
         assertEquals(report, viewModel.uiState.value.migration.report)
     }
 
@@ -457,7 +466,7 @@ class TransferViewModelTest {
         manager.emitSync(TransferSyncState(error = "对端未响应同步请求"))
         advanceUntilIdle()
 
-        assertEquals("对端未响应同步请求", viewModel.uiState.value.message)
+        assertEquals(UiText.Plain("对端未响应同步请求"), viewModel.uiState.value.message)
     }
 
     @Test
@@ -475,10 +484,18 @@ class TransferViewModelTest {
         manager.emitSync(TransferSyncState(active = false, report = report))
         advanceUntilIdle()
 
-        val summary = viewModel.uiState.value.message!!
-        assertTrue(summary, summary.contains("覆盖本地进度 2 本"))
-        assertTrue(summary, summary.contains("新增书签 3 条"))
-        assertTrue(summary, summary.contains("对端另有 4 本"))
+        assertEquals(
+            "汇总 = 固定片段按条件拼接（pushBack 为空无片段）",
+            UiText.Concat(
+                listOf(
+                    UiText.res(R.string.transfer_sync_summary_head),
+                    UiText.res(R.string.transfer_sync_summary_overwritten, 2),
+                    UiText.res(R.string.transfer_sync_summary_bookmarks, 3),
+                    UiText.res(R.string.transfer_sync_summary_remote_only, 4),
+                ),
+            ),
+            viewModel.uiState.value.message,
+        )
         assertEquals(report, viewModel.uiState.value.sync.report)
     }
 

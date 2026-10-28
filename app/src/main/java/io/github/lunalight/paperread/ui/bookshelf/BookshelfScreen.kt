@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -69,6 +70,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -79,6 +83,7 @@ import io.github.lunalight.paperread.PaperReadApp
 import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.domain.model.Book
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
+import io.github.lunalight.paperread.ui.resolve
 
 
 /**
@@ -107,7 +112,7 @@ fun BookshelfScreen(
 
     // 消息 Snackbar
     LaunchedEffect(state.message) {
-        val message = state.message ?: return@LaunchedEffect
+        val message = state.message?.resolve(context) ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
         viewModel.dismissMessage()
     }
@@ -116,10 +121,15 @@ fun BookshelfScreen(
         topBar = {
             if (selectionMode) {
                 CenterAlignedTopAppBar(
-                    title = { Text("已选 ${selectedIds.size} 本") },
+                    title = {
+                        Text(stringResource(R.string.bookshelf_selection_count, selectedIds.size))
+                    },
                     navigationIcon = {
                         IconButton(onClick = { selectedIds = emptySet() }) {
-                            Icon(Icons.Filled.Close, contentDescription = "退出多选")
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.bookshelf_selection_exit),
+                            )
                         }
                     },
                     actions = {
@@ -129,7 +139,7 @@ fun BookshelfScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "传书到其他设备",
+                                contentDescription = stringResource(R.string.bookshelf_send_selected),
                             )
                         }
                         IconButton(onClick = {
@@ -137,19 +147,25 @@ fun BookshelfScreen(
                                 .forEach { viewModel.deleteBook(it) }
                             selectedIds = emptySet()
                         }) {
-                            Icon(Icons.Filled.Delete, contentDescription = "删除所选")
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = stringResource(R.string.bookshelf_delete_selected),
+                            )
                         }
                     },
                 )
             } else {
                 CenterAlignedTopAppBar(
-                    title = { Text("纸阅") },
+                    title = { Text(stringResource(R.string.app_name)) },
                     actions = {
                         // 排序菜单
                         var menuExpanded by remember { mutableStateOf(false) }
                         Box {
                             IconButton(onClick = { menuExpanded = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "排序")
+                                Icon(
+                                    Icons.Filled.MoreVert,
+                                    contentDescription = stringResource(R.string.bookshelf_sort),
+                                )
                             }
                             DropdownMenu(
                                 expanded = menuExpanded,
@@ -157,7 +173,7 @@ fun BookshelfScreen(
                             ) {
                                 SortOrder.entries.forEach { order ->
                                     DropdownMenuItem(
-                                        text = { Text(order.label) },
+                                        text = { Text(stringResource(order.labelRes)) },
                                         onClick = {
                                             viewModel.setSortOrder(order)
                                             menuExpanded = false
@@ -165,7 +181,7 @@ fun BookshelfScreen(
                                     )
                                 }
                                 DropdownMenuItem(
-                                    text = { Text("局域网传书") },
+                                    text = { Text(stringResource(R.string.transfer_title)) },
                                     onClick = {
                                         menuExpanded = false
                                         onStartTransfer(selectedIds.toList())
@@ -174,7 +190,10 @@ fun BookshelfScreen(
                             }
                         }
                         IconButton(onClick = onOpenSettings) {
-                            Icon(Icons.Filled.Settings, contentDescription = "设置")
+                            Icon(
+                                Icons.Filled.Settings,
+                                contentDescription = stringResource(R.string.settings_title),
+                            )
                         }
                     },
                 )
@@ -187,7 +206,7 @@ fun BookshelfScreen(
                 ExtendedFloatingActionButton(
                     onClick = { importLauncher.launch(arrayOf("*/*")) },
                     icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text("导入书籍") },
+                    text = { Text(stringResource(R.string.bookshelf_import_button)) },
                 )
             }
         },
@@ -328,18 +347,18 @@ private fun EmptyBookshelf(
         )
         Spacer(Modifier.height(24.dp))
         Button(onClick = onImport) {
-            Text(stringResource(R.string.bookshelf_empty_import))
+            Text(stringResource(R.string.bookshelf_import_button))
         }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = onStartTransfer) {
-            Text(stringResource(R.string.bookshelf_empty_transfer))
+            Text(stringResource(R.string.transfer_title))
         }
     }
 }
 
 @Composable
 private fun ContinueReadingCard(book: Book, onClick: () -> Unit) {
-    val cover = CoverGenerator.styleFor(book)
+    val cover = CoverGenerator.styleFor(book, stringResource(R.string.bookshelf_cover_glyph_fallback))
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -362,7 +381,7 @@ private fun ContinueReadingCard(book: Book, onClick: () -> Unit) {
             Spacer(Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "继续阅读",
+                    stringResource(R.string.bookshelf_continue_reading),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -380,7 +399,11 @@ private fun ContinueReadingCard(book: Book, onClick: () -> Unit) {
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "已读 ${formatPercent(book.progressPercent)} · 第 ${book.lastChapterIndex + 1} 章",
+                    stringResource(
+                        R.string.bookshelf_continue_progress,
+                        formatPercent(book.progressPercent),
+                        book.lastChapterIndex + 1,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -391,7 +414,7 @@ private fun ContinueReadingCard(book: Book, onClick: () -> Unit) {
 
 @Composable
 private fun BookCover(book: Book, modifier: Modifier = Modifier) {
-    val cover = CoverGenerator.styleFor(book)
+    val cover = CoverGenerator.styleFor(book, stringResource(R.string.bookshelf_cover_glyph_fallback))
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -421,11 +444,29 @@ private fun BookCard(
     onLongClick: () -> Unit,
     onReparse: () -> Unit,
 ) {
+    val progressText = if (book.lastReadAt != null) {
+        stringResource(
+            R.string.bookshelf_card_progress,
+            formatPercent(book.progressPercent),
+            book.chapterCount,
+        )
+    } else {
+        stringResource(R.string.bookshelf_card_chapters, book.chapterCount)
+    }
+    // AC-22.1：书籍项必须被 TalkBack 读成一句「书名 + 进度」。
+    // 封面 / 书名 / 进度是三个视觉节点，合并成一个可点击语义节点后
+    // 焦点只落在卡片上，朗读内容由 contentDescription 兜住。
+    val itemDescription = stringResource(R.string.a11y_bookshelf_book_item, book.title, progressText)
+    val selectedDescription = stringResource(R.string.a11y_bookshelf_book_selected)
     Column {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                .semantics(mergeDescendants = true) {
+                    contentDescription = itemDescription
+                    stateDescription = if (selected) selectedDescription else ""
+                },
             colors = if (selected) {
                 CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             } else {
@@ -443,11 +484,7 @@ private fun BookCard(
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = if (book.lastReadAt != null) {
-                    "${formatPercent(book.progressPercent)} · ${book.chapterCount} 章"
-                } else {
-                    "${book.chapterCount} 章"
-                },
+                text = progressText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
@@ -455,8 +492,17 @@ private fun BookCard(
             )
             if (book.lastReadAt == null) {
                 // 仅未读过的书提供「重新解析」快捷入口；读过的从设置/详情进入
-                TextButton(onClick = onReparse, contentPadding = PaddingValues(0.dp)) {
-                    Text("重解析", style = MaterialTheme.typography.labelSmall)
+                TextButton(
+                    onClick = onReparse,
+                    contentPadding = PaddingValues(0.dp),
+                    // AC-22.4：`contentPadding = 0` 会把按钮压到 48dp 以下，
+                    // 这里显式给最小高度，触达区域不随字号 / 内边距缩水。
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.bookshelf_reparse_short),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
             }
         }
@@ -468,7 +514,7 @@ private fun ImportProgressDialog(stageLabel: String, fraction: Float, onCancel: 
     AlertDialog(
         modifier = Modifier.widthIn(max = 560.dp),
         onDismissRequest = onCancel,
-        title = { Text("正在导入") },
+        title = { Text(stringResource(R.string.bookshelf_import_running)) },
         text = {
             Column {
                 Text(stageLabel, style = MaterialTheme.typography.bodyMedium)
@@ -481,7 +527,9 @@ private fun ImportProgressDialog(stageLabel: String, fraction: Float, onCancel: 
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onCancel) { Text("取消导入") }
+            TextButton(onClick = onCancel) {
+                Text(stringResource(R.string.bookshelf_import_cancel))
+            }
         },
     )
 }
@@ -496,15 +544,17 @@ private fun DuplicateDialog(
     AlertDialog(
         modifier = Modifier.widthIn(max = 560.dp),
         onDismissRequest = onDismiss,
-        title = { Text("书籍已存在") },
+        title = { Text(stringResource(R.string.bookshelf_duplicate_title)) },
         text = {
-            Text("书架中已有《${existing.title}》，内容与所选文件完全相同。要替换为新导入的版本吗？（替换会清除旧书的进度与书签）")
+            Text(stringResource(R.string.bookshelf_duplicate_message, existing.title))
         },
         confirmButton = {
-            TextButton(onClick = onReplace) { Text("替换") }
+            TextButton(onClick = onReplace) {
+                Text(stringResource(R.string.bookshelf_duplicate_replace))
+            }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     )
 }
@@ -519,11 +569,11 @@ private fun ReparseDialog(
     AlertDialog(
         modifier = Modifier.widthIn(max = 560.dp),
         onDismissRequest = onDismiss,
-        title = { Text("重新解析《${book.title}》") },
+        title = { Text(stringResource(R.string.bookshelf_reparse_title, book.title)) },
         text = {
             Column {
                 Text(
-                    "将按所选策略重新切分章节，阅读进度会重置。",
+                    stringResource(R.string.bookshelf_reparse_message),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -535,7 +585,13 @@ private fun ReparseDialog(
                             onClick = { strategy = option },
                             label = {
                                 Text(
-                                    if (option == SplitStrategy.CONSERVATIVE) "保守" else "激进",
+                                    stringResource(
+                                        if (option == SplitStrategy.CONSERVATIVE) {
+                                            R.string.split_strategy_conservative
+                                        } else {
+                                            R.string.split_strategy_aggressive
+                                        },
+                                    ),
                                     fontSize = 12.sp,
                                 )
                             },
@@ -544,8 +600,14 @@ private fun ReparseDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onConfirm(strategy) }) { Text("重新解析") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(strategy) }) {
+                Text(stringResource(R.string.bookshelf_reparse_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
+        },
     )
 }
 

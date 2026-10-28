@@ -6,6 +6,7 @@ import androidx.compose.ui.test.performClick
 import io.github.lunalight.paperread.data.repository.PendingImport
 import io.github.lunalight.paperread.domain.model.BookFormat
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
+import io.github.lunalight.paperread.ui.resolveForTest
 import io.github.lunalight.paperread.ui.theme.PaperReadTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -130,7 +131,7 @@ class ImportResultDialogTest {
         assertEquals("512 B", formatFileSize(512))
         assertEquals("2 KB", formatFileSize(2048))
         assertEquals("1.5 MB", formatFileSize(1024L * 1024 * 3 / 2))
-        assertEquals("999 字", formatChars(999))
-        assertEquals("1.2 万字", formatChars(12_000))
+        assertEquals("999 字", formatChars(999).resolveForTest())
+        assertEquals("1.2 万字", formatChars(12_000).resolveForTest())
     }
 }

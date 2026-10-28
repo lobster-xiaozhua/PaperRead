@@ -34,7 +34,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lunalight.paperread.PaperReadApp
+import io.github.lunalight.paperread.ui.asString
 import io.github.lunalight.paperread.speech.SpeechService
+import io.github.lunalight.paperread.ui.resolve
 import io.github.lunalight.paperread.ui.reader.search.BookSearchPanel
 import io.github.lunalight.paperread.ui.theme.ReaderThemes
 
@@ -105,9 +107,13 @@ fun ReaderScreen(
 
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
+    // AC-22.2：「三区点按 / 左右滑动」的翻页手势在 TalkBack 下不可用，
+    // 底栏必须给出可聚焦的翻页按钮。能力由翻页容器回填，滚动模式为 null（不渲染）。
+    val pageTurn = remember { PageTurnHandle() }
+
     // 一次性提示（书签添加等）
     LaunchedEffect(state.message) {
-        val message = state.message ?: return@LaunchedEffect
+        val message = state.message?.resolve(context) ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
         viewModel.dismissMessage()
     }
@@ -140,7 +146,7 @@ fun ReaderScreen(
 
             state.error != null -> {
                 ReaderError(
-                    message = state.error!!,
+                    message = state.error!!.asString(),
                     onBack = onBack,
                     onDelete = if (state.textMissing) {
                         {
@@ -161,6 +167,7 @@ fun ReaderScreen(
                         viewModel = viewModel,
                         theme = readerTheme,
                         isLandscape = isLandscape,
+                        pageTurn = pageTurn,
                     )
                 } else {
                     ReaderContent(
@@ -223,6 +230,7 @@ fun ReaderScreen(
                     theme = readerTheme,
                     onPrevious = viewModel::previousChapter,
                     onNext = viewModel::nextChapter,
+                    pageTurn = pageTurn.takeIf { state.settings.pageTurnMode },
                 )
             }
         }

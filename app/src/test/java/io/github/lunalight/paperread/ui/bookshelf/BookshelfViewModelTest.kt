@@ -11,6 +11,7 @@ import io.github.lunalight.paperread.fakes.FakeBookImporter
 import io.github.lunalight.paperread.fakes.FakeBookRepository
 import io.github.lunalight.paperread.fakes.FakeBookTextStore
 import io.github.lunalight.paperread.reader.txt.SplitStrategy
+import io.github.lunalight.paperread.ui.resolveForTest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -149,7 +150,7 @@ class BookshelfViewModelTest {
         val state = viewModel.uiState.value
         assertFalse("退出运行态", state.import.running)
         assertNull("无待确认", state.import.pending)
-        assertEquals("已取消导入", state.message)
+        assertEquals("已取消导入", state.message.resolveForTest())
     }
 
     @Test
@@ -194,7 +195,7 @@ class BookshelfViewModelTest {
             listOf(existing to SplitStrategy.AGGRESSIVE),
             importer.reparsedBooks,
         )
-        assertEquals("已替换《旧书》（进度与书签已重置）", state.message)
+        assertEquals("已替换《旧书》（进度与书签已重置）", state.message.resolveForTest())
         assertFalse("进度弹窗关闭", state.import.running)
     }
 
@@ -215,7 +216,7 @@ class BookshelfViewModelTest {
         assertEquals("旧记录被清理", listOf(existing), repository.deletedBooks)
         assertEquals("旧目录被清理", listOf("dir-2"), textStore.deletedDirs)
         assertEquals("重新走一遍导入", 2, importer.prepareCalls.size)
-        assertEquals("正在重新导入《旧书》", state.message)
+        assertEquals("正在重新导入《旧书》", state.message.resolveForTest())
     }
 
     @Test
@@ -232,7 +233,7 @@ class BookshelfViewModelTest {
         val state = viewModel.uiState.value
         assertTrue("旧书仍在书架上", repository.deletedBooks.isEmpty())
         assertTrue("旧书目录未被清理", textStore.deletedDirs.isEmpty())
-        assertEquals("文件解析失败，请重试", state.message)
+        assertEquals("文件解析失败，请重试", state.message.resolveForTest())
         assertFalse(state.import.running)
     }
 
@@ -264,7 +265,7 @@ class BookshelfViewModelTest {
         assertEquals("入库的是待确认书籍", listOf(expected), importer.confirmed)
         assertNull(state.import.pending)
         assertFalse(state.import.running)
-        assertEquals("已导入《测试书》", state.message)
+        assertEquals("已导入《测试书》", state.message.resolveForTest())
     }
 
     @Test
@@ -303,7 +304,7 @@ class BookshelfViewModelTest {
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
-        assertEquals("仅支持 TXT / EPUB 格式", state.message)
+        assertEquals("仅支持 TXT / EPUB 格式", state.message.resolveForTest())
         assertFalse(state.import.running)
     }
 
@@ -314,7 +315,7 @@ class BookshelfViewModelTest {
         viewModel.importBook(uri)
         advanceUntilIdle()
 
-        assertEquals("存储空间不足，无法导入", viewModel.uiState.value.message)
+        assertEquals("存储空间不足，无法导入", viewModel.uiState.value.message.resolveForTest())
         assertFalse(viewModel.uiState.value.import.running)
     }
 
@@ -327,7 +328,7 @@ class BookshelfViewModelTest {
         viewModel.importBook(uri)
         advanceUntilIdle()
         val drmMessage = viewModel.uiState.value.message
-        assertEquals("该 EPUB 含 DRM 加密，无法导入", drmMessage)
+        assertEquals("该 EPUB 含 DRM 加密，无法导入", drmMessage.resolveForTest())
 
         viewModel.dismissMessage()
         importer.prepareResult = PrepareResult.Failure(ImportError.InsufficientSpace)
@@ -347,9 +348,9 @@ class BookshelfViewModelTest {
         advanceUntilIdle()
 
         val message = viewModel.uiState.value.message
-        assertEquals("文件编码异常，请转换编码后重试", message)
-        assertTrue(message != ImportError.InsufficientSpace.userMessage)
-        assertTrue(message != ImportError.DrmEncrypted("x").userMessage)
+        assertEquals("文件编码异常，请转换编码后重试", message.resolveForTest())
+        assertTrue(message.resolveForTest() != ImportError.InsufficientSpace.userMessage)
+        assertTrue(message.resolveForTest() != ImportError.DrmEncrypted("x").userMessage)
     }
 
     @Test
@@ -382,7 +383,7 @@ class BookshelfViewModelTest {
         viewModel.reparsePending("UTF-16LE", SplitStrategy.CONSERVATIVE)
         advanceUntilIdle()
 
-        assertEquals("重新解析失败，请重试", viewModel.uiState.value.message)
+        assertEquals("重新解析失败，请重试", viewModel.uiState.value.message.resolveForTest())
         assertEquals("原待确认保留", original, viewModel.uiState.value.import.pending)
     }
 
@@ -440,7 +441,7 @@ class BookshelfViewModelTest {
 
         val state = viewModel.uiState.value
         assertNull("对话框关闭", state.reparseTarget)
-        assertEquals("失败原因映射", "源文件已丢失，请删除后重新导入", state.message)
+        assertEquals("失败原因映射", "源文件已丢失，请删除后重新导入", state.message.resolveForTest())
         assertEquals(Pair(target, SplitStrategy.AGGRESSIVE), importer.reparsedBooks.single())
     }
 
@@ -456,7 +457,7 @@ class BookshelfViewModelTest {
 
         assertEquals(
             "已按新策略重新解析《乙》（进度与书签已重置）",
-            viewModel.uiState.value.message,
+            viewModel.uiState.value.message.resolveForTest(),
         )
         assertNull(viewModel.uiState.value.reparseTarget)
     }
@@ -481,7 +482,7 @@ class BookshelfViewModelTest {
             PrepareResult.Unsupported(ImportError.UnsupportedFormat("pdf"))
         viewModel.importBook(uri)
         advanceUntilIdle()
-        assertEquals("仅支持 TXT / EPUB 格式", viewModel.uiState.value.message)
+        assertEquals("仅支持 TXT / EPUB 格式", viewModel.uiState.value.message.resolveForTest())
 
         viewModel.dismissMessage()
         assertNull(viewModel.uiState.value.message)

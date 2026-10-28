@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -18,7 +19,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.ui.theme.ReaderThemes
 
@@ -41,13 +46,13 @@ fun ReadingPreferencesPanel(
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         // ---- 主题 ----
-        SettingsLabel("主题")
+        SettingsLabel(stringResource(R.string.settings_section_theme))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ReaderThemes.presets.forEach { preset ->
                 FilterChip(
                     selected = settings.themeId == preset.id,
                     onClick = { onUpdate { it.copy(themeId = preset.id) } },
-                    label = { Text(preset.displayName) },
+                    label = { Text(stringResource(preset.displayNameRes)) },
                 )
             }
         }
@@ -57,15 +62,15 @@ fun ReadingPreferencesPanel(
         // ---- 字体 ----
         // 内置字族 + 自定义字体库（T-018 / US-16）。整块自带数据源，见
         // CustomFontSection 的注释：设置页与阅读器弹层共用同一套控件与数据。
-        SettingsLabel("字体")
+        SettingsLabel(stringResource(R.string.settings_section_font))
         CustomFontSection(settings = settings, onUpdate = onUpdate)
 
         SettingsDivider()
 
         // ---- 排版 ----
-        SettingsLabel("排版")
+        SettingsLabel(stringResource(R.string.settings_section_typography))
         SettingsSlider(
-            label = "字号",
+            label = stringResource(R.string.settings_font_size),
             value = settings.fontSizeSp.toFloat(),
             valueRange = 14f..28f,
             steps = 13,
@@ -73,15 +78,18 @@ fun ReadingPreferencesPanel(
             onValueChange = { onUpdate { s -> s.copy(fontSizeSp = it.toInt()) } },
         )
         SettingsSlider(
-            label = "行距",
+            label = stringResource(R.string.settings_line_height),
             value = settings.lineHeightRatio,
             valueRange = 1.3f..2.2f,
             steps = 8,
-            display = "%.1f 倍".format(settings.lineHeightRatio),
+            display = stringResource(
+                R.string.settings_line_height_value,
+                "%.1f".format(settings.lineHeightRatio),
+            ),
             onValueChange = { onUpdate { s -> s.copy(lineHeightRatio = it) } },
         )
         SettingsSlider(
-            label = "段距",
+            label = stringResource(R.string.settings_paragraph_spacing),
             value = settings.paragraphSpacingDp.toFloat(),
             valueRange = 0f..24f,
             steps = 11,
@@ -89,7 +97,7 @@ fun ReadingPreferencesPanel(
             onValueChange = { onUpdate { s -> s.copy(paragraphSpacingDp = it.toInt()) } },
         )
         SettingsSlider(
-            label = "页边距",
+            label = stringResource(R.string.settings_margin),
             value = settings.horizontalMarginDp.toFloat(),
             valueRange = 8f..48f,
             steps = 9,
@@ -102,13 +110,17 @@ fun ReadingPreferencesPanel(
         // ---- 亮度 ----
         // -1f 表跟随系统；开启覆盖时默认 0.5f。仅写数据，窗口级亮度效果
         // 仍只在阅读器内生效（TASKS 已知限制，不随 S2 扩大范围）。
-        SettingsLabel("亮度")
+        SettingsLabel(stringResource(R.string.settings_brightness_label))
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = if (settings.brightnessFollowsSystem) "跟随系统" else "${(settings.brightness * 100).toInt()}%",
+                text = if (settings.brightnessFollowsSystem) {
+                    stringResource(R.string.settings_brightness_follow_system)
+                } else {
+                    "${(settings.brightness * 100).toInt()}%"
+                },
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.weight(1f))
@@ -130,34 +142,34 @@ fun ReadingPreferencesPanel(
         SettingsDivider()
 
         // ---- 行为 ----
-        SettingsLabel("行为")
+        SettingsLabel(stringResource(R.string.settings_section_behavior))
         SettingsSwitch(
-            title = "阅读时常亮",
-            subtitle = "阅读过程中保持屏幕点亮",
+            title = stringResource(R.string.settings_keep_screen_on),
+            subtitle = stringResource(R.string.settings_keep_screen_on_subtitle),
             checked = settings.keepScreenOn,
             onCheckedChange = { onUpdate { s -> s.copy(keepScreenOn = it) } },
         )
         SettingsSwitch(
-            title = "沉浸模式",
-            subtitle = "隐藏系统状态栏与导航栏",
+            title = stringResource(R.string.settings_immersive),
+            subtitle = stringResource(R.string.settings_immersive_subtitle),
             checked = settings.immersive,
             onCheckedChange = { onUpdate { s -> s.copy(immersive = it) } },
         )
         SettingsSwitch(
-            title = "音量键翻章",
-            subtitle = "音量下键下一章、上键上一章（防误触默认关闭）",
+            title = stringResource(R.string.settings_volume_key),
+            subtitle = stringResource(R.string.settings_volume_key_subtitle),
             checked = settings.volumeKeyTurnPage,
             onCheckedChange = { onUpdate { s -> s.copy(volumeKeyTurnPage = it) } },
         )
         SettingsSwitch(
-            title = "翻页模式",
-            subtitle = "关闭为连续滚动，开启为左右滑动翻页（仿真书页，可点按左/右/中区）",
+            title = stringResource(R.string.settings_page_turn),
+            subtitle = stringResource(R.string.settings_page_turn_subtitle),
             checked = settings.pageTurnMode,
             onCheckedChange = { onUpdate { s -> s.copy(pageTurnMode = it) } },
         )
         SettingsSwitch(
-            title = "双页跨页",
-            subtitle = "平板/横屏大屏自动左右两页；手机竖屏不受影响",
+            title = stringResource(R.string.settings_two_page),
+            subtitle = stringResource(R.string.settings_two_page_subtitle),
             checked = settings.twoPageSpread,
             onCheckedChange = { onUpdate { s -> s.copy(twoPageSpread = it) } },
         )
@@ -219,9 +231,14 @@ internal fun SettingsSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
+    // AC-22.1：开关行整体朗读为「标题，副标题」（Switch 自己只报开/关）。
+    // 不合并子节点：副标题在小屏上会折行，合并后 TalkBack 焦点框会跨两行。
+    val description = stringResource(R.string.a11y_settings_switch_item, title, subtitle)
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .semantics { contentDescription = description }
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

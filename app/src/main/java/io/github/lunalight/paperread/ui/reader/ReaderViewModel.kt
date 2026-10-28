@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.data.search.CurrentBookSearchSource
 import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.data.settings.SettingsStore
@@ -27,6 +28,7 @@ import io.github.lunalight.paperread.speech.SpeechController
 import io.github.lunalight.paperread.speech.SpeechPhase
 import io.github.lunalight.paperread.speech.SpeechState
 import io.github.lunalight.paperread.speech.SpeechText
+import io.github.lunalight.paperread.ui.UiText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -88,9 +90,9 @@ data class ReaderUiState(    val loading: Boolean = true,
     val settingsVisible: Boolean = false,
     /** 当前书签列表（创建时间倒序）。 */
     val bookmarks: List<Bookmark> = emptyList(),
-    /** 一次性提示（Snackbar）。 */
-    val message: String? = null,
-    val error: String? = null,
+    /** 一次性提示（Snackbar）。T-022：VM 不持有 Context，携带字符串资源 id。 */
+    val message: UiText? = null,
+    val error: UiText? = null,
     /**
      * 错误是否由「正文文件缺失 / 损坏」引起（云备份只恢复书架结构、不含 files/books/）。
      * 为 true 时错误页额外提供「删除该条目」动作，因为重试解析也无济于事。
@@ -124,8 +126,14 @@ data class ReaderUiState(    val loading: Boolean = true,
     val bookmarkEditor: BookmarkEditorState? = null,
 ) {
     val chapterTitle: String get() = chapters.getOrNull(chapterIndex)?.title ?: ""
-    val chapterPosition: String
-        get() = if (chapters.isEmpty()) "" else "第 ${chapterIndex + 1}/${chapters.size} 章"
+
+    /** 当前章位置（`第 3/120 章`）：资源 id + 参数，渲染时由 UI 解析。 */
+    val chapterPosition: UiText
+        get() = if (chapters.isEmpty()) {
+            UiText.Plain("")
+        } else {
+            UiText.res(R.string.reader_chapter_position, chapterIndex + 1, chapters.size)
+        }
 }
 
 /** 正文命中高亮的定位信息（AC-15.3）：给哪一章的哪一段、上哪个词的颜色。 */
@@ -286,7 +294,7 @@ class ReaderViewModel(
                 } else {
                     // 续读关闭，或已是全书末章：收尾并告知（本章已读完）。
                     speechController.stop()
-                    _uiState.update { it.copy(message = "已朗读完本章") }
+                    _uiState.update { it.copy(message = UiText.res(R.string.speech_chapter_finished)) }
                 }
             }
         }
@@ -298,12 +306,12 @@ class ReaderViewModel(
     private suspend fun load() {
         val book = bookRepository.getBook(bookId)
         if (book == null) {
-            _uiState.update { it.copy(loading = false, error = "书籍不存在或已删除") }
+            _uiState.update { it.copy(loading = false, error = UiText.res(R.string.reader_error_book_missing)) }
             return
         }
         val chapters = bookRepository.getChapters(bookId)
         if (chapters.isEmpty()) {
-            _uiState.update { it.copy(loading = false, error = "章节为空，请尝试重新解析") }
+            _uiState.update { it.copy(loading = false, error = UiText.res(R.string.reader_error_no_chapters)) }
             return
         }
         val index = book.lastChapterIndex.coerceIn(0, chapters.lastIndex)
@@ -536,12 +544,12 @@ class ReaderViewModel(
     private fun beginSpeech(fromParagraph: Int) {
         val state = _uiState.value
         if (state.loading || state.book == null || state.paragraphs.isEmpty()) {
-            _uiState.update { it.copy(message = "本章暂无可朗读的内容") }
+            _uiState.update { it.copy(message = UiText.res(R.string.speech_nothing_to_read)) }
             return
         }
         val units = SpeechText.buildUnits(state.paragraphs)
         if (units.isEmpty()) {
-            _uiState.update { it.copy(message = "本章暂无可朗读的内容") }
+            _uiState.update { it.copy(message = UiText.res(R.string.speech_nothing_to_read)) }
             return
         }
         // AC-20.6：权限不可用（曾拒绝 / 被系统撤销）→ 降级提示，不崩、
@@ -945,7 +953,7 @@ class ReaderViewModel(
             )
             _uiState.update {
                 it.copy(
-                    message = "已添加书签",
+                    message = UiText.res(R.string.reader_bookmark_added),
                     // id = 0 表示仓储没回 id（异常实现）：不打开编辑器，避免保存到无处
                     bookmarkEditor = if (id > 0) {
                         BookmarkEditorState(bookmarkId = id, draft = "", isNew = true)
@@ -1006,7 +1014,7 @@ class ReaderViewModel(
         val editor = _uiState.value.bookmarkEditor ?: return
         if (!editor.canSave) return
         val note = Bookmark.normalizeNote(editor.draft)
-        _uiState.update { it.copy(bookmarkEditor = null, message = "备注已保存") }
+        _uiState.update { it.copy(bookmarkEditor = null, message = UiText.res(R.string.reader_bookmark_note_saved)) }
         viewModelScope.launch {
             bookRepository.updateBookmarkNote(
                 id = editor.bookmarkId,
@@ -1035,12 +1043,10 @@ class ReaderViewModel(
         const val EXCERPT_MAX_CHARS = 60
 
         /** 正文缺失错误文案（书架恢复备份后最常见）。 */
-        const val TEXT_MISSING_MESSAGE =
-            "正文文件已丢失或损坏，无法阅读。\n删除该条目后可重新导入。"
+        val TEXT_MISSING_MESSAGE: UiText = UiText.res(R.string.reader_error_text_missing)
 
         /** 正文在、本章却为空（截断/偏移错乱）：可重新解析，不必删书。 */
-        const val CHAPTER_EMPTY_MESSAGE =
-            "本章内容为空，可能章节索引已损坏。\n请回书架用「重新解析章节」后重试。"
+        val CHAPTER_EMPTY_MESSAGE: UiText = UiText.res(R.string.reader_error_chapter_empty)
 
         /**
          * 通知权限不可用时的降级提示（AC-20.6）。
@@ -1048,8 +1054,8 @@ class ReaderViewModel(
          * 覆盖两种成因：用户曾拒绝系统申请；朗读中权限被系统撤销。
          * 朗读本身不受影响（前台服务照常运行），仅通知栏控制不可见。
          */
-        const val NOTIFICATION_PERMISSION_DEGRADED_MESSAGE =
-            "未获得通知权限，朗读控制通知不可用；朗读仍可正常播放。"
+        val NOTIFICATION_PERMISSION_DEGRADED_MESSAGE: UiText =
+            UiText.res(R.string.speech_notification_degraded)
 
         fun factory(container: AppContainer, bookId: Long): ViewModelProvider.Factory =
             viewModelFactory {

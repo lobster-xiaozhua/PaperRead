@@ -26,12 +26,17 @@ object CoverGenerator {
         Color(0xFF6B5B7A) to Color(0xFF9C8BA8), // 暮紫
     )
 
-    fun styleFor(book: Book): CoverStyle = styleFor(book.title, book.dirName)
+    /**
+     * @param fallbackGlyph 书名首字为空时的兜底字形。由调用方从 `strings.xml` 传入
+     *   （T-022：本类不依赖 Android 资源，保持「零图片、零联网、零资源」的纯算法性）。
+     */
+    fun styleFor(book: Book, fallbackGlyph: String): CoverStyle =
+        styleFor(book.title, book.dirName, fallbackGlyph)
 
-    fun styleFor(title: String, seed: String): CoverStyle {
+    fun styleFor(title: String, seed: String, fallbackGlyph: String): CoverStyle {
         val hash = (title.hashCode() * 31 + seed.hashCode()) and 0x7FFFFFFF
         val (start, end) = PALETTES[hash % PALETTES.size]
-        val glyph = title.trim().firstOrNull()?.toString() ?: "书"
+        val glyph = title.trim().firstOrNull()?.toString() ?: fallbackGlyph
         return CoverStyle(start, end, glyph)
     }
 }

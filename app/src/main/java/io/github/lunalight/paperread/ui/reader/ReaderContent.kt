@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
@@ -52,10 +53,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.lunalight.paperread.R
 import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.ui.adaptive.LocalWindowWidthClass
 import io.github.lunalight.paperread.ui.adaptive.WindowWidthClass
 import io.github.lunalight.paperread.ui.reader.search.SearchHighlighter
+import io.github.lunalight.paperread.ui.asString
 import io.github.lunalight.paperread.ui.theme.ReaderTheme
 
 /**
@@ -266,7 +269,7 @@ internal fun ReaderContent(
         }
         item(key = "chapter-footer") {
             ChapterFooter(
-                chapterPosition = state.chapterPosition,
+                chapterPosition = state.chapterPosition.asString(),
                 progressPercent = state.progressPercent,
                 theme = theme,
                 hasNext = state.chapterIndex < state.chapters.lastIndex,
@@ -299,12 +302,15 @@ internal fun ChapterFooter(
         Spacer(Modifier.height(8.dp))
         if (hasNext) {
             TextButton(onClick = onNext) {
-                Text("下一章", color = theme.accent)
+                Text(stringResource(R.string.reader_next_chapter), color = theme.accent)
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = theme.accent)
             }
         } else {
             Text(
-                text = "已读完 · ${"%.1f".format(progressPercent)}%",
+                text = stringResource(
+                    R.string.reader_finished,
+                    "%.1f".format(progressPercent),
+                ),
                 style = MaterialTheme.typography.labelMedium,
                 color = theme.secondary,
             )
@@ -333,11 +339,14 @@ internal fun ReaderError(
             textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(16.dp))
-        TextButton(onClick = onBack) { Text("返回书架") }
+        TextButton(onClick = onBack) { Text(stringResource(R.string.reader_back_to_shelf)) }
         if (onDelete != null) {
             // 正文文件缺失时「重新解析」无用且可能是破坏性操作，只给删除出口
             TextButton(onClick = onDelete) {
-                Text("删除该条目", color = MaterialTheme.colorScheme.error)
+                Text(
+                    stringResource(R.string.reader_delete_entry),
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }
