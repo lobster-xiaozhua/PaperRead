@@ -70,6 +70,11 @@ ACCESS_NETWORK_STATE 亦未使用）。
 2. **隐私页一致性单测**（AC-20.4）：`AboutScreenTest` 把隐私说明一页
    展示的权限清单与合并 Manifest 的 requestedPermissions 逐一比对，
    页面陈述与实际一致；新增权限必须先进隐私评审再进清单。
+   口径注记：合并 Manifest 的 requestedPermissions 实测共 5 项，其中
+   `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` 系 androidx.core 自动注入的
+   signature 级权限、非应用声明；**应用声明为 4 项**（INTERNET /
+   FOREGROUND_SERVICE / FOREGROUND_SERVICE_MEDIA_PLAYBACK /
+   POST_NOTIFICATIONS），与隐私页「共 4 项」清单一致。
 3. **依赖坐标白名单单测**（`BuildDependencyAllowlistTest`）：脚本第 1 项是
    **关键字黑名单**（okhttp / retrofit / firebase / umeng …），换个未登记的
    公网 SDK 就拦不住；该测试把黑名单补成**白名单**——`libs.versions.toml`

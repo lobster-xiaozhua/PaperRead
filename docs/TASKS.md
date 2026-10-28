@@ -8,7 +8,7 @@
 
 - **最新发布**：v1.2.0（versionCode 4，体验增强版：TTS 语音朗读 US-12 / 局域网传书 US-9 / 换机迁移 US-10 / 进度同步 US-11 / 设置页与关于页 US-8 / 仿真翻页 C7 / 平板双页 US-13）
 - **待发布 v2.0.0（versionCode 5）**：版本号已就绪（`app/build.gradle.kts`），CHANGELOG 按 [release-notes-template](release-notes-template.md) 五段组织完毕。内容 = 第 0 / 1 阶段（传输鉴权 R-01 / 隐私可验证化 R-02 / 模块化 R-12 / Room 迁移 R-06 / 线程模型 R-10 / 覆盖率与 CI 门禁）+ 第 2 阶段（备份恢复 US-14 / 全书搜索 US-15 / 书签备注 US-17 / 自定义字体 US-16 / 新手引导 US-18 / 诊断导出 US-19 / 文案资源化 US-21 / 无障碍 US-22）。发行物料见「工程与交付」的 T-024 条目
-- **质量基线**：830 单测全绿（其中 2 例门控 / skipped；app 635 + `:core:data` 78 + `:core:reader` 117）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 八作业配置就位（覆盖率口径调整后待 CI 首次运行验证）
+- **质量基线**：830 单测全绿（其中 2 例门控 / skipped；app 635 + `:core:data` 78 + `:core:reader` 117）、lint 0 error、行覆盖率以 jacocoTestReport 报告为准（门禁 ≥ 80%，**三模块聚合口径**：app + :core:data + :core:reader，经登记的零覆盖纯渲染类不计入分母，见下「工程与交付」）、CI 八作业配置就位（覆盖率口径调整后待 CI 首次运行验证）。测量条件注记：覆盖率实测 87.x% 为含 ui.smoke 的全量口径；CI `unit` 作业门禁使用 `-PexcludeUiSmokeTests=true` 口径（实测 84.02%）——两个口径均 ≥ 80% 门禁
 
 ## 当前能力（已完成）
 
