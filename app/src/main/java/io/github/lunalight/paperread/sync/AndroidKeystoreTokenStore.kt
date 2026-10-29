@@ -25,7 +25,14 @@ import kotlinx.serialization.json.Json
 class AndroidKeystoreTokenStore(context: Context) : SyncTokenStore {
 
     private val file: File = context.getFileStreamPath("sync_tokens.bin")
-    private val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    /**
+     * AndroidKeyStore 在 Robolectric / JVM 单测环境下不可用；因此**延迟**到首次
+     * save / getAccess / getRefresh / clear 时才加载，构造阶段不碰 KeyStore——
+     * 真实设备才需要。这样设置页单测（会构建真实 AppContainer）不会被 KeyStore 初始化拖垮。
+     */
+    private val keyStore: KeyStore by lazy {
+        KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    }
 
     override suspend fun save(accessToken: String, refreshToken: String, expiresIn: Long) {
         val key = ensureKey()
