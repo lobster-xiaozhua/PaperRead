@@ -109,6 +109,37 @@
     <string name="backup_report_fonts">字体缺失：%1$s（已回退默认字体）</string>
     <string name="backup_report_empty">备份里没有可恢复的书籍</string>
 
+    <!-- 云同步（US-22 · Cloudflare 后端接入）：零知识快照、单密码、纯 HttpURLConnection -->
+    <string name="sync_title">云同步</string>
+    <string name="sync_enable">开启云同步</string>
+    <string name="sync_enable_subtitle">跨设备同步阅读进度、书签与笔记（不含书籍正文）；服务端只存加密密文</string>
+    <string name="sync_email">邮箱</string>
+    <string name="sync_password">账户密码</string>
+    <string name="sync_password_hint">密码即备份加密口令；忘记密码将无法解密云端备份</string>
+    <string name="sync_password_invalid">口令至少 8 位且不能全为空格</string>
+    <string name="sync_register">注册</string>
+    <string name="sync_login">登录</string>
+    <string name="sync_logout">退出登录</string>
+    <string name="sync_now">立即同步</string>
+    <string name="sync_logged_in_as">已登录：%1$s</string>
+    <string name="sync_logged_out">已退出登录</string>
+    <string name="sync_last_sync">最近同步：%1$s</string>
+    <string name="sync_status_syncing">正在同步…</string>
+    <string name="sync_phase_uploading">正在上传快照…</string>
+    <string name="sync_phase_pulling">正在拉取其他设备的进度…</string>
+    <string name="sync_done">同步完成</string>
+    <string name="sync_result_ok">已合并远端并上传最新进度</string>
+    <string name="sync_result_partial">同步部分完成（部分设备失败）</string>
+    <string name="sync_error_network">网络错误：%1$s</string>
+    <string name="sync_error_register">注册失败：%1$s</string>
+    <string name="sync_error_login">登录失败：%1$s</string>
+    <string name="sync_error_not_logged_in">请先登录后再同步</string>
+    <string name="sync_error_export">生成同步包失败：%1$s</string>
+    <string name="sync_error_upload">上传快照失败：%1$s</string>
+    <string name="sync_error_pull">获取设备列表失败：%1$s</string>
+    <string name="sync_error_pull_partial">部分设备拉取失败</string>
+    <string name="sync_error_restore">合并设备 %1$s 的进度失败</string>
+
     <!-- 全书搜索（T-017 · R-14 / US-15）：顶栏入口 + 面板（AC-15.1 ~ AC-15.7） -->
     <string name="reader_search_open">搜索本书</string>
     <string name="reader_search_title">本书搜索</string>

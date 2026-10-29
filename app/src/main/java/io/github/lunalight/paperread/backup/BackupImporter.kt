@@ -165,12 +165,17 @@ class BackupImporter(
      * 执行恢复。
      *
      * @param password 加密备份的口令（明文备份可传 null）
+     * @param progressOnly `false`（默认）= 完整恢复：源文件缺失且无本机同名书 → 记单本失败。
+     *   `true` = 仅回写进度 / 书签（云同步合并场景）：源文件缺失时，若本机按
+     *   `sourceSha256` 命中同名书则按 `WriteBackDecider` 回写进度 / 书签（与现有分支一致），
+     *   命中不到才记失败「本机无此书，未同步进度」——不因为云端快照不含正文就中断合并。
      * @param onProgress 逐本进度（IO 线程）
      * @param shouldContinue 取消探针（与协程取消双通道）
      */
     suspend fun restore(
         file: File,
         password: CharArray? = null,
+        progressOnly: Boolean = false,
         onProgress: (BackupProgress) -> Unit = {},
         shouldContinue: () -> Boolean = { true },
     ): BackupRestoreResult = withContext(Dispatchers.IO) {
@@ -184,7 +189,7 @@ class BackupImporter(
                 BackupRestoreResult.WrongPassword(open.manifest)
 
             is BackupOpenResult.Opened -> open.pkg.use { pkg ->
-                restoreOpened(pkg, onProgress, shouldContinue)
+                restoreOpened(pkg, progressOnly, onProgress, shouldContinue)
             }
         }
     }
@@ -193,6 +198,7 @@ class BackupImporter(
 
     private suspend fun restoreOpened(
         pkg: BackupPackage,
+        progressOnly: Boolean,
         onProgress: (BackupProgress) -> Unit,
         shouldContinue: () -> Boolean,
     ): BackupRestoreResult {
@@ -228,6 +234,43 @@ class BackupImporter(
                     }
                     val displayTitle = state.title.ifBlank { fallbackTitle }
                     if (entry.sourceMissing) {
+                        if (progressOnly) {
+                            // 云同步合并：快照不含正文（零知识）。本机若有同 sha256 的书，
+                            // 仍按较新者胜回写进度 / 书签；没有则记失败但继续（不中断合并）。
+                            val local = bookRepository.findBySha256(entry.sourceSha256)
+                            if (local != null) {
+                                if (WriteBackDecider.shouldWriteBack(local.lastReadAt, state.lastReadAt)) {
+                                    stateWriter.writeProgress(
+                                        bookId = local.id,
+                                        chapterIndex = state.lastChapterIndex,
+                                        paragraphIndex = state.lastParagraphIndex,
+                                        scrollOffset = state.lastScrollOffset,
+                                        charOffset = state.lastCharOffset,
+                                        progressPercent = state.progressPercent,
+                                        readAt = state.lastReadAt,
+                                    )
+                                    stateWriter.writeBookmarks(
+                                        bookId = local.id,
+                                        bookmarks = state.bookmarks.map { mark ->
+                                            Bookmark(
+                                                bookId = local.id,
+                                                chapterIndex = mark.chapterIndex,
+                                                paragraphIndex = mark.paragraphIndex,
+                                                charOffset = mark.charOffset,
+                                                excerpt = mark.excerpt,
+                                                createdAt = mark.createdAt,
+                                                note = mark.note,
+                                                updatedAt = mark.updatedAt,
+                                            )
+                                        },
+                                    )
+                                    progressWritten++
+                                }
+                            } else {
+                                failed += FailedEntry(displayTitle, "本机无此书，未同步进度")
+                            }
+                            return@forEachIndexed
+                        }
                         failed += FailedEntry(displayTitle, "源文件缺失（备份时已丢失）")
                         return@forEachIndexed
                     }

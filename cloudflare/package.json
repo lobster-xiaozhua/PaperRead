@@ -1,0 +1,16 @@
+{
+  "name": "paperread-sync",
+  "version": "0.2.0",
+  "private": true,
+  "description": "PaperRead 跨设备同步后端（Cloudflare Workers + D1 + KV，Free 层，无 R2）",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "migrate:local": "wrangler d1 migrations apply paperread --local",
+    "migrate:remote": "wrangler d1 migrations apply paperread --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0",
+    "@cloudflare/workers-types": "^4.0.0"
+  }
+}

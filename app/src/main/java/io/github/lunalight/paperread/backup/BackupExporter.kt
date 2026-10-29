@@ -62,6 +62,10 @@ class BackupExporter(
      * 导出到 [target]（调用方提供临时文件路径）。
      *
      * @param password 非空 = 口令加密（AC-14.2），长度 ≥ [BACKUP_MIN_PASSWORD_LENGTH]
+     * @param includeSources 是否打包源文件。默认 `true`（完整本地备份）；云同步快照
+     *   传 `false`——快照只同步阅读状态（进度 / 书签 / 笔记），**不含书籍正文**，
+     *   服务端只存密文（见 `SyncCoordinator`）。`false` 时每本记 `sourceMissing=true`、
+     *   跳过源文件条目写入（manifest 的 `sourceSize` 仍按本机文件大小填，供完整性提示）。
      * @param onProgress 进度回调（IO 线程）
      * @param shouldContinue 取消探针（与协程取消双通道，测试可确定性地中途停）
      * @return 实际写入的 manifest（调用方可用于展示计数）
@@ -69,6 +73,7 @@ class BackupExporter(
     suspend fun export(
         target: File,
         password: CharArray? = null,
+        includeSources: Boolean = true,
         onProgress: (BackupProgress) -> Unit = {},
         shouldContinue: () -> Boolean = { true },
     ): BackupManifest = withContext(Dispatchers.IO) {
@@ -78,7 +83,7 @@ class BackupExporter(
         target.parentFile?.mkdirs()
 
         onProgress(BackupProgress(stage = BackupStage.COLLECTING))
-        val prepared = collect { done, total, title ->
+        val prepared = collect(includeSources = includeSources) { done, total, title ->
             onProgress(
                 BackupProgress(
                     stage = BackupStage.COLLECTING,
@@ -185,6 +190,7 @@ class BackupExporter(
     )
 
     private suspend fun collect(
+        includeSources: Boolean = true,
         onCollect: (done: Int, total: Int, title: String) -> Unit = { _, _, _ -> },
     ): List<PreparedBook> {
         val books = bookRepository.observeBooks().first()
@@ -192,6 +198,9 @@ class BackupExporter(
             onCollect(index, books.size, book.title)
             val bookmarks = bookRepository.observeBookmarks(book.id).first()
             val source = bookTextStore.sourceFile(book)
+            // 云同步快照（includeSources=false）不打包正文：即便源文件在本地也视作缺失，
+            // 由 buildManifest 记 sourceMissing=true 且跳过源文件条目（AC：零知识 / 不含正文）。
+            val sourceFile = if (includeSources) source.takeIf { it.isFile } else null
             PreparedBook(
                 book = book,
                 state = BackupBookState(
@@ -220,7 +229,7 @@ class BackupExporter(
                         )
                     },
                 ),
-                sourceFile = source.takeIf { it.isFile },
+                sourceFile = sourceFile,
             )
         }.also { result -> onCollect(result.size, result.size, "") }
     }
