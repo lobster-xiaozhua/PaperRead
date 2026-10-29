@@ -146,7 +146,7 @@ class SyncCoordinator(
             val refresh = tokenStore.getRefresh()
             if (refresh != null) {
                 // 吊销失败不阻塞登出：本地清理才是关键
-                runCatching { api.refresh(refresh) }
+                runCatching { api.logout(refresh) }
             }
             tokenStore.clear()
             syncSettings.setAccountEmail(null)

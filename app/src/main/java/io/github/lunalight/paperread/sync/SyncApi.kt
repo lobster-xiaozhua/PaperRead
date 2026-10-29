@@ -37,6 +37,12 @@ internal data class RefreshRequest(
     val refresh_token: String,
 )
 
+/** 登出（吊销刷新令牌）请求体。 */
+@Serializable
+internal data class LogoutRequest(
+    val refresh_token: String,
+)
+
 /** 上传快照请求体。 */
 @Serializable
 internal data class PutSnapshotRequest(
@@ -153,6 +159,9 @@ interface SyncApi {
 
     /** `POST /api/auth/refresh` → 新令牌（轮换旧令牌）。 */
     suspend fun refresh(refreshToken: String): SyncAuthResult
+
+    /** `POST /api/auth/logout` → 吊销刷新令牌（best-effort）。 */
+    suspend fun logout(refreshToken: String): SyncUnitResult
 
     /** `GET /api/auth/me` → 当前用户（需 accessToken）。 */
     suspend fun me(accessToken: String): SyncUserResult

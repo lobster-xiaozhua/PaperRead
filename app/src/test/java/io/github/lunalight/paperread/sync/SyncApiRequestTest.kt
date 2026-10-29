@@ -58,6 +58,19 @@ class SyncApiRequestTest {
     }
 
     @Test
+    fun `登出请求POST 路径为api auth logout 且字段为refresh_token`() {
+        val req = api.buildLogoutRequest("refresh-tok")
+        assertEquals("POST", req.method)
+        assertEquals("https://example.test/api/auth/logout", req.url)
+        assertTrue("路径应以 /api/auth/logout 结尾", req.url.endsWith("/api/auth/logout"))
+        val fields = bodyFields(req)
+        assertEquals("refresh-tok", fields["refresh_token"])
+        // 登出从请求体读 refresh_token，不依赖鉴权头
+        assertEquals("application/json", req.headers["Content-Type"])
+        assertFalse(req.headers.containsKey("Authorization"))
+    }
+
+    @Test
     fun `me 请求带Bearer 鉴权头且为GET`() {
         val req = api.buildMeRequest("access-abc")
         assertEquals("GET", req.method)

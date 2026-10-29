@@ -98,6 +98,15 @@ class HttpSyncApi(
                 .toByteArray(UTF8),
         )
 
+    internal fun buildLogoutRequest(refreshToken: String): SyncRequest =
+        SyncRequest(
+            method = "POST",
+            url = "$baseUrl/api/auth/logout",
+            headers = jsonHeaders(),
+            body = syncJson.encodeToString(LogoutRequest.serializer(), LogoutRequest(refresh_token = refreshToken))
+                .toByteArray(UTF8),
+        )
+
     internal fun buildMeRequest(accessToken: String): SyncRequest =
         SyncRequest(
             method = "GET",
@@ -156,6 +165,14 @@ class HttpSyncApi(
 
     override suspend fun refresh(refreshToken: String): SyncAuthResult =
         parseAuthResult(send(buildRefreshRequest(refreshToken)))
+
+    override suspend fun logout(refreshToken: String): SyncUnitResult {
+        val response = send(buildLogoutRequest(refreshToken))
+        if (response.threw != null) return SyncUnitResult.Error(response.threw)
+        if (response.status in 200..299) return SyncUnitResult.Success
+        val (code, message) = failureDetail(response)
+        return SyncUnitResult.Failure(response.status, code, message)
+    }
 
     override suspend fun me(accessToken: String): SyncUserResult {
         val response = send(buildMeRequest(accessToken))

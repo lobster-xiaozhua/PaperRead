@@ -98,7 +98,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `登出清空令牌邮箱与口令`() {
+    fun `登出清空令牌邮箱与口令且吊销刷新令牌`() {
         val api = FakeSyncApi()
         val settings = FakeSyncSettingsStore()
         val tokenStore = InMemoryTokenStore()
@@ -109,7 +109,13 @@ class SyncCoordinatorTest {
         coordinator.logout()
         waitUntil { !coordinator.state.value.loggedIn }
 
+        // 登出应调用 logout 吊销服务端刷新令牌，而非 refresh（轮换）
+        assertTrue("应调用 api.logout 吊销刷新令牌", api.calls.contains("logout"))
+        assertFalse("登出不应再调用 api.refresh", api.calls.contains("refresh"))
+        assertEquals("refresh-1", api.lastLogoutToken)
+        // 本地令牌清空、状态退出登录
         assertNull(runBlocking { tokenStore.getAccess() })
+        assertNull(runBlocking { tokenStore.getRefresh() })
         assertNull(settings.accountEmail.value)
         assertFalse(coordinator.state.value.loggedIn)
     }
@@ -332,6 +338,14 @@ class SyncCoordinatorTest {
         override suspend fun refresh(refreshToken: String): SyncAuthResult {
             calls += "refresh"
             return authResult
+        }
+
+        var lastLogoutToken: String? = null
+
+        override suspend fun logout(refreshToken: String): SyncUnitResult {
+            calls += "logout"
+            lastLogoutToken = refreshToken
+            return SyncUnitResult.Success
         }
 
         override suspend fun me(accessToken: String): SyncUserResult {

@@ -76,6 +76,17 @@ class SyncApiParseTest {
     }
 
     @Test
+    fun `logout 2xx 为Success 4xx 为Failure`() = runBlocking {
+        assertTrue(apiWith("{}", 200).logout("refresh-tok") is SyncUnitResult.Success)
+        val failed = apiWith("""{"error":"invalid_token","message":"刷新令牌无效"}""", 401, error = true)
+            .logout("refresh-tok")
+        assertTrue(failed is SyncUnitResult.Failure)
+        failed as SyncUnitResult.Failure
+        assertEquals(401, failed.httpStatus)
+        assertEquals("invalid_token", failed.code)
+    }
+
+    @Test
     fun `getSnapshot 404 视为无快照Success null`() = runBlocking {
         val result = apiWith("", 404, error = true).getSnapshot("dev", "tok")
         assertTrue(result is SyncSnapshotResult.Success)
