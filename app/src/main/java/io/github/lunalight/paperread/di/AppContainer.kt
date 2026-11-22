@@ -3,6 +3,10 @@ package io.github.lunalight.paperread.di
 import android.content.Context
 import io.github.lunalight.paperread.BuildConfig
 import io.github.lunalight.paperread.backup.BackupCoordinator
+import io.github.lunalight.paperread.sync.AndroidKeystoreTokenStore
+import io.github.lunalight.paperread.sync.HttpSyncApi
+import io.github.lunalight.paperread.sync.SyncApi
+import io.github.lunalight.paperread.sync.SyncCoordinator
 import io.github.lunalight.paperread.backup.BackupExporter
 import io.github.lunalight.paperread.backup.BackupFontReference
 import io.github.lunalight.paperread.backup.BackupImporter
@@ -20,6 +24,8 @@ import io.github.lunalight.paperread.data.onboarding.OnboardingStore
 import io.github.lunalight.paperread.data.repository.BookStateWriter
 import io.github.lunalight.paperread.data.repository.DefaultBookImporter
 import io.github.lunalight.paperread.data.settings.PreferencesSettingsStore
+import io.github.lunalight.paperread.data.settings.PreferencesSyncSettingsStore
+import io.github.lunalight.paperread.data.settings.SyncSettingsStore
 import io.github.lunalight.paperread.data.settings.ReaderSettings
 import io.github.lunalight.paperread.data.settings.SettingsDataStoreProvider
 import io.github.lunalight.paperread.data.settings.SettingsStore
@@ -195,6 +201,49 @@ class AppContainer(context: Context) {
     /** 备份 / 恢复编排（设置页唯一入口，生命周期随 Application）。 */
     val backupCoordinator: BackupCoordinator by lazy {
         BackupCoordinator(applicationContext, backupExporter, backupImporter, appScope)
+    }
+
+    /**
+     * 云同步令牌存储（Android Keystore 信封加密，不落 DataStore 明文）。
+     *
+     * 与 [settingsDataStore] 同一文件实例体系无关——令牌走独立私有文件
+     * `sync_tokens.bin`，密钥由系统 Keystore 保管。
+     */
+    private val syncTokenStore: AndroidKeystoreTokenStore by lazy {
+        AndroidKeystoreTokenStore(applicationContext)
+    }
+
+    /**
+     * 云同步设置（开关 / 邮箱 / 设备标识）：复用 [settingsDataStore] 的**同一**
+     * DataStore 实例（同一 `reader_settings.preferences_pb` 文件），绝不再建实例
+     * （否则进程内重复 DataStore 抛 `IllegalStateException: activeFiles`）。
+     */
+    private val syncSettingsStore: SyncSettingsStore by lazy {
+        PreferencesSyncSettingsStore(settingsDataStore.instance)
+    }
+
+    /**
+     * 云同步后端客户端（零网络库，仅 HttpURLConnection）。
+     */
+    private val syncApi: SyncApi by lazy { HttpSyncApi() }
+
+    /**
+     * 云同步编排（设置页唯一入口，生命周期随 Application）。
+     *
+     * 零知识快照复用既有 [backupExporter] / [backupImporter]：push 用
+     * `export(includeSources=false)` 生成仅状态加密包，pull 用
+     * `restore(progressOnly=true)` 合并进本地。
+     */
+    val syncCoordinator: SyncCoordinator by lazy {
+        SyncCoordinator(
+            context = applicationContext,
+            api = syncApi,
+            tokenStore = syncTokenStore,
+            syncSettings = syncSettingsStore,
+            exporter = backupExporter,
+            importer = backupImporter,
+            scope = appScope,
+        )
     }
 
     /**

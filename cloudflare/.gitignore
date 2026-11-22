@@ -1,0 +1,5 @@
+# 依赖与本地产物
+node_modules/
+.wrangler/
+# 本地密钥（wrangler secret 占位，绝不入库）
+.dev.vars

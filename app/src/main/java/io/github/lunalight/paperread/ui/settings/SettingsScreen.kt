@@ -36,6 +36,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.lunalight.paperread.BuildConfig
 import io.github.lunalight.paperread.PaperReadApp
 import io.github.lunalight.paperread.R
+import io.github.lunalight.paperread.sync.SyncViewModel
 
 /**
  * 设置页（S2）：阅读偏好 + 备份与恢复（US-14）+ 关于入口。
@@ -65,6 +66,10 @@ fun SettingsScreen(
         factory = BackupViewModel.factory(container),
     )
     val backupState by backupViewModel.state.collectAsStateWithLifecycle()
+    val syncViewModel: SyncViewModel = viewModel(
+        factory = SyncViewModel.factory(container),
+    )
+    val syncState by syncViewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
     // 一次性提示（备份导出完成 / 已取消）：展示后清空，避免重组重复弹出
@@ -116,6 +121,20 @@ fun SettingsScreen(
                 onDismissImportPreview = backupViewModel::dismissImportPreview,
                 onDismissReport = backupViewModel::dismissReport,
                 onDismissError = backupViewModel::clearError,
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // ---- 云同步（US-22 / Cloudflare 后端接入） ----
+            SyncSection(
+                state = syncState,
+                onRegister = syncViewModel::register,
+                onLogin = syncViewModel::login,
+                onLogout = syncViewModel::logout,
+                onSyncNow = syncViewModel::syncNow,
+                onSetSyncEnabled = syncViewModel::setSyncEnabled,
+                onClearError = syncViewModel::clearError,
+                onClearMessage = syncViewModel::clearMessage,
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

@@ -1,0 +1,22 @@
+{
+  // PaperRead 同步后端：Free 层 / 无 R2
+  // 部署前先用 wrangler 创建 D1 与 KV，并把下方占位 ID 替换为真实值。
+  // 密钥 SYNC_JWT_SECRET 通过 `wrangler secret put SYNC_JWT_SECRET` 注入，不写进本文件。
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "paperread-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-29",
+  "compatibility_flags": [],
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "paperread",
+      "database_id": "在此填入 `wrangler d1 create paperread` 返回的 id",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "kv_namespaces": [
+    { "binding": "SYNC_KV", "id": "在此填入 `wrangler kv namespace create SYNC_KV` 返回的 id" }
+  ]
+}
